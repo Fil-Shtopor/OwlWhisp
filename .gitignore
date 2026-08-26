@@ -46,3 +46,9 @@ Thumbs.db
 *.log
 /benchmarks/results/*.json
 /scratch/
+
+# Bundled runtime DLLs are large and licence-restricted; staged locally, fetched at build/release time
+/runtime/win-arm64/*.dll
+/runtime/win-arm64/*.so
+/runtime/win-arm64/*.cat
+/runtime/win-arm64/*.pdf
