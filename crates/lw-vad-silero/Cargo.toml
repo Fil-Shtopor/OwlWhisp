@@ -1,0 +1,20 @@
+[package]
+name = "lw-vad-silero"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Silero VAD (ONNX) voice activity detector for LocalWisper"
+
+[dependencies]
+lw-core.workspace = true
+lw-ort.workspace = true
+ndarray.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+hound.workspace = true
+

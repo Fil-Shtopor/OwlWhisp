@@ -1,0 +1,43 @@
+[package]
+name = "lw-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "LocalWisper core: audio buffering, VAD state machine, speech-engine abstraction, text pipeline, dictionary, profiles, settings, model management, diagnostics"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+crossbeam-channel.workspace = true
+rubato.workspace = true
+hound.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
+semver.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+directories.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+futures.workspace = true
+sysinfo.workspace = true
+tar.workspace = true
+bzip2.workspace = true
+flate2.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+

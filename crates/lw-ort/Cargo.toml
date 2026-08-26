@@ -1,0 +1,27 @@
+[package]
+name = "lw-ort"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "ONNX Runtime layer: dynamic loading of a pinned onnxruntime, plugin execution-provider registration (QNN), runtime manifest verification, session helpers"
+
+[dependencies]
+lw-core.workspace = true
+ort = { workspace = true, features = ["std", "ndarray", "tracing", "load-dynamic", "api-27"] }
+ort-sys = { workspace = true, features = ["std", "api-27"] }
+ndarray.workspace = true
+half.workspace = true
+libloading.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sha2.workspace = true
+hex.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+

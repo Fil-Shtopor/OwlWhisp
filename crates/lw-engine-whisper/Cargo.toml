@@ -1,0 +1,18 @@
+[package]
+name = "lw-engine-whisper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Whisper speech engine adapter for LocalWisper (optional fallback backend)"
+
+[dependencies]
+lw-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+

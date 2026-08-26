@@ -1,0 +1,32 @@
+[package]
+name = "lw-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "LocalWisper command-line tool: diagnostics, benchmarks, file transcription, model management, self-check"
+
+[[bin]]
+name = "lw"
+path = "src/main.rs"
+
+[dependencies]
+lw-core.workspace = true
+lw-ort.workspace = true
+lw-vad-silero.workspace = true
+lw-engine-parakeet.workspace = true
+lw-platform.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+hound.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+indicatif.workspace = true
+
+[dev-dependencies]
+

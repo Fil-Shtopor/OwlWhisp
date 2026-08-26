@@ -1,0 +1,134 @@
+[
+  {
+    "file": "fleurs_en_1.wav",
+    "language": "en",
+    "duration_s": 6.0,
+    "sample_rate": 16000,
+    "transcript": "There are many beaches, due to Auckland's straddling of two harbours. The most popular ones are in three areas.",
+    "transcript_normalized": "there are many beaches due to auckland's straddling of two harbours the most popular ones are in three areas",
+    "source": "google/fleurs en_us dev 4175831345558885921.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_en_2.wav",
+    "language": "en",
+    "duration_s": 7.5,
+    "sample_rate": 16000,
+    "transcript": "After seeing the horrors and atrocities of war during World War I, nations desired to avoid such a situation again in the future.",
+    "transcript_normalized": "after seeing the horrors and atrocities of war during world war i nations desired to avoid such a situation again in the future",
+    "source": "google/fleurs en_us dev 665062717314476757.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_en_3.wav",
+    "language": "en",
+    "duration_s": 7.92,
+    "sample_rate": 16000,
+    "transcript": "Scientists think that ocelots follow and find animals to eat (prey) by smell, sniffing for where they've been on the ground.",
+    "transcript_normalized": "scientists think that ocelots follow and find animals to eat prey by smell sniffing for where they've been on the ground",
+    "source": "google/fleurs en_us dev 9882585482935912523.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_ru_1.wav",
+    "language": "ru",
+    "duration_s": 5.64,
+    "sample_rate": 16000,
+    "transcript": "Основной религией в Молдавии является православное христианство.",
+    "transcript_normalized": "основной религией в молдавии является православное христианство",
+    "source": "google/fleurs ru_ru dev 2185040307306545167.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_ru_2.wav",
+    "language": "ru",
+    "duration_s": 6.96,
+    "sample_rate": 16000,
+    "transcript": "Они по-прежнему стараются определить, насколько большим было столкновение и как пострадает Земля.",
+    "transcript_normalized": "они по-прежнему стараются определить насколько большим было столкновение и как пострадает земля",
+    "source": "google/fleurs ru_ru dev 7279383094220726660.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_ru_3.wav",
+    "language": "ru",
+    "duration_s": 7.5,
+    "sample_rate": 16000,
+    "transcript": "Арабы также принесли в этот регион ислам, особенно он укоренился на Коморах и Майотте.",
+    "transcript_normalized": "арабы также принесли в этот регион ислам особенно он укоренился на коморах и майотте",
+    "source": "google/fleurs ru_ru dev 11496004405959155537.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_es_1.wav",
+    "language": "es",
+    "duration_s": 7.26,
+    "sample_rate": 16000,
+    "transcript": "Aún intentan establecer cuán importante fue el impacto y de qué modo afectará al planeta.",
+    "transcript_normalized": "aún intentan establecer cuán importante fue el impacto y de qué modo afectará al planeta",
+    "source": "google/fleurs es_419 dev 809628312584936889.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_es_2.wav",
+    "language": "es",
+    "duration_s": 7.14,
+    "sample_rate": 16000,
+    "transcript": "Tampoco estaba facultado para anular leyes fiscales o aranceles entre estados.",
+    "transcript_normalized": "tampoco estaba facultado para anular leyes fiscales o aranceles entre estados",
+    "source": "google/fleurs es_419 dev 10922832216158917272.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_es_3.wav",
+    "language": "es",
+    "duration_s": 7.74,
+    "sample_rate": 16000,
+    "transcript": "Los primeros casos de la enfermedad durante esta temporada se registraron hacia fines de julio.",
+    "transcript_normalized": "los primeros casos de la enfermedad durante esta temporada se registraron hacia fines de julio",
+    "source": "google/fleurs es_419 dev 563233278035086965.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_uk_1.wav",
+    "language": "uk",
+    "duration_s": 5.28,
+    "sample_rate": 16000,
+    "transcript": "Поліція заявила, що тіло пролежало там близько доби.",
+    "transcript_normalized": "поліція заявила що тіло пролежало там близько доби",
+    "source": "google/fleurs uk_ua dev 17813849060084460677.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_uk_2.wav",
+    "language": "uk",
+    "duration_s": 5.1,
+    "sample_rate": 16000,
+    "transcript": "Інтригуючим селом варто прогулятися хоча б півгодини.",
+    "transcript_normalized": "інтригуючим селом варто прогулятися хоча б півгодини",
+    "source": "google/fleurs uk_ua dev 14052764909389291326.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_uk_3.wav",
+    "language": "uk",
+    "duration_s": 7.8,
+    "sample_rate": 16000,
+    "transcript": "Більшість районів обслуговуються маленькими японськими автобусами \"Костер\", які є комфортними і міцними.",
+    "transcript_normalized": "більшість районів обслуговуються маленькими японськими автобусами костер які є комфортними і міцними",
+    "source": "google/fleurs uk_ua dev 10854629782263985341.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  }
+]
