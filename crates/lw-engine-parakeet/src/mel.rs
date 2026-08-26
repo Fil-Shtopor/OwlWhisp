@@ -10,9 +10,9 @@
 
 use std::path::Path;
 
-use lw_ort::ort::value::Tensor;
 use lw_ort::ort::session::Session;
-use lw_ort::{build_cpu_session, CpuSessionConfig, OrtRuntime};
+use lw_ort::ort::value::Tensor;
+use lw_ort::{CpuSessionConfig, OrtRuntime, build_cpu_session};
 use realfft::RealFftPlanner;
 
 use crate::{Error, Result};
@@ -92,7 +92,13 @@ impl NativeMel {
             window[offset + i] = w;
         }
         let mel_fb = slaney_mel_filterbank(N_MELS, N_FFT, SAMPLE_RATE, 0.0, 8000.0);
-        Self { planner_input: vec![0.0; N_FFT], fft, window, mel_fb, n_freq }
+        Self {
+            planner_input: vec![0.0; N_FFT],
+            fft,
+            window,
+            mel_fb,
+            n_freq,
+        }
     }
 }
 

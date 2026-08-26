@@ -49,7 +49,7 @@ impl HtpArch {
 }
 
 /// Details of a detected Qualcomm NPU.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NpuInfo {
     /// True if an NPU execution-provider device enumerated.
     pub present: bool,
@@ -61,18 +61,6 @@ pub struct NpuInfo {
     pub driver_version: Option<String>,
     /// The QNN/QAIRT runtime version the app will use, if known.
     pub qnn_runtime_version: Option<String>,
-}
-
-impl Default for NpuInfo {
-    fn default() -> Self {
-        Self {
-            present: false,
-            htp_arch: None,
-            soc_model: None,
-            driver_version: None,
-            qnn_runtime_version: None,
-        }
-    }
 }
 
 /// The set of ML execution providers available in the loaded ONNX Runtime.
@@ -126,7 +114,10 @@ impl Capabilities {
             is_qualcomm: false,
             snapdragon_generation: None,
             npu: NpuInfo::default(),
-            providers: AvailableProviders { cpu: true, ..Default::default() },
+            providers: AvailableProviders {
+                cpu: true,
+                ..Default::default()
+            },
         }
     }
 
@@ -164,6 +155,9 @@ mod tests {
 
     #[test]
     fn unknown_is_cpu() {
-        assert_eq!(Capabilities::unknown().best_acceleration(), crate::engine::Acceleration::Cpu);
+        assert_eq!(
+            Capabilities::unknown().best_acceleration(),
+            crate::engine::Acceleration::Cpu
+        );
     }
 }

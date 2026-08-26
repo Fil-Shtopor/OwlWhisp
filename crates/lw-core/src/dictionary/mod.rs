@@ -37,12 +37,20 @@ impl Dictionary {
 
     /// Add an exact phrase replacement.
     pub fn add_exact(&mut self, from: impl Into<String>, to: impl Into<String>) {
-        self.rules.push(Rule { from: from.into(), to: to.into(), case_aware: false });
+        self.rules.push(Rule {
+            from: from.into(),
+            to: to.into(),
+            case_aware: false,
+        });
     }
 
     /// Add a case-aware word replacement.
     pub fn add_case_aware(&mut self, from: impl Into<String>, to: impl Into<String>) {
-        self.rules.push(Rule { from: from.into(), to: to.into(), case_aware: true });
+        self.rules.push(Rule {
+            from: from.into(),
+            to: to.into(),
+            case_aware: true,
+        });
     }
 
     /// Apply all rules to `input`. Word-boundary, case-insensitive matching.

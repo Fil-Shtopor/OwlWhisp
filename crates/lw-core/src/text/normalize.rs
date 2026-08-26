@@ -80,12 +80,12 @@ impl TextProcessor for CleanupProcessor {
         if self.opts.capitalize_sentences {
             text = capitalize_sentences(&text);
         }
-        if self.opts.strip_trailing_period {
-            if let Some(stripped) = text.strip_suffix('.') {
-                // only strip a lone final period, not "..." or "e.g."
-                if !stripped.ends_with('.') {
-                    text = stripped.trim_end().to_string();
-                }
+        if self.opts.strip_trailing_period
+            && let Some(stripped) = text.strip_suffix('.')
+        {
+            // only strip a lone final period, not "..." or "e.g."
+            if !stripped.ends_with('.') {
+                text = stripped.trim_end().to_string();
             }
         }
         text

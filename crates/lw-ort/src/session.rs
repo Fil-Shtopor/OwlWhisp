@@ -4,8 +4,8 @@ use std::path::Path;
 
 use ort::environment::Environment;
 use ort::memory::DeviceType;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 
 use crate::runtime::{OrtRuntime, RuntimeError};
 
@@ -20,7 +20,10 @@ pub struct CpuSessionConfig {
 
 impl Default for CpuSessionConfig {
     fn default() -> Self {
-        Self { intra_threads: 0, optimize: true }
+        Self {
+            intra_threads: 0,
+            optimize: true,
+        }
     }
 }
 

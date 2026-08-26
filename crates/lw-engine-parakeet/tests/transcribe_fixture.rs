@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use lw_core::audio::{downmix_to_mono, AudioBuffer};
+use lw_core::audio::{AudioBuffer, downmix_to_mono};
 use lw_core::engine::{EngineInitContext, SpeechEngine};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 use lw_ort::OrtRuntime;
@@ -20,7 +20,13 @@ fn wer(reference: &str, hypothesis: &str) -> f32 {
     let norm = |s: &str| -> Vec<String> {
         s.to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+            .map(|c| {
+                if c.is_alphanumeric() || c.is_whitespace() {
+                    c
+                } else {
+                    ' '
+                }
+            })
             .collect::<String>()
             .split_whitespace()
             .map(str::to_string)
@@ -66,12 +72,20 @@ fn transcribes_english_fixture_cpu() {
 
     let cache = std::env::temp_dir().join("lw-test-cache");
     let config = ParakeetConfig::from_ctx(
-        &EngineInitContext { model_dir: model_dir.clone(), cache_dir: cache.clone(), cpu_threads: 0 },
+        &EngineInitContext {
+            model_dir: model_dir.clone(),
+            cache_dir: cache.clone(),
+            cpu_threads: 0,
+        },
         BackendKind::ForceCpu,
     );
     let mut engine = ParakeetEngine::new(runtime, config);
     engine
-        .initialize(&EngineInitContext { model_dir, cache_dir: cache, cpu_threads: 0 })
+        .initialize(&EngineInitContext {
+            model_dir,
+            cache_dir: cache,
+            cpu_threads: 0,
+        })
         .expect("initialize engine");
 
     // The fixture lives at the repo root under tests/fixtures/audio.

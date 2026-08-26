@@ -75,8 +75,14 @@ impl LlmProcessor {
             model: &self.cfg.model,
             temperature: self.cfg.temperature,
             messages: vec![
-                Message { role: "system", content: &self.cfg.system_prompt },
-                Message { role: "user", content: input },
+                Message {
+                    role: "system",
+                    content: &self.cfg.system_prompt,
+                },
+                Message {
+                    role: "user",
+                    content: input,
+                },
             ],
         };
         let mut req = self.client.post(&url).json(&body);

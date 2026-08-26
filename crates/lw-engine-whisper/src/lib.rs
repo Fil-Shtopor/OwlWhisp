@@ -86,7 +86,9 @@ impl SpeechEngine for WhisperEngine {
     }
 
     fn transcribe(&mut self, _audio: &AudioBuffer) -> lw_core::Result<Transcript> {
-        Err(lw_core::Error::Unavailable("Whisper backend not available".into()))
+        Err(lw_core::Error::Unavailable(
+            "Whisper backend not available".into(),
+        ))
     }
 }
 

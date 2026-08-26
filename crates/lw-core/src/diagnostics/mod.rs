@@ -94,7 +94,11 @@ mod tests {
 
     #[test]
     fn rtf_is_computed() {
-        let m = LatencyMetrics { total_ms: 100.0, audio_secs: 5.0, ..Default::default() };
+        let m = LatencyMetrics {
+            total_ms: 100.0,
+            audio_secs: 5.0,
+            ..Default::default()
+        };
         assert!((m.rtf() - 0.02).abs() < 1e-6);
     }
 

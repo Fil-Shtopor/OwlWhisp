@@ -9,21 +9,41 @@ use lw_core::audio::AudioBuffer;
 use lw_core::engine::{
     Acceleration, DeviceInfo, EngineInitContext, HealthReport, Language, Provider, SpeechEngine, Transcript,
 };
-use lw_ort::{build_cpu_session, CpuSessionConfig, OrtRuntime, QnnSessionConfig};
+use lw_ort::{CpuSessionConfig, OrtRuntime, QnnSessionConfig, build_cpu_session};
 
-use crate::encoder::{CpuEncoder, EncoderBackend, QnnHtpEncoder, ENC_DIM, SUBSAMPLING};
-use crate::mel::{MelFrontend, OnnxMel, N_MELS};
+use crate::encoder::{CpuEncoder, ENC_DIM, EncoderBackend, QnnHtpEncoder, SUBSAMPLING};
+use crate::mel::{MelFrontend, N_MELS, OnnxMel};
 use crate::tdt::TdtDecoder;
 use crate::vocab::Vocab;
-use crate::{merge, Error, Result};
+use crate::{Error, Result, merge};
 
 /// Languages supported by Parakeet TDT 0.6B v3 (25 European languages).
 pub const LANGUAGES: &[Language] = &[
-    Language("en"), Language("es"), Language("fr"), Language("de"), Language("it"),
-    Language("pt"), Language("ru"), Language("uk"), Language("pl"), Language("nl"),
-    Language("cs"), Language("sk"), Language("sl"), Language("hr"), Language("bg"),
-    Language("ro"), Language("hu"), Language("el"), Language("da"), Language("sv"),
-    Language("fi"), Language("et"), Language("lv"), Language("lt"), Language("mt"),
+    Language("en"),
+    Language("es"),
+    Language("fr"),
+    Language("de"),
+    Language("it"),
+    Language("pt"),
+    Language("ru"),
+    Language("uk"),
+    Language("pl"),
+    Language("nl"),
+    Language("cs"),
+    Language("sk"),
+    Language("sl"),
+    Language("hr"),
+    Language("bg"),
+    Language("ro"),
+    Language("hu"),
+    Language("el"),
+    Language("da"),
+    Language("sv"),
+    Language("fi"),
+    Language("et"),
+    Language("lv"),
+    Language("lt"),
+    Language("mt"),
 ];
 
 /// Which encoder backend the engine should try.
@@ -117,12 +137,24 @@ impl ParakeetEngine {
                 return Ok(p);
             }
         }
-        Err(Error::MissingFile(format!("{} in {}", names.join("/"), self.config.model_dir.display())))
+        Err(Error::MissingFile(format!(
+            "{} in {}",
+            names.join("/"),
+            self.config.model_dir.display()
+        )))
     }
 
     fn build_cpu_encoder(&self) -> Result<Box<dyn EncoderBackend>> {
-        let path = self.model_file(&["encoder-model.int8.onnx", "encoder.int8.onnx", "encoder-model.onnx"])?;
-        Ok(Box::new(CpuEncoder::load(&self.runtime, &path, self.config.cpu_threads)?))
+        let path = self.model_file(&[
+            "encoder-model.int8.onnx",
+            "encoder.int8.onnx",
+            "encoder-model.onnx",
+        ])?;
+        Ok(Box::new(CpuEncoder::load(
+            &self.runtime,
+            &path,
+            self.config.cpu_threads,
+        )?))
     }
 
     fn try_build_npu_encoder(&self) -> Result<Box<dyn EncoderBackend>> {
@@ -141,14 +173,27 @@ impl ParakeetEngine {
         qnn.soc_model = self.config.soc_model;
         let device = format!(
             "Snapdragon Hexagon HTP{}",
-            self.config.htp_arch.map(|a| format!(" (V{a})")).unwrap_or_default()
+            self.config
+                .htp_arch
+                .map(|a| format!(" (V{a})"))
+                .unwrap_or_default()
         );
-        Ok(Box::new(QnnHtpEncoder::load(&self.runtime, &path, t, qnn, device)?))
+        Ok(Box::new(QnnHtpEncoder::load(
+            &self.runtime,
+            &path,
+            t,
+            qnn,
+            device,
+        )?))
     }
 
     /// Split mel features into windows and run encoder+decoder per window, merging text.
     fn transcribe_features(&mut self, feats: &[f32], n_frames: usize) -> Result<Transcript> {
-        let vocab = self.vocab.as_ref().ok_or_else(|| Error::Other("vocab not loaded".into()))?.clone();
+        let vocab = self
+            .vocab
+            .as_ref()
+            .ok_or_else(|| Error::Other("vocab not loaded".into()))?
+            .clone();
         let window = match self.acceleration {
             Acceleration::Npu => self.config.npu_window_frames,
             _ => n_frames.max(1), // CPU handles the whole clip dynamically
@@ -187,12 +232,18 @@ impl ParakeetEngine {
     }
 
     fn run_encoder(&mut self, feats: &[f32], n_frames: usize) -> Result<(Vec<f32>, usize)> {
-        let enc = self.encoder.as_mut().ok_or_else(|| Error::Other("encoder not loaded".into()))?;
+        let enc = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| Error::Other("encoder not loaded".into()))?;
         enc.run(feats, n_frames)
     }
 
     fn run_decoder(&mut self, enc: &[f32], t_out: usize) -> Result<Vec<crate::tdt::Emission>> {
-        let dec = self.decoder.as_mut().ok_or_else(|| Error::Other("decoder not loaded".into()))?;
+        let dec = self
+            .decoder
+            .as_mut()
+            .ok_or_else(|| Error::Other("decoder not loaded".into()))?;
         dec.decode(enc, ENC_DIM, t_out)
     }
 }
@@ -282,9 +333,15 @@ impl SpeechEngine for ParakeetEngine {
         let probe = vec![0.0f32; 8000];
         let start = Instant::now();
         let result = (|| -> Result<()> {
-            let mel = self.mel.as_mut().ok_or_else(|| Error::Other("mel not loaded".into()))?;
+            let mel = self
+                .mel
+                .as_mut()
+                .ok_or_else(|| Error::Other("mel not loaded".into()))?;
             let (feats, n) = mel.extract(&probe)?;
-            let enc = self.encoder.as_mut().ok_or_else(|| Error::Other("encoder not loaded".into()))?;
+            let enc = self
+                .encoder
+                .as_mut()
+                .ok_or_else(|| Error::Other("encoder not loaded".into()))?;
             let _ = enc.run(&feats, n)?;
             Ok(())
         })();
@@ -311,13 +368,18 @@ impl SpeechEngine for ParakeetEngine {
             return Ok(Transcript::default());
         }
         let (feats, n_frames) = {
-            let mel = self.mel.as_mut().ok_or_else(|| lw_core::Error::Engine("mel not loaded".into()))?;
+            let mel = self
+                .mel
+                .as_mut()
+                .ok_or_else(|| lw_core::Error::Engine("mel not loaded".into()))?;
             mel.extract(&canonical.samples).map_err(lw_core::Error::from)?
         };
         if n_frames == 0 {
             return Ok(Transcript::default());
         }
-        let t = self.transcribe_features(&feats, n_frames).map_err(lw_core::Error::from)?;
+        let t = self
+            .transcribe_features(&feats, n_frames)
+            .map_err(lw_core::Error::from)?;
         Ok(t)
     }
 
@@ -341,5 +403,9 @@ pub fn model_files_present(dir: &Path) -> Vec<String> {
         "encoder-model.int8.onnx",
         "encoder-model.onnx",
     ];
-    names.iter().filter(|n| dir.join(n).exists()).map(|s| s.to_string()).collect()
+    names
+        .iter()
+        .filter(|n| dir.join(n).exists())
+        .map(|s| s.to_string())
+        .collect()
 }

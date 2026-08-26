@@ -11,6 +11,9 @@
 //! context-binary caching) live here in one place.
 #![forbid(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
+// The ORT/engine error enums carry a few large variants (paths + messages); boxing every Result
+// is not worth it for this app, so we accept the size here.
+#![allow(clippy::result_large_err)]
 
 mod manifest;
 mod qnn;
@@ -18,9 +21,9 @@ mod runtime;
 mod session;
 
 pub use manifest::{RuntimeFile, RuntimeManifest};
-pub use qnn::{build_qnn_session, HtpPerformanceMode, QnnSessionConfig};
-pub use runtime::{locate_runtime_dir, OrtRuntime, RuntimeError};
-pub use session::{build_cpu_session, CpuSessionConfig};
+pub use qnn::{HtpPerformanceMode, QnnSessionConfig, build_qnn_session};
+pub use runtime::{OrtRuntime, RuntimeError, locate_runtime_dir};
+pub use session::{CpuSessionConfig, build_cpu_session};
 
 /// Re-export of the underlying `ort` crate.
 pub use ort;

@@ -39,7 +39,11 @@ pub struct HotkeyConfig {
 
 impl Default for HotkeyConfig {
     fn default() -> Self {
-        Self { modifiers: vec!["ctrl".into(), "win".into()], trigger: "none".into(), mode: HotkeyMode::PushToTalk }
+        Self {
+            modifiers: vec!["ctrl".into(), "win".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        }
     }
 }
 
@@ -69,7 +73,11 @@ pub struct AudioConfig {
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { input_device: String::new(), min_record_secs: 0.25, max_record_secs: 300.0 }
+        Self {
+            input_device: String::new(),
+            min_record_secs: 0.25,
+            max_record_secs: 300.0,
+        }
     }
 }
 

@@ -61,7 +61,10 @@ pub enum Error {
 impl Error {
     /// Construct an I/O error with a path for context.
     pub fn io(path: impl Into<String>, source: std::io::Error) -> Self {
-        Error::Io { path: path.into(), source }
+        Error::Io {
+            path: path.into(),
+            source,
+        }
     }
     /// Construct a generic error from anything displayable.
     pub fn other(msg: impl std::fmt::Display) -> Self {

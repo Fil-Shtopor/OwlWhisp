@@ -159,14 +159,25 @@ impl EndpointDetector {
                     self.state = State::Silence;
                 } else if i + 1 - run_start >= self.min_speech_frames {
                     let seg_start = run_start.saturating_sub(self.pre_roll_frames);
-                    self.state = State::Speech { seg_start, last_speech: i };
+                    self.state = State::Speech {
+                        seg_start,
+                        last_speech: i,
+                    };
                     self.emitted_start = true;
-                    events.push(EndpointEvent::SpeechStart { start_frame: seg_start });
+                    events.push(EndpointEvent::SpeechStart {
+                        start_frame: seg_start,
+                    });
                 }
             }
-            State::Speech { seg_start, last_speech } => {
+            State::Speech {
+                seg_start,
+                last_speech,
+            } => {
                 let last = if is_speech { i } else { last_speech };
-                self.state = State::Speech { seg_start, last_speech: last };
+                self.state = State::Speech {
+                    seg_start,
+                    last_speech: last,
+                };
                 let silence_run = i.saturating_sub(last);
                 let seg_len = i + 1 - seg_start;
                 if silence_run >= self.hangover_frames {
@@ -184,7 +195,10 @@ impl EndpointDetector {
                     }));
                     // continue in speech from here if still speaking
                     self.state = if is_speech {
-                        State::Speech { seg_start: end, last_speech: i }
+                        State::Speech {
+                            seg_start: end,
+                            last_speech: i,
+                        }
                     } else {
                         State::Silence
                     };
@@ -199,7 +213,10 @@ impl EndpointDetector {
     pub fn flush(&mut self) -> Option<SpeechSegment> {
         let i = self.frame_idx;
         let seg = match self.state {
-            State::Speech { seg_start, last_speech } => Some(SpeechSegment {
+            State::Speech {
+                seg_start,
+                last_speech,
+            } => Some(SpeechSegment {
                 start_frame: seg_start,
                 end_frame: (last_speech + 1 + self.trailing_frames).min(i),
             }),
@@ -250,7 +267,10 @@ mod tests {
         for _ in 0..8 {
             events.extend(d.push(0.0));
         }
-        let starts: Vec<_> = events.iter().filter(|e| matches!(e, EndpointEvent::SpeechStart { .. })).collect();
+        let starts: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, EndpointEvent::SpeechStart { .. }))
+            .collect();
         let segs: Vec<_> = events
             .iter()
             .filter_map(|e| match e {
@@ -311,7 +331,10 @@ mod tests {
 
     #[test]
     fn hysteresis_neg_threshold() {
-        let c = EndpointConfig { threshold: 0.5, ..cfg() };
+        let c = EndpointConfig {
+            threshold: 0.5,
+            ..cfg()
+        };
         assert!((c.neg_threshold() - 0.35).abs() < 1e-6);
     }
 }

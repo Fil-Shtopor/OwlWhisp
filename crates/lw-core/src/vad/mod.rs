@@ -62,7 +62,9 @@ mod tests {
     fn energy_vad_silence_low_speech_high() {
         let mut v = EnergyVad::new(0.02);
         let silence = [0.0f32; VAD_FRAME_SIZE];
-        let loud: Vec<f32> = (0..VAD_FRAME_SIZE).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
+        let loud: Vec<f32> = (0..VAD_FRAME_SIZE)
+            .map(|i| if i % 2 == 0 { 0.3 } else { -0.3 })
+            .collect();
         assert!(v.process_frame(&silence).unwrap() < 0.1);
         assert!(v.process_frame(&loud).unwrap() > 0.5);
     }

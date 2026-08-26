@@ -26,7 +26,10 @@ pub struct AudioBuffer {
 impl AudioBuffer {
     /// A new empty buffer at the target sample rate.
     pub fn empty() -> Self {
-        Self { samples: Vec::new(), sample_rate: TARGET_SAMPLE_RATE }
+        Self {
+            samples: Vec::new(),
+            sample_rate: TARGET_SAMPLE_RATE,
+        }
     }
 
     /// Wrap samples known to be at `sample_rate`.

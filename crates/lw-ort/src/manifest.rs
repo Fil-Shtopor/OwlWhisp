@@ -55,7 +55,10 @@ impl RuntimeManifest {
     ///
     /// `include_qnn` selects whether the QNN files are also required (true on Snapdragon builds).
     pub fn verify(&self, dir: &Path, include_qnn: bool) -> Result<(), String> {
-        let files = self.common.iter().chain(if include_qnn { self.qnn.iter() } else { [].iter() });
+        let files = self
+            .common
+            .iter()
+            .chain(if include_qnn { self.qnn.iter() } else { [].iter() });
         for f in files {
             let path = dir.join(&f.name);
             match std::fs::metadata(&path) {
@@ -98,7 +101,10 @@ mod tests {
         assert_eq!(m.qairt.as_deref(), Some("2.49.40"));
 
         let dir = tempfile::tempdir().unwrap();
-        std::fs::File::create(dir.path().join("onnxruntime.dll")).unwrap().write_all(b"x").unwrap();
+        std::fs::File::create(dir.path().join("onnxruntime.dll"))
+            .unwrap()
+            .write_all(b"x")
+            .unwrap();
         // qnn not required -> ok
         m.verify(dir.path(), false).unwrap();
         // qnn required -> missing
@@ -107,10 +113,14 @@ mod tests {
 
     #[test]
     fn size_mismatch_detected() {
-        let json = r#"{"schema_version":1,"ort_crate":"x","onnxruntime":"1","common":[{"name":"a","bytes":5}]}"#;
+        let json =
+            r#"{"schema_version":1,"ort_crate":"x","onnxruntime":"1","common":[{"name":"a","bytes":5}]}"#;
         let m = RuntimeManifest::from_json(json).unwrap();
         let dir = tempfile::tempdir().unwrap();
-        std::fs::File::create(dir.path().join("a")).unwrap().write_all(b"xxx").unwrap();
+        std::fs::File::create(dir.path().join("a"))
+            .unwrap()
+            .write_all(b"xxx")
+            .unwrap();
         assert!(m.verify(dir.path(), false).is_err());
     }
 }

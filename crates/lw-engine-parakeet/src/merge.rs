@@ -10,7 +10,10 @@ const MAX_TRAILING_DROP: usize = 6;
 
 /// Normalize a word for comparison: lowercase, alphanumerics only.
 fn norm(w: &str) -> String {
-    w.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    w.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
 /// Merge `next` onto `acc`, removing the overlap. Both are plain transcript strings.
@@ -58,15 +61,15 @@ mod tests {
 
     #[test]
     fn simple_overlap() {
-        assert_eq!(merge("the quick brown", "brown fox jumps"), "the quick brown fox jumps");
+        assert_eq!(
+            merge("the quick brown", "brown fox jumps"),
+            "the quick brown fox jumps"
+        );
     }
 
     #[test]
     fn multi_word_overlap() {
-        assert_eq!(
-            merge("a b c d e", "d e f g"),
-            "a b c d e f g"
-        );
+        assert_eq!(merge("a b c d e", "d e f g"), "a b c d e f g");
     }
 
     #[test]

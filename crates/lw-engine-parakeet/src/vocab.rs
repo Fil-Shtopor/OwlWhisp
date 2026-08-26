@@ -20,7 +20,8 @@ pub struct Vocab {
 impl Vocab {
     /// Load from a `vocab.txt` file.
     pub fn load(path: &std::path::Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
         Self::parse(&text)
     }
 
@@ -41,7 +42,10 @@ impl Vocab {
             return Err(Error::Other("empty vocab".into()));
         }
         // blank is the last entry named "<blk>" if present, else index (len-1).
-        let blank_id = pieces.iter().position(|p| p == "<blk>").unwrap_or(pieces.len() - 1);
+        let blank_id = pieces
+            .iter()
+            .position(|p| p == "<blk>")
+            .unwrap_or(pieces.len() - 1);
         Ok(Self { pieces, blank_id })
     }
 

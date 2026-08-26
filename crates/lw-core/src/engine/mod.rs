@@ -78,11 +78,17 @@ pub struct DeviceInfo {
 impl DeviceInfo {
     /// Construct with a name only.
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), detail: None }
+        Self {
+            name: name.into(),
+            detail: None,
+        }
     }
     /// Construct with a name and a detail line.
     pub fn with_detail(name: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { name: name.into(), detail: Some(detail.into()) }
+        Self {
+            name: name.into(),
+            detail: Some(detail.into()),
+        }
     }
 }
 
@@ -115,7 +121,11 @@ pub struct Transcript {
 impl Transcript {
     /// A transcript from plain text with no timing.
     pub fn from_text(text: impl Into<String>) -> Self {
-        Self { text: text.into(), tokens: Vec::new(), language: None }
+        Self {
+            text: text.into(),
+            tokens: Vec::new(),
+            language: None,
+        }
     }
 }
 
@@ -174,7 +184,9 @@ pub trait SpeechEngine: Send {
     fn transcribe(&mut self, audio: &crate::audio::AudioBuffer) -> crate::Result<Transcript>;
     /// Begin a streaming session (default: unsupported).
     fn start_stream(&mut self) -> crate::Result<Box<dyn TranscribeStream>> {
-        Err(crate::Error::Unavailable("streaming not supported by this engine".into()))
+        Err(crate::Error::Unavailable(
+            "streaming not supported by this engine".into(),
+        ))
     }
     /// Release resources.
     fn shutdown(&mut self) {}

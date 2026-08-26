@@ -109,7 +109,11 @@ impl Profile {
             language: default_language(),
             cleanup: CleanupLevel::None,
             backend: BackendPreference::Automatic,
-            delivery: DeliveryOptions { press_enter: false, strip_trailing_period: false, ..Default::default() },
+            delivery: DeliveryOptions {
+                press_enter: false,
+                strip_trailing_period: false,
+                ..Default::default()
+            },
             match_rule: MatchRule {
                 exe_contains: vec![
                     "code".into(),
@@ -140,7 +144,10 @@ impl Profile {
             language: default_language(),
             cleanup: CleanupLevel::Light,
             backend: BackendPreference::Automatic,
-            delivery: DeliveryOptions { strip_trailing_period: true, ..Default::default() },
+            delivery: DeliveryOptions {
+                strip_trailing_period: true,
+                ..Default::default()
+            },
             match_rule: MatchRule {
                 exe_contains: vec![
                     "slack".into(),
@@ -191,7 +198,9 @@ impl ProfileSet {
 
     /// The default profile (always present; falls back to a synthesized default).
     pub fn default_profile(&self) -> Profile {
-        self.by_key("default").cloned().unwrap_or_else(Profile::default_profile)
+        self.by_key("default")
+            .cloned()
+            .unwrap_or_else(Profile::default_profile)
     }
 
     /// Resolve the active profile for a foreground app. Non-default profiles are matched first;
@@ -200,8 +209,16 @@ impl ProfileSet {
         let exe = app.exe.to_lowercase();
         let title = app.title.to_lowercase();
         for p in self.profiles.iter().filter(|p| p.key != "default") {
-            let exe_hit = p.match_rule.exe_contains.iter().any(|c| !c.is_empty() && exe.contains(&c.to_lowercase()));
-            let title_hit = p.match_rule.title_contains.iter().any(|c| !c.is_empty() && title.contains(&c.to_lowercase()));
+            let exe_hit = p
+                .match_rule
+                .exe_contains
+                .iter()
+                .any(|c| !c.is_empty() && exe.contains(&c.to_lowercase()));
+            let title_hit = p
+                .match_rule
+                .title_contains
+                .iter()
+                .any(|c| !c.is_empty() && title.contains(&c.to_lowercase()));
             if exe_hit || title_hit {
                 return p.clone();
             }
@@ -217,14 +234,20 @@ mod tests {
     #[test]
     fn resolves_code_profile_for_vscode() {
         let set = ProfileSet::default();
-        let app = ForegroundApp { exe: "C:/Users/x/AppData/Local/Programs/Microsoft VS Code/Code.exe".into(), title: "main.rs".into() };
+        let app = ForegroundApp {
+            exe: "C:/Users/x/AppData/Local/Programs/Microsoft VS Code/Code.exe".into(),
+            title: "main.rs".into(),
+        };
         assert_eq!(set.resolve(&app).key, "code");
     }
 
     #[test]
     fn resolves_message_profile_for_slack() {
         let set = ProfileSet::default();
-        let app = ForegroundApp { exe: "/Applications/Slack.app".into(), title: "general".into() };
+        let app = ForegroundApp {
+            exe: "/Applications/Slack.app".into(),
+            title: "general".into(),
+        };
         let p = set.resolve(&app);
         assert_eq!(p.key, "message");
         assert!(p.delivery.strip_trailing_period);
@@ -233,7 +256,10 @@ mod tests {
     #[test]
     fn falls_back_to_default() {
         let set = ProfileSet::default();
-        let app = ForegroundApp { exe: "notepad.exe".into(), title: "Untitled".into() };
+        let app = ForegroundApp {
+            exe: "notepad.exe".into(),
+            title: "Untitled".into(),
+        };
         assert_eq!(set.resolve(&app).key, "default");
     }
 

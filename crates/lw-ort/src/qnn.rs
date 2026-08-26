@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use ort::environment::Environment;
 use ort::memory::DeviceType;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 
 use crate::runtime::{OrtRuntime, RuntimeError};
 
@@ -75,7 +75,8 @@ impl QnnSessionConfig {
 
     /// Path of the EPContext wrapper ONNX for this key.
     pub fn context_path(&self) -> PathBuf {
-        self.cache_dir.join(format!("{}_ctx.onnx", sanitize(&self.cache_key)))
+        self.cache_dir
+            .join(format!("{}_ctx.onnx", sanitize(&self.cache_key)))
     }
 
     /// Provider options (prefixed with the EP name, as `with_devices` requires).
@@ -83,7 +84,10 @@ impl QnnSessionConfig {
         let ep = "QNNExecutionProvider";
         let mut opts = vec![
             (format!("{ep}.backend_type"), "htp".to_string()),
-            (format!("{ep}.htp_performance_mode"), self.performance.as_str().to_string()),
+            (
+                format!("{ep}.htp_performance_mode"),
+                self.performance.as_str().to_string(),
+            ),
             (
                 format!("{ep}.htp_graph_finalization_optimization_mode"),
                 self.finalization_opt.to_string(),
@@ -106,7 +110,15 @@ impl QnnSessionConfig {
 }
 
 fn sanitize(key: &str) -> String {
-    key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+    key.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Build a QNN/HTP session for `model_path`, preparing and caching the context on first use and
@@ -121,8 +133,7 @@ pub fn build_qnn_session(
     if !runtime.register_qnn() {
         return Err(RuntimeError::Qnn("QNN EP not available/registrable".into()));
     }
-    std::fs::create_dir_all(&cfg.cache_dir)
-        .map_err(|e| RuntimeError::Qnn(format!("cache dir: {e}")))?;
+    std::fs::create_dir_all(&cfg.cache_dir).map_err(|e| RuntimeError::Qnn(format!("cache dir: {e}")))?;
 
     let ctx_path = cfg.context_path();
     let cache_hit = ctx_path.exists();
@@ -151,7 +162,7 @@ pub fn build_qnn_session(
         // Ask ORT to emit an EPContext cache next to `ctx_path`, non-embedded (separate .bin).
         builder = builder
             .with_config_entry("ep.context_enable", "1")
-            .and_then(|b| b.with_config_entry("ep.context_file_path", &ctx_path.to_string_lossy()))
+            .and_then(|b| b.with_config_entry("ep.context_file_path", ctx_path.to_string_lossy()))
             .and_then(|b| b.with_config_entry("ep.context_embed_mode", "0"))
             .map_err(|e| RuntimeError::Qnn(e.to_string()))?;
     }
@@ -173,16 +184,29 @@ mod tests {
     #[test]
     fn context_path_is_sanitized() {
         let cfg = QnnSessionConfig::new("/cache", "parakeet/v3:81");
-        assert!(cfg.context_path().to_string_lossy().ends_with("parakeet_v3_81_ctx.onnx"));
+        assert!(
+            cfg.context_path()
+                .to_string_lossy()
+                .ends_with("parakeet_v3_81_ctx.onnx")
+        );
     }
 
     #[test]
     fn provider_options_include_htp() {
         let cfg = QnnSessionConfig::new("/cache", "k");
         let opts = cfg.provider_options();
-        assert!(opts.iter().any(|(k, v)| k.ends_with(".backend_type") && v == "htp"));
-        assert!(opts.iter().any(|(k, v)| k.ends_with(".enable_htp_fp16_precision") && v == "1"));
-        assert!(opts.iter().any(|(k, v)| k.ends_with(".htp_performance_mode") && v == "burst"));
+        assert!(
+            opts.iter()
+                .any(|(k, v)| k.ends_with(".backend_type") && v == "htp")
+        );
+        assert!(
+            opts.iter()
+                .any(|(k, v)| k.ends_with(".enable_htp_fp16_precision") && v == "1")
+        );
+        assert!(
+            opts.iter()
+                .any(|(k, v)| k.ends_with(".htp_performance_mode") && v == "burst")
+        );
     }
 
     #[test]

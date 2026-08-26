@@ -40,13 +40,22 @@ impl TdtDecoder {
     pub fn new(session: Session, vocab: &Vocab) -> Self {
         // joint output is vocab (incl. blank) + n_durations; v3: 8193 + 5 = 8198.
         let num_tokens = vocab.len();
-        Self { session, blank_id: vocab.blank_id(), num_tokens, num_durations: 5 }
+        Self {
+            session,
+            blank_id: vocab.blank_id(),
+            num_tokens,
+            num_durations: 5,
+        }
     }
 
     /// Greedy-decode an encoder output of shape `[1, D, T]` (row-major flattened, `d*T + t`),
     /// with `enc_len` valid frames. `enc_dim` is D (1024). Returns the emitted tokens.
     pub fn decode(&mut self, encoder_out: &[f32], enc_dim: usize, enc_len: usize) -> Result<Vec<Emission>> {
-        let t_total = if enc_dim == 0 { 0 } else { encoder_out.len() / enc_dim };
+        let t_total = if enc_dim == 0 {
+            0
+        } else {
+            encoder_out.len() / enc_dim
+        };
         let end = enc_len.min(t_total);
         let mut emissions = Vec::new();
 
@@ -64,8 +73,7 @@ impl TdtDecoder {
             }
             let mut symbols = 0usize;
             loop {
-                let (token, duration, s1, s2) =
-                    self.step(&frame, enc_dim, last_token, &state1, &state2)?;
+                let (token, duration, s1, s2) = self.step(&frame, enc_dim, last_token, &state1, &state2)?;
                 if token == self.blank_id {
                     t += duration.max(1);
                     break;
@@ -100,8 +108,14 @@ impl TdtDecoder {
         let enc = Tensor::from_array((vec![1i64, enc_dim as i64, 1i64], frame.to_vec()))?;
         let targets = Tensor::from_array((vec![1i64, 1i64], vec![last_token]))?;
         let target_len = Tensor::from_array((vec![1i64], vec![1i32]))?;
-        let st1 = Tensor::from_array((vec![PRED_LAYERS as i64, 1i64, PRED_HIDDEN as i64], state1.to_vec()))?;
-        let st2 = Tensor::from_array((vec![PRED_LAYERS as i64, 1i64, PRED_HIDDEN as i64], state2.to_vec()))?;
+        let st1 = Tensor::from_array((
+            vec![PRED_LAYERS as i64, 1i64, PRED_HIDDEN as i64],
+            state1.to_vec(),
+        ))?;
+        let st2 = Tensor::from_array((
+            vec![PRED_LAYERS as i64, 1i64, PRED_HIDDEN as i64],
+            state2.to_vec(),
+        ))?;
 
         let outputs = self.session.run(lw_ort::ort::inputs![
             "encoder_outputs" => enc,
@@ -116,7 +130,11 @@ impl TdtDecoder {
         // The joint output is [..., num_tokens + num_durations]; the last dim is what we split.
         let total = self.num_tokens + self.num_durations;
         if flat.len() < total {
-            return Err(Error::Decode(format!("joint output too small: {} < {}", flat.len(), total)));
+            return Err(Error::Decode(format!(
+                "joint output too small: {} < {}",
+                flat.len(),
+                total
+            )));
         }
         // Take the final `total` values (batch/time dims are 1).
         let base = flat.len() - total;

@@ -84,7 +84,10 @@ impl ModelManifest {
     /// Validate the manifest structurally (safe paths, https URLs, hex hashes, non-zero sizes).
     pub fn validate(&self) -> crate::Result<()> {
         if self.schema_version != 1 {
-            return Err(crate::Error::Model(format!("unsupported schema_version {}", self.schema_version)));
+            return Err(crate::Error::Model(format!(
+                "unsupported schema_version {}",
+                self.schema_version
+            )));
         }
         let check = |f: &FileEntry| -> crate::Result<()> {
             if !f.path_is_safe() {
@@ -151,8 +154,14 @@ mod tests {
             languages: vec!["en".into()],
             common: vec![entry("vocab.txt")],
             artifacts: vec![
-                ArtifactSet { target: ArtifactTarget::CpuInt8, files: vec![entry("encoder.int8.onnx")] },
-                ArtifactSet { target: ArtifactTarget::QnnHtpV81, files: vec![entry("encoder.bin")] },
+                ArtifactSet {
+                    target: ArtifactTarget::CpuInt8,
+                    files: vec![entry("encoder.int8.onnx")],
+                },
+                ArtifactSet {
+                    target: ArtifactTarget::QnnHtpV81,
+                    files: vec![entry("encoder.bin")],
+                },
             ],
         }
     }
@@ -179,7 +188,9 @@ mod tests {
     #[test]
     fn selects_preferred_target() {
         let m = manifest();
-        let (target, files) = m.select_files(&[ArtifactTarget::QnnHtpV81, ArtifactTarget::CpuInt8]).unwrap();
+        let (target, files) = m
+            .select_files(&[ArtifactTarget::QnnHtpV81, ArtifactTarget::CpuInt8])
+            .unwrap();
         assert_eq!(target, ArtifactTarget::QnnHtpV81);
         // common + 1 artifact file
         assert_eq!(files.len(), 2);
@@ -189,7 +200,9 @@ mod tests {
     fn falls_back_to_cpu_when_npu_absent() {
         let mut m = manifest();
         m.artifacts.retain(|a| a.target == ArtifactTarget::CpuInt8);
-        let (target, _) = m.select_files(&[ArtifactTarget::QnnHtpV81, ArtifactTarget::CpuInt8]).unwrap();
+        let (target, _) = m
+            .select_files(&[ArtifactTarget::QnnHtpV81, ArtifactTarget::CpuInt8])
+            .unwrap();
         assert_eq!(target, ArtifactTarget::CpuInt8);
     }
 }

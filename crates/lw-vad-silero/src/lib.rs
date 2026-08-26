@@ -11,10 +11,10 @@
 
 use std::path::Path;
 
-use lw_core::vad::{Vad, VAD_FRAME_SIZE};
+use lw_core::vad::{VAD_FRAME_SIZE, Vad};
 use lw_ort::ort::session::Session;
 use lw_ort::ort::value::Tensor;
-use lw_ort::{build_cpu_session, CpuSessionConfig, OrtRuntime};
+use lw_ort::{CpuSessionConfig, OrtRuntime, build_cpu_session};
 
 /// Errors from the Silero VAD.
 #[derive(Debug, thiserror::Error)]
@@ -33,7 +33,7 @@ impl From<SileroError> for lw_core::Error {
     }
 }
 
-const STATE_LEN: usize = 2 * 1 * 128;
+const STATE_LEN: usize = 2 * 128;
 
 /// Silero VAD detector.
 pub struct SileroVad {
@@ -48,9 +48,20 @@ impl SileroVad {
         if !path.exists() {
             return Err(SileroError::NotFound(path.display().to_string()));
         }
-        let session = build_cpu_session(runtime, path, CpuSessionConfig { intra_threads: 1, optimize: true })
-            .map_err(|e| SileroError::Ort(e.to_string()))?;
-        Ok(Self { session, state: vec![0.0; STATE_LEN], sample_rate: 16_000 })
+        let session = build_cpu_session(
+            runtime,
+            path,
+            CpuSessionConfig {
+                intra_threads: 1,
+                optimize: true,
+            },
+        )
+        .map_err(|e| SileroError::Ort(e.to_string()))?;
+        Ok(Self {
+            session,
+            state: vec![0.0; STATE_LEN],
+            sample_rate: 16_000,
+        })
     }
 }
 
@@ -74,7 +85,10 @@ impl Vad for SileroVad {
             .map_err(|e| lw_core::Error::Other(e.to_string()))?;
 
         // Carry the new state.
-        if let Some(new_state) = outputs.get("stateN").and_then(|v| v.try_extract_array::<f32>().ok()) {
+        if let Some(new_state) = outputs
+            .get("stateN")
+            .and_then(|v| v.try_extract_array::<f32>().ok())
+        {
             let v: Vec<f32> = new_state.iter().copied().collect();
             if v.len() == STATE_LEN {
                 self.state = v;

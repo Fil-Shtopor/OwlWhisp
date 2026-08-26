@@ -23,7 +23,9 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
-        let n = file.read(&mut buf).map_err(|e| Error::io(path.display().to_string(), e))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
         if n == 0 {
             break;
         }
@@ -39,12 +41,18 @@ pub fn verify_file(dir: &Path, entry: &FileEntry) -> Result<()> {
     if meta.len() != entry.bytes {
         return Err(Error::Model(format!(
             "size mismatch for {}: expected {}, got {}",
-            entry.path, entry.bytes, meta.len()
+            entry.path,
+            entry.bytes,
+            meta.len()
         )));
     }
     let actual = sha256_file(&path)?;
     if !actual.eq_ignore_ascii_case(&entry.sha256) {
-        return Err(Error::Integrity { file: path, expected: entry.sha256.clone(), actual });
+        return Err(Error::Integrity {
+            file: path,
+            expected: entry.sha256.clone(),
+            actual,
+        });
     }
     Ok(())
 }
@@ -167,7 +175,12 @@ mod tests {
             common: vec![],
             artifacts: vec![],
         };
-        let files = vec![FileEntry { path: "a.bin".into(), url: "https://x/a".into(), bytes: 3, sha256: "a".repeat(64) }];
+        let files = vec![FileEntry {
+            path: "a.bin".into(),
+            url: "https://x/a".into(),
+            bytes: 3,
+            sha256: "a".repeat(64),
+        }];
         assert_eq!(reg.state(&manifest, &files), CacheState::Missing);
         write(&reg.model_dir(&manifest).join("a.bin"), b"abc");
         assert_eq!(reg.state(&manifest, &files), CacheState::Installed);

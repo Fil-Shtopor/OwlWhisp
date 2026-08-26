@@ -12,7 +12,7 @@ use std::path::Path;
 
 use lw_ort::ort::session::Session;
 use lw_ort::ort::value::Tensor;
-use lw_ort::{build_cpu_session, build_qnn_session, CpuSessionConfig, OrtRuntime, QnnSessionConfig};
+use lw_ort::{CpuSessionConfig, OrtRuntime, QnnSessionConfig, build_cpu_session, build_qnn_session};
 
 use crate::mel::N_MELS;
 use crate::{Error, Result};
@@ -44,21 +44,24 @@ fn read_encoder_output(
     let arr = out.try_extract_array::<f32>()?;
     let shape = arr.shape().to_vec();
     if shape.len() != 3 || shape[1] != ENC_DIM {
-        return Err(Error::Decode(format!("unexpected encoder output shape {shape:?}")));
+        return Err(Error::Decode(format!(
+            "unexpected encoder output shape {shape:?}"
+        )));
     }
     let t_out = shape[2];
     let flat: Vec<f32> = arr.iter().copied().collect();
     // Determine valid length from the length output if present, else the hint, else all frames.
-    let len_out = outputs
-        .get("encoded_lengths")
-        .or_else(|| outputs.get("output_1"));
+    let len_out = outputs.get("encoded_lengths").or_else(|| outputs.get("output_1"));
     let valid = if let Some(l) = len_out {
         l.try_extract_array::<i64>()
             .ok()
             .and_then(|a| a.iter().next().copied())
             .map(|v| v as usize)
             .or_else(|| {
-                l.try_extract_array::<i32>().ok().and_then(|a| a.iter().next().copied()).map(|v| v as usize)
+                l.try_extract_array::<i32>()
+                    .ok()
+                    .and_then(|a| a.iter().next().copied())
+                    .map(|v| v as usize)
             })
             .unwrap_or(t_out)
     } else {
@@ -79,9 +82,18 @@ impl CpuEncoder {
         if !path.exists() {
             return Err(Error::MissingFile(path.display().to_string()));
         }
-        let cfg = CpuSessionConfig { intra_threads: threads, optimize: true };
+        let cfg = CpuSessionConfig {
+            intra_threads: threads,
+            optimize: true,
+        };
         let session = build_cpu_session(runtime, path, cfg).map_err(|e| Error::Ort(e.to_string()))?;
-        Ok(Self { session, label: format!("CPU ({} threads)", if threads == 0 { num_cpus_hint() } else { threads }) })
+        Ok(Self {
+            session,
+            label: format!(
+                "CPU ({} threads)",
+                if threads == 0 { num_cpus_hint() } else { threads }
+            ),
+        })
     }
 }
 
@@ -90,7 +102,12 @@ impl EncoderBackend for CpuEncoder {
         if n_frames == 0 {
             return Ok((Vec::new(), 0));
         }
-        tracing::debug!("cpu encoder: feats.len={} n_frames={} expected={}", feats.len(), n_frames, N_MELS * n_frames);
+        tracing::debug!(
+            "cpu encoder: feats.len={} n_frames={} expected={}",
+            feats.len(),
+            n_frames,
+            N_MELS * n_frames
+        );
         if feats.len() != N_MELS * n_frames {
             return Err(Error::Feature(format!(
                 "feature length {} != {} (128*{})",
@@ -134,7 +151,11 @@ impl QnnHtpEncoder {
             return Err(Error::MissingFile(path.display().to_string()));
         }
         let session = build_qnn_session(runtime, path, &cfg).map_err(|e| Error::Ort(e.to_string()))?;
-        Ok(Self { session, window_frames, label: device_label.into() })
+        Ok(Self {
+            session,
+            window_frames,
+            label: device_label.into(),
+        })
     }
 
     /// The static window length in mel frames.
@@ -163,7 +184,7 @@ impl EncoderBackend for QnnHtpEncoder {
             .session
             .run(lw_ort::ort::inputs!["audio_signal" => audio_signal, "length" => length])?;
         // Clip valid encoder frames to those derived from real (unpadded) mel frames.
-        let valid_hint = (copy + SUBSAMPLING - 1) / SUBSAMPLING;
+        let valid_hint = copy.div_ceil(SUBSAMPLING);
         read_encoder_output(&outputs, Some(valid_hint))
     }
     fn label(&self) -> String {

@@ -58,16 +58,16 @@ pub fn locate_runtime_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("LW_RUNTIME_DIR") {
         candidates.push(PathBuf::from(dir));
     }
-    if let Ok(p) = std::env::var("ORT_DYLIB_PATH") {
-        if let Some(parent) = Path::new(&p).parent() {
-            candidates.push(parent.to_path_buf());
-        }
+    if let Ok(p) = std::env::var("ORT_DYLIB_PATH")
+        && let Some(parent) = Path::new(&p).parent()
+    {
+        candidates.push(parent.to_path_buf());
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.to_path_buf());
-            candidates.push(dir.join("runtime"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.to_path_buf());
+        candidates.push(dir.join("runtime"));
     }
     if let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd);
@@ -113,16 +113,19 @@ impl OrtRuntime {
         if let Err(e) = res {
             return Err(RuntimeError::Init(e.clone()));
         }
-        if std::env::var("LW_ORT_VERBOSE").is_ok() {
-            if let Ok(env) = Environment::current() {
-                env.set_log_level(ort::logging::LogLevel::Verbose);
-            }
+        if std::env::var("LW_ORT_VERBOSE").is_ok()
+            && let Ok(env) = Environment::current()
+        {
+            env.set_log_level(ort::logging::LogLevel::Verbose);
         }
 
         Ok(Arc::new(Self {
             runtime_dir: dir,
             qnn_dll: runtime_dir.join(qnn_provider_lib_name()),
-            qnn: Mutex::new(QnnState { registered: false, _lib: None }),
+            qnn: Mutex::new(QnnState {
+                registered: false,
+                _lib: None,
+            }),
         }))
     }
 
@@ -160,8 +163,8 @@ impl OrtRuntime {
 
     /// Convenience: locate the runtime dir and initialize.
     pub fn auto() -> Result<Arc<Self>, RuntimeError> {
-        let dir = locate_runtime_dir()
-            .ok_or_else(|| RuntimeError::NotFound("no candidate directory".into()))?;
+        let dir =
+            locate_runtime_dir().ok_or_else(|| RuntimeError::NotFound("no candidate directory".into()))?;
         Self::init(&dir)
     }
 

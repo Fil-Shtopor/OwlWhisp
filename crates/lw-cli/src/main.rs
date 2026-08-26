@@ -12,12 +12,16 @@ use std::time::Instant;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use lw_core::audio::AudioBuffer;
-use lw_core::engine::{Acceleration, EngineInitContext, SpeechEngine};
+use lw_core::engine::{EngineInitContext, SpeechEngine};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 use lw_ort::OrtRuntime;
 
 #[derive(Parser)]
-#[command(name = "lw", version, about = "LocalWisper CLI: diagnostics, transcription, benchmarks")]
+#[command(
+    name = "lw",
+    version,
+    about = "LocalWisper CLI: diagnostics, transcription, benchmarks"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -85,6 +89,26 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         threads: usize,
     },
+    /// Record from the microphone for N seconds, then transcribe (live end-to-end).
+    Record {
+        /// Model directory.
+        #[arg(long)]
+        model_dir: PathBuf,
+        /// Cache directory.
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+        /// Seconds to record.
+        #[arg(long, default_value_t = 5.0)]
+        seconds: f32,
+        /// Backend to use.
+        #[arg(long, value_enum, default_value_t = BackendArg::Auto)]
+        backend: BackendArg,
+        /// Input device name (default: system default).
+        #[arg(long)]
+        device: Option<String>,
+    },
+    /// List available microphone input devices.
+    Devices,
     /// Machine-readable readiness report (JSON).
     Selfcheck,
 }
@@ -121,13 +145,21 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Command::Diagnose { json } => diagnose(&cli.runtime_dir, json),
         Command::Selfcheck => selfcheck(&cli.runtime_dir),
-        Command::Transcribe { wav, model_dir, cache_dir, backend, threads } => {
+        Command::Transcribe {
+            wav,
+            model_dir,
+            cache_dir,
+            backend,
+            threads,
+        } => {
             let rt = init_runtime(&cli.runtime_dir)?;
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
             let mut engine = build_engine(rt, &model_dir, &cache, backend.into(), threads)?;
             let audio = load_wav(&wav)?;
             let t0 = Instant::now();
-            let transcript = engine.transcribe(&audio).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let transcript = engine
+                .transcribe(&audio)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             let ms = t0.elapsed().as_secs_f32() * 1000.0;
             println!("backend : {} on {}", engine.provider(), engine.device().name);
             println!(
@@ -139,12 +171,73 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             println!("text    : {}", transcript.text);
             Ok(())
         }
-        Command::Bench { fixtures, model_dir, cache_dir, backend, threads } => {
+        Command::Bench {
+            fixtures,
+            model_dir,
+            cache_dir,
+            backend,
+            threads,
+        } => {
             let rt = init_runtime(&cli.runtime_dir)?;
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
             bench(rt, &fixtures, &model_dir, &cache, backend.into(), threads)
         }
+        Command::Devices => {
+            for d in lw_platform::audio::list_input_devices() {
+                println!("{d}");
+            }
+            Ok(())
+        }
+        Command::Record {
+            model_dir,
+            cache_dir,
+            seconds,
+            backend,
+            device,
+        } => {
+            let rt = init_runtime(&cli.runtime_dir)?;
+            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
+            let mut engine = build_engine(rt, &model_dir, &cache, backend.into(), 0)?;
+            record_and_transcribe(&mut engine, seconds, device)
+        }
     }
+}
+
+/// Capture from the microphone for `seconds`, then transcribe — the live audio path.
+fn record_and_transcribe(
+    engine: &mut ParakeetEngine,
+    seconds: f32,
+    device: Option<String>,
+) -> anyhow::Result<()> {
+    use lw_platform::AudioCapture;
+    let mut capture = lw_platform::Capture::new(device, 16_000 * 90);
+    capture.start().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    eprintln!(
+        "recording {seconds:.1}s at {} Hz … speak now",
+        capture.native_sample_rate()
+    );
+    let start = Instant::now();
+    while start.elapsed().as_secs_f32() < seconds {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        eprint!("\r  level: {:>5.3}   ", capture.level_rms());
+    }
+    eprintln!();
+    let audio = capture.stop().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    eprintln!(
+        "captured {:.2}s ({} samples @ {} Hz)",
+        audio.duration_secs(),
+        audio.len(),
+        audio.sample_rate
+    );
+    let t0 = Instant::now();
+    let transcript = engine
+        .transcribe(&audio)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let ms = t0.elapsed().as_secs_f32() * 1000.0;
+    println!("backend : {} on {}", engine.provider(), engine.device().name);
+    println!("time    : {ms:.0}ms");
+    println!("text    : {}", transcript.text);
+    Ok(())
 }
 
 fn build_engine(
@@ -190,7 +283,10 @@ fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
     match init_runtime(runtime_dir) {
         Ok(rt) => {
             let has_npu = rt.has_qnn_npu(); // registers the QNN EP to enumerate devices
-            report.insert("runtime_dir".into(), rt.runtime_dir().display().to_string().into());
+            report.insert(
+                "runtime_dir".into(),
+                rt.runtime_dir().display().to_string().into(),
+            );
             report.insert("qnn_registered".into(), rt.qnn_registered().into());
             report.insert("qnn_npu".into(), has_npu.into());
             report.insert("qnn_npu_count".into(), (rt.qnn_npu_count() as u64).into());
@@ -260,25 +356,41 @@ fn bench(
 
     let mut engine = build_engine(rt, model_dir, cache_dir, backend, threads)?;
     println!("backend: {} on {}", engine.provider(), engine.device().name);
-    println!("{:<22} {:>7} {:>8} {:>7}  {}", "file", "dur(s)", "time(ms)", "RTF", "WER");
+    println!(
+        "{:<22} {:>7} {:>8} {:>7}  WER",
+        "file", "dur(s)", "time(ms)", "RTF"
+    );
     let mut total_err = 0.0f64;
     let mut total_words = 0usize;
     let mut total_rtf = 0.0f64;
     for it in &items {
         let audio = load_wav(&fixtures.join(&it.file))?;
         let t0 = Instant::now();
-        let transcript = engine.transcribe(&audio).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let transcript = engine
+            .transcribe(&audio)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let ms = t0.elapsed().as_secs_f32() * 1000.0;
         let rtf = (ms / 1000.0) / it.duration_s.max(1e-6);
         let (wer, nwords) = word_error_rate(&it.transcript, &transcript.text);
         total_err += wer as f64 * nwords as f64;
         total_words += nwords;
         total_rtf += rtf as f64;
-        println!("{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]", it.file, it.duration_s, ms, rtf, wer, it.language);
+        println!(
+            "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]",
+            it.file, it.duration_s, ms, rtf, wer, it.language
+        );
     }
-    let avg_wer = if total_words > 0 { total_err / total_words as f64 } else { 0.0 };
+    let avg_wer = if total_words > 0 {
+        total_err / total_words as f64
+    } else {
+        0.0
+    };
     println!("---");
-    println!("mean RTF: {:.4}   word-weighted WER: {:.3}", total_rtf / items.len().max(1) as f64, avg_wer);
+    println!(
+        "mean RTF: {:.4}   word-weighted WER: {:.3}",
+        total_rtf / items.len().max(1) as f64,
+        avg_wer
+    );
     Ok(())
 }
 
@@ -291,7 +403,10 @@ fn load_wav(path: &std::path::Path) -> anyhow::Result<AudioBuffer> {
         hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
         hound::SampleFormat::Int => {
             let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            reader.samples::<i32>().map(|s| s.map(|v| v as f32 / max)).collect::<Result<_, _>>()?
+            reader
+                .samples::<i32>()
+                .map(|s| s.map(|v| v as f32 / max))
+                .collect::<Result<_, _>>()?
         }
     };
     let mono = lw_core::audio::downmix_to_mono(&interleaved, channels);
@@ -303,7 +418,13 @@ fn word_error_rate(reference: &str, hypothesis: &str) -> (f32, usize) {
     let norm = |s: &str| -> Vec<String> {
         s.to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+            .map(|c| {
+                if c.is_alphanumeric() || c.is_whitespace() {
+                    c
+                } else {
+                    ' '
+                }
+            })
             .collect::<String>()
             .split_whitespace()
             .map(|w| w.to_string())

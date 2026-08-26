@@ -22,7 +22,11 @@ impl Resampler {
         if from_hz == 0 || to_hz == 0 {
             return Err(Error::Audio("sample rate must be non-zero".into()));
         }
-        Ok(Self { from_hz, to_hz, inner: None })
+        Ok(Self {
+            from_hz,
+            to_hz,
+            inner: None,
+        })
     }
 
     /// Resample the whole `input` slice, returning the converted samples.

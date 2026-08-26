@@ -65,7 +65,10 @@ impl EngineRegistry {
         let mut notes = Vec::new();
         for cand in candidates.iter_mut() {
             if !acceptable(cand.acceleration) {
-                notes.push((cand.id.to_string(), format!("skipped ({} not requested)", cand.acceleration)));
+                notes.push((
+                    cand.id.to_string(),
+                    format!("skipped ({} not requested)", cand.acceleration),
+                ));
                 continue;
             }
             let report = (cand.probe)();
@@ -74,7 +77,10 @@ impl EngineRegistry {
                     cand.id.to_string(),
                     format!("selected: {} on {}", report.provider, cand.acceleration),
                 ));
-                return SelectionOutcome { chosen: Some(cand.id.to_string()), notes };
+                return SelectionOutcome {
+                    chosen: Some(cand.id.to_string()),
+                    notes,
+                };
             } else {
                 notes.push((cand.id.to_string(), format!("unavailable: {}", report.message)));
             }
@@ -88,10 +94,20 @@ mod tests {
     use super::*;
 
     fn ok_report(p: Provider) -> HealthReport {
-        HealthReport { ok: true, provider: p, probe_latency_ms: Some(1.0), message: "ok".into() }
+        HealthReport {
+            ok: true,
+            provider: p,
+            probe_latency_ms: Some(1.0),
+            message: "ok".into(),
+        }
     }
     fn fail_report(p: Provider, msg: &str) -> HealthReport {
-        HealthReport { ok: false, provider: p, probe_latency_ms: None, message: msg.into() }
+        HealthReport {
+            ok: false,
+            provider: p,
+            probe_latency_ms: None,
+            message: msg.into(),
+        }
     }
 
     #[test]
@@ -132,7 +148,11 @@ mod tests {
         ];
         let out = EngineRegistry::select(BackendPreference::Automatic, candidates);
         assert_eq!(out.chosen.as_deref(), Some("cpu"));
-        assert!(out.notes.iter().any(|(id, note)| id == "npu" && note.contains("unavailable")));
+        assert!(
+            out.notes
+                .iter()
+                .any(|(id, note)| id == "npu" && note.contains("unavailable"))
+        );
     }
 
     #[test]

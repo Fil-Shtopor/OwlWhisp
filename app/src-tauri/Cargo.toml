@@ -1,0 +1,44 @@
+[package]
+name = "localwisper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "LocalWisper desktop shell: Tauri 2 tray app, overlay, settings and diagnostics UI"
+
+[lib]
+name = "localwisper_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+# workspace crates
+lw-core.workspace = true
+lw-ort.workspace = true
+lw-engine-parakeet.workspace = true
+lw-platform.workspace = true
+
+# tauri + plugins (single-instance must be *registered* first at runtime; order here is cosmetic)
+tauri = { workspace = true }
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-autostart.workspace = true
+tauri-plugin-opener.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-os.workspace = true
+tauri-plugin-notification.workspace = true
+tauri-plugin-positioner.workspace = true
+tauri-plugin-log.workspace = true
+tauri-plugin-store.workspace = true
+
+# support
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+log = "0.4"

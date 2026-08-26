@@ -8,7 +8,7 @@
 mod llm;
 mod normalize;
 
-pub use llm::{LlmProcessor, LlmProcessorConfig, DEFAULT_SYSTEM_PROMPT};
+pub use llm::{DEFAULT_SYSTEM_PROMPT, LlmProcessor, LlmProcessorConfig};
 pub use normalize::{CleanupProcessor, IdentityProcessor, NormalizeOptions};
 
 use crate::dictionary::Dictionary;
