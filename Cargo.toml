@@ -46,10 +46,11 @@ tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "time", "macr
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 futures = "0.3"
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # audio
 cpal = "0.18"
-rubato = "5.0"
+rubato = "0.16"
 hound = "3.5"
 realfft = "3.5"
 rustfft = "6.4"

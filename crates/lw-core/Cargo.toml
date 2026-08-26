@@ -35,6 +35,7 @@ sysinfo.workspace = true
 tar.workspace = true
 bzip2.workspace = true
 flate2.workspace = true
+tokio-util.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
