@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Stage ONNX Runtime + QNN EP DLLs
+        run: pwsh -File scripts/runtime/fetch-runtime.ps1
+      - name: Build app (NSIS, native ARM64)
+        run: pwsh -File scripts/build/build-windows-arm64.ps1 -Release
+      - name: Checksums
+        run: |
+          $out = "target/aarch64-pc-windows-msvc/release/bundle"
+          Get-ChildItem -Recurse $out -Include *.exe,*.msi | ForEach-Object {
+            (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name
+          } | Out-File SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: localwisper-windows-arm64
+          path: |
+            target/aarch64-pc-windows-msvc/release/bundle/**/*.exe
+            target/aarch64-pc-windows-msvc/release/bundle/**/*.msi
+            SHA256SUMS.txt
+      # NOTE: code-signing (Azure Trusted Signing) is a remaining item; unsigned builds trigger
+      # SmartScreen. Model files and the Qualcomm QNN DLLs are fetched at build time (not committed).
