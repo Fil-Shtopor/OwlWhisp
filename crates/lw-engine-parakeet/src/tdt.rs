@@ -51,11 +51,7 @@ impl TdtDecoder {
     /// Greedy-decode an encoder output of shape `[1, D, T]` (row-major flattened, `d*T + t`),
     /// with `enc_len` valid frames. `enc_dim` is D (1024). Returns the emitted tokens.
     pub fn decode(&mut self, encoder_out: &[f32], enc_dim: usize, enc_len: usize) -> Result<Vec<Emission>> {
-        let t_total = if enc_dim == 0 {
-            0
-        } else {
-            encoder_out.len() / enc_dim
-        };
+        let t_total = encoder_out.len().checked_div(enc_dim).unwrap_or(0);
         let end = enc_len.min(t_total);
         let mut emissions = Vec::new();
 
