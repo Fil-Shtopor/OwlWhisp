@@ -21,6 +21,7 @@ lw-core.workspace = true
 lw-ort.workspace = true
 lw-engine-parakeet.workspace = true
 lw-platform.workspace = true
+crossbeam-channel.workspace = true
 
 # tauri + plugins (single-instance must be *registered* first at runtime; order here is cosmetic)
 tauri = { workspace = true }

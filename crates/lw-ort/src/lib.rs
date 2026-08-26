@@ -22,7 +22,7 @@ mod session;
 
 pub use manifest::{RuntimeFile, RuntimeManifest};
 pub use qnn::{HtpPerformanceMode, QnnSessionConfig, build_qnn_session};
-pub use runtime::{OrtRuntime, RuntimeError, locate_runtime_dir};
+pub use runtime::{OrtRuntime, RuntimeError, locate_runtime_dir, onnxruntime_lib_name};
 pub use session::{CpuSessionConfig, build_cpu_session};
 
 /// Re-export of the underlying `ort` crate.

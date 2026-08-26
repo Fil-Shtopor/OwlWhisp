@@ -7,13 +7,13 @@
 //! - a global push-to-talk shortcut (Ctrl+Alt+Space) driving the recording-state
 //!   machine and the `state_changed` event;
 //! - IPC commands for settings (persisted with `lw_core::settings::Settings`),
-//!   diagnostics (via `lw_ort::OrtRuntime`), and a mic-level channel stub.
-//!
-//! Audio capture and the speech engines are deliberately NOT wired yet — see the
-//! `TODO: wire to lw-platform AudioCapture + engine` seams below.
+//!   diagnostics (via `lw_ort::OrtRuntime`), and a mic-level channel;
+//! - a background [`worker`] that owns the microphone capture and the Parakeet engine and turns
+//!   hotkey press/release into capture → transcription → text pipeline → injection.
 
 pub mod commands;
 pub mod state;
+pub mod worker;
 
 use std::time::Duration;
 
@@ -69,7 +69,8 @@ pub fn run() {
             let settings_path = app.path().app_data_dir()?.join("settings.json");
             let overlay_enabled =
                 Settings::load(&settings_path).map(|s| s.overlay_enabled).unwrap_or(true);
-            app.manage(AppState::new(settings_path, overlay_enabled));
+            let worker = worker::spawn(app.handle().clone(), settings_path.clone());
+            app.manage(AppState::new(settings_path, overlay_enabled, worker));
 
             build_tray(app.handle())?;
             create_overlay_window(app.handle())?;
@@ -79,12 +80,11 @@ pub fn run() {
         })
         // Closing the main window hides it to the tray; "Quit" in the tray exits.
         .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            if window.label() == "main"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-            }
         })
         .run(tauri::generate_context!())
         .expect("failed to run LocalWisper");
@@ -151,25 +151,23 @@ fn create_overlay_window(app: &AppHandle) -> tauri::Result<()> {
     let _ = overlay.set_ignore_cursor_events(true);
 
     // Park it bottom-center of the primary monitor.
-    if let Ok(Some(monitor)) = overlay.primary_monitor() {
-        if let Ok(size) = overlay.outer_size() {
-            let mpos = monitor.position();
-            let msize = monitor.size();
-            let x = mpos.x + (msize.width as i32 - size.width as i32) / 2;
-            let y = mpos.y + msize.height as i32 - size.height as i32 - 72;
-            let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
-        }
+    if let Ok(Some(monitor)) = overlay.primary_monitor()
+        && let Ok(size) = overlay.outer_size()
+    {
+        let mpos = monitor.position();
+        let msize = monitor.size();
+        let x = mpos.x + (msize.width as i32 - size.width as i32) / 2;
+        let y = mpos.y + msize.height as i32 - size.height as i32 - 72;
+        let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
     }
     Ok(())
 }
 
 /// Global-shortcut handler: push-to-talk transitions of the recording-state machine.
 ///
-/// TODO: wire to lw-platform AudioCapture + engine.
-/// Pressed should start `lw_platform` audio capture feeding the VAD + engine
-/// (lw-engine-parakeet via lw-ort); Released should finalize the utterance, run
-/// transcription, then inject text. Until then, Released runs a short simulated
-/// processing -> done -> idle sequence so the UI/overlay states are exercisable.
+/// Pressed starts microphone capture in the [`worker`]; Released stops capture and asks the worker
+/// to transcribe and deliver the text. The worker emits the `processing → done → idle` transitions
+/// (and `transcript` / `worker_error`) itself when it finishes.
 fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
     if *shortcut != dictation_shortcut() {
         return;
@@ -181,27 +179,17 @@ fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
                 return; // key auto-repeat
             }
             let generation = state.transition(app, RecordingState::Listening);
-            // TODO: wire to lw-platform AudioCapture + engine (start capture here).
+            state.worker.send(worker::WorkerCmd::StartRecording);
             spawn_mic_level_stub(app.clone(), generation);
         }
         ShortcutState::Released => {
             if state.recording_state() != RecordingState::Listening {
                 return;
             }
-            let generation = state.transition(app, RecordingState::Processing);
-            // TODO: wire to lw-platform AudioCapture + engine (stop capture, transcribe,
-            // inject text). Simulated timing below exists only to exercise the UI states.
-            let app = app.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(450));
-                let state = app.state::<AppState>();
-                let Some(generation) = state.transition_if_current(&app, generation, RecordingState::Done)
-                else {
-                    return;
-                };
-                std::thread::sleep(Duration::from_millis(900));
-                state.transition_if_current(&app, generation, RecordingState::Idle);
-            });
+            // Enter Processing; the worker stops capture, transcribes, injects, then emits the
+            // `done` -> `idle` state transitions itself when finished (see worker.rs).
+            state.transition(app, RecordingState::Processing);
+            state.worker.send(worker::WorkerCmd::StopRecording);
         }
     }
 }

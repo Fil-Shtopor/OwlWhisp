@@ -44,18 +44,21 @@ pub struct AppState {
     pub overlay_enabled: AtomicBool,
     /// Mic-level stream registered by the frontend via `subscribe_mic_level`.
     pub mic_level: Mutex<Option<Channel<f32>>>,
+    /// Handle to the dictation worker (audio capture + engine on a background thread).
+    pub worker: crate::worker::WorkerHandle,
     recording: Mutex<RecordingState>,
-    /// Bumped on every transition; lets delayed (simulated) transitions detect staleness.
+    /// Bumped on every transition; lets delayed transitions detect staleness.
     generation: AtomicU64,
 }
 
 impl AppState {
-    /// Create the state with the resolved settings path.
-    pub fn new(settings_path: PathBuf, overlay_enabled: bool) -> Self {
+    /// Create the state with the resolved settings path and the dictation worker handle.
+    pub fn new(settings_path: PathBuf, overlay_enabled: bool, worker: crate::worker::WorkerHandle) -> Self {
         Self {
             settings_path,
             overlay_enabled: AtomicBool::new(overlay_enabled),
             mic_level: Mutex::new(None),
+            worker,
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
         }
