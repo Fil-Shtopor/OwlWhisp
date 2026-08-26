@@ -85,12 +85,38 @@ MODEL="$LOCALAPPDATA/LocalWisper/models/parakeet-tdt-0.6b-v3"
 
 ## Run (desktop app)
 
-```bash
-cd app/frontend && npm install && cd ../..
-pwsh -File scripts\build\build-windows-arm64.ps1 -App        # production build
-# or dev mode (hot-reload UI):
-cd app/src-tauri && cargo tauri dev     # requires cargo-tauri; or `npx @tauri-apps/cli dev`
+```powershell
+# One command: builds the frontend + app, stages the runtime, links a model, and launches.
+pwsh -File scripts\build\run-app.ps1 -ModelDir "C:\path\to\parakeet-tdt-0.6b-v3"
 ```
+
+Or step by step:
+
+```bash
+cd app/frontend && npm install && npm run build && cd ../..
+pwsh -File scripts\build\build-windows-arm64.ps1 -App     # production build + NSIS installer
+npx @tauri-apps/cli@2 dev                                 # dev mode (hot-reload UI)
+```
+
+> **Important:** building the app with plain cargo instead of the Tauri CLI requires the production
+> feature, otherwise Tauri loads `build.devUrl` and the window shows *"localhost refused to
+> connect"*:
+>
+> ```bash
+> cargo build -p localwisper --release --features custom-protocol
+> ```
+>
+> `tauri build` sets this feature for you; `tauri dev` deliberately leaves it off.
+
+At runtime the app locates its pieces as follows (the launcher script wires all three up):
+
+| Piece | Where it is looked for |
+|---|---|
+| ONNX Runtime + QNN DLLs | `LW_RUNTIME_DIR`, else `runtime/<platform>/` or `runtime/` beside the executable |
+| Model | `%APPDATA%\ai.localwisper.app\models\<model_id>` (`model_id` comes from settings) |
+| QNN context cache | `%APPDATA%\ai.localwisper.app\cache` |
+
+Hold **Ctrl+Alt+Space** to dictate; the tray icon opens Settings / Diagnostics / Quit.
 
 ## Tests
 

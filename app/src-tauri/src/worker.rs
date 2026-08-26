@@ -83,21 +83,8 @@ fn app_data_dir(settings_path: &std::path::Path) -> PathBuf {
 }
 
 fn runtime_dir() -> Option<PathBuf> {
-    if let Ok(d) = std::env::var("LW_RUNTIME_DIR") {
-        return Some(PathBuf::from(d));
-    }
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    for cand in [
-        dir.join("runtime/win-arm64"),
-        dir.join("runtime"),
-        dir.to_path_buf(),
-    ] {
-        if cand.join(lw_ort::onnxruntime_lib_name()).exists() {
-            return Some(cand);
-        }
-    }
-    None
+    // `LW_RUNTIME_DIR`, then `runtime/<platform>/` and `runtime/` beside the executable.
+    lw_ort::locate_runtime_dir()
 }
 
 struct Loaded {

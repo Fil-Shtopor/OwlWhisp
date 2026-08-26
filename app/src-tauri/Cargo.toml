@@ -15,6 +15,15 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { workspace = true }
 
+[features]
+# Tauri decides dev-vs-production by this feature: with `custom-protocol` OFF it loads the frontend
+# from `build.devUrl` (the Vite dev server); with it ON it serves the assets embedded from
+# `build.frontendDist`. The Tauri CLI passes it automatically on `tauri build`; a plain
+# `cargo build --release` must pass `--features custom-protocol` or the window shows
+# "localhost refused to connect".
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 # workspace crates
 lw-core.workspace = true

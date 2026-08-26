@@ -43,6 +43,8 @@ if ($App) {
     Pop-Location
 
     Write-Host "== Building the Tauri app ($target) =="
+    # The CLI passes --features custom-protocol itself (a plain `cargo build` would not,
+    # and the app would try to load the Vite dev server instead of the embedded assets).
     # tauri-cli picks up the target; NSIS bundle is produced under target\$target\release\bundle
     npx --yes @tauri-apps/cli@2 build --target $target
 }

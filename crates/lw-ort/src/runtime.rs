@@ -47,32 +47,63 @@ pub fn qnn_provider_lib_name() -> &'static str {
     "onnxruntime_providers_qnn.dll"
 }
 
+/// The per-platform runtime subdirectory name used by the repo layout and the installers
+/// (e.g. `win-arm64`), so a single `runtime/` tree can carry several architectures.
+pub fn runtime_platform_dir() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "aarch64") => "win-arm64",
+        ("windows", _) => "win-x64",
+        ("macos", "aarch64") => "osx-arm64",
+        ("macos", _) => "osx-x64",
+        (_, "aarch64") => "linux-arm64",
+        _ => "linux-x64",
+    }
+}
+
 /// Search for a directory containing `onnxruntime`. Order:
 /// 1. `LW_RUNTIME_DIR` env var,
 /// 2. `ORT_DYLIB_PATH` env var (its parent directory),
-/// 3. the executable's directory and a `runtime/` subdir,
-/// 4. the current working directory.
+/// 3. the executable's directory, then `runtime/<platform>/` and `runtime/` beside it,
+/// 4. the current working directory (and the same two subdirs).
 pub fn locate_runtime_dir() -> Option<PathBuf> {
+    let explicit_dir = std::env::var_os("LW_RUNTIME_DIR").map(PathBuf::from);
+    let dylib_parent = std::env::var_os("ORT_DYLIB_PATH")
+        .map(PathBuf::from)
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf));
+    let cwd = std::env::current_dir().ok();
+
+    let candidates = runtime_candidates(
+        explicit_dir.as_deref(),
+        dylib_parent.as_deref(),
+        exe_dir.as_deref(),
+        cwd.as_deref(),
+        runtime_platform_dir(),
+    );
     let lib = onnxruntime_lib_name();
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(dir) = std::env::var("LW_RUNTIME_DIR") {
-        candidates.push(PathBuf::from(dir));
-    }
-    if let Ok(p) = std::env::var("ORT_DYLIB_PATH")
-        && let Some(parent) = Path::new(&p).parent()
-    {
-        candidates.push(parent.to_path_buf());
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        candidates.push(dir.to_path_buf());
-        candidates.push(dir.join("runtime"));
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd);
-    }
     candidates.into_iter().find(|d| d.join(lib).exists())
+}
+
+/// Build the ordered candidate list. Split out from [`locate_runtime_dir`] so the search order is
+/// testable without mutating process-global state (cwd / env).
+fn runtime_candidates(
+    explicit_dir: Option<&Path>,
+    dylib_parent: Option<&Path>,
+    exe_dir: Option<&Path>,
+    cwd: Option<&Path>,
+    platform: &str,
+) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.extend(explicit_dir.map(Path::to_path_buf));
+    candidates.extend(dylib_parent.map(Path::to_path_buf));
+    for base in [exe_dir, cwd].into_iter().flatten() {
+        candidates.push(base.to_path_buf());
+        candidates.push(base.join("runtime").join(platform));
+        candidates.push(base.join("runtime"));
+    }
+    candidates
 }
 
 static INIT: OnceLock<Result<(), String>> = OnceLock::new();
@@ -234,6 +265,53 @@ pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_dir_matches_host() {
+        let d = runtime_platform_dir();
+        assert!(!d.is_empty());
+        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+        assert_eq!(d, "win-arm64");
+    }
+
+    #[test]
+    fn candidates_prefer_explicit_then_platform_subdir() {
+        let exe = Path::new("/app");
+        let cwd = Path::new("/work");
+        let c = runtime_candidates(
+            Some(Path::new("/explicit")),
+            None,
+            Some(exe),
+            Some(cwd),
+            "win-arm64",
+        );
+        assert_eq!(c[0], PathBuf::from("/explicit"));
+        // exe dir itself, then its runtime/<platform>, then plain runtime/
+        assert_eq!(c[1], exe.to_path_buf());
+        assert_eq!(c[2], exe.join("runtime").join("win-arm64"));
+        assert_eq!(c[3], exe.join("runtime"));
+        // then the same tree under the working directory
+        assert!(c.contains(&cwd.join("runtime").join("win-arm64")));
+    }
+
+    #[test]
+    fn candidates_tolerate_missing_sources() {
+        assert!(runtime_candidates(None, None, None, None, "win-arm64").is_empty());
+    }
+
+    #[test]
+    fn locate_finds_staged_runtime_via_env() {
+        // A runtime staged as <root>/runtime/<platform>/onnxruntime.dll is found through the
+        // candidate list; here we point at it directly to avoid touching the process cwd.
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("runtime").join(runtime_platform_dir());
+        std::fs::create_dir_all(&staged).unwrap();
+        std::fs::File::create(staged.join(onnxruntime_lib_name())).unwrap();
+
+        let c = runtime_candidates(None, None, Some(dir.path()), None, runtime_platform_dir());
+        let found = c.into_iter().find(|d| d.join(onnxruntime_lib_name()).exists());
+        assert_eq!(found.as_deref(), Some(staged.as_path()));
+    }
 
     #[test]
     fn lib_name_is_platform_specific() {
