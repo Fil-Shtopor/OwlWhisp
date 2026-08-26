@@ -5,8 +5,10 @@
 //! LLM stage, which is off by default and always falls back to its input on any failure — the app
 //! works fully offline with the LLM disabled.
 
+mod llm;
 mod normalize;
 
+pub use llm::{LlmProcessor, LlmProcessorConfig, DEFAULT_SYSTEM_PROMPT};
 pub use normalize::{CleanupProcessor, IdentityProcessor, NormalizeOptions};
 
 use crate::dictionary::Dictionary;

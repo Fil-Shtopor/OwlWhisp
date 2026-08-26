@@ -1,0 +1,109 @@
+# LocalWisper — Build & Run
+
+## Build matrix
+
+| Target | Status | Notes |
+|---|---|---|
+| **Windows ARM64** (`aarch64-pc-windows-msvc`) | **first-class, verified** | Native binary; NPU (QNN HTP V81) + CPU |
+| Windows x64 (`x86_64-pc-windows-msvc`) | buildable | CPU only (QNN EP path is ARM64) |
+| macOS arm64 (`aarch64-apple-darwin`) | buildable; ANE path not verified on our hardware | ORT CoreML EP / CPU |
+| macOS x64 | buildable where ORT provides a build | CPU |
+| Linux x64 / ARM64 | scaffolding (platform layer stubbed) | ORT CPU |
+
+At minimum, **Windows ARM64 works correctly** (CPU and NPU transcription verified — see
+[`benchmarks.md`](benchmarks.md)).
+
+## Prerequisites (Windows ARM64)
+
+- **Rust** stable with the `aarch64-pc-windows-msvc` host toolchain (`rustup default stable`).
+- **MSVC ARM64 toolset + Windows SDK.** Either install Visual Studio Build Tools with the
+  "MSVC v14x — ARM64/ARM64EC build tools" and a Windows 11 SDK component, **or** use a portable
+  toolset and source its env script before building (this repo's dev machine uses
+  `~/.msvc-arm64/env-arm64.{ps1,sh}`).
+- **Node.js 18+** and **npm** (for the Tauri frontend). `@tauri-apps/cli` has a native win32-arm64
+  binary.
+- **WebView2 runtime** (present on Windows 11 by default).
+
+TLS note: the workspace deliberately uses `reqwest` with **native-TLS** (SChannel), not
+`rustls`/`aws-lc-rs` — the latter fails to assemble its ARM64 assembly under the portable MSVC
+toolset. Do not add rustls-based HTTP deps.
+
+## One-time: stage the ONNX Runtime + QNN DLLs
+
+```powershell
+pwsh -File scripts\runtime\fetch-runtime.ps1        # -> runtime\win-arm64\*.dll (native ARM64)
+```
+
+This downloads the official ARM64 ONNX Runtime and the native-ARM64 Qualcomm QNN execution-provider
+DLLs (from NuGet `Qualcomm.ML.OnnxRuntime.QNN`) plus their licences. All DLLs must be machine
+`0xAA64`. These are **redistributable** (MIT for ORT + the EP; the Qualcomm QNN libs under the
+Qualcomm AI Stack License, object-code-only, shipped with `Qualcomm_LICENSE.pdf`).
+
+## One-time: fetch a model
+
+```bash
+python scripts/models/download_model.py models/manifests/parakeet-tdt-0.6b-v3.json \
+    --dest "$LOCALAPPDATA/LocalWisper/models" --target cpu_int8
+```
+
+(The shipping app downloads models itself with the same SHA-256 verification; this is a dev
+convenience.) The NPU target additionally needs a static-shape encoder; see
+[`x2-npu.md`](x2-npu.md) for how it is produced/cached.
+
+## Build
+
+```bash
+# CLI + library (native ARM64). On the portable-toolset dev machine:
+source ~/.msvc-arm64/env-arm64.sh
+cargo build --release -p lw-cli --target aarch64-pc-windows-msvc
+
+# Everything (CLI + Tauri app + frontend):
+pwsh -File scripts\build\build-windows-arm64.ps1 -Release
+```
+
+The Tauri NSIS installer lands under
+`target/aarch64-pc-windows-msvc/release/bundle/nsis/`.
+
+## Run (CLI)
+
+```bash
+LW=target/release/lw.exe
+RTD=runtime/win-arm64
+MODEL="$LOCALAPPDATA/LocalWisper/models/parakeet-tdt-0.6b-v3"
+
+# Hardware / runtime report (shows the real provider + NPU status)
+"$LW" --runtime-dir "$RTD" diagnose
+
+# Transcribe a WAV (CPU or NPU; NPU prepares+caches the HTP context on first run)
+"$LW" --runtime-dir "$RTD" transcribe clip.wav --model-dir "$MODEL" --backend auto
+
+# Benchmark over the test fixtures
+"$LW" --runtime-dir "$RTD" bench tests/fixtures/audio --model-dir "$MODEL" --backend cpu
+```
+
+`--backend auto` uses the NPU when available and falls back to CPU, always reporting which it used.
+
+## Run (desktop app)
+
+```bash
+cd app/frontend && npm install && cd ../..
+pwsh -File scripts\build\build-windows-arm64.ps1 -App        # production build
+# or dev mode (hot-reload UI):
+cd app/src-tauri && cargo tauri dev     # requires cargo-tauri; or `npx @tauri-apps/cli dev`
+```
+
+## Tests
+
+```bash
+source ~/.msvc-arm64/env-arm64.sh
+cargo test --workspace            # unit tests (no model/NPU needed)
+cargo test --workspace -- --ignored   # integration tests that need the model + runtime present
+```
+
+## Other platforms
+
+- **macOS**: `cargo build --release --target aarch64-apple-darwin` (needs Xcode CLT). The audio,
+  clipboard and (via ORT CoreML EP) inference compile; hotkeys/overlay/injection use the macOS
+  platform module. ANE acceleration is not verified on our hardware — see `x2-npu.md` §macOS.
+- **Linux**: `cargo build --release`; the platform layer is scaffolding (audio via cpal compiles;
+  hotkeys/injection are stubs returning `Unavailable`). ORT CPU EP works.

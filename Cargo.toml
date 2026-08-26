@@ -8,7 +8,7 @@ members = [
     "crates/lw-engine-whisper",
     "crates/lw-platform",
     "crates/lw-cli",
-    # "app/src-tauri",  (added when the Tauri shell is scaffolded)
+    "app/src-tauri",
 ]
 
 [workspace.package]
@@ -62,7 +62,7 @@ ndarray = "0.17"
 half = "2.7"
 
 # networking / hashing / files
-reqwest = { version = "0.12", default-features = false, features = ["default-tls", "stream", "json", "charset", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["default-tls", "stream", "json", "charset", "http2", "blocking"] }
 sha2 = "0.11"
 hex = "0.4"
 directories = "6.0"
@@ -106,6 +106,7 @@ tauri-plugin-clipboard-manager = "2.3"
 tauri-plugin-global-shortcut = "2.3"
 tauri-plugin-positioner = "2.3"
 tauri-plugin-notification = "2.3"
+tauri-plugin-store = "2.4"
 
 [profile.release]
 opt-level = 3
