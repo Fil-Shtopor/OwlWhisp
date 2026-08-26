@@ -1,0 +1,12 @@
+# Workspace-wide Cargo settings.
+# Windows ARM64 is the primary target; the host toolchain on the dev machine is aarch64-pc-windows-msvc,
+# so no explicit `build.target` is set (cross builds pass --target explicitly, see scripts/build/).
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+lw = "run -p lw-cli --"

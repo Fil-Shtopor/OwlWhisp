@@ -1,0 +1,48 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Tauri
+/app/src-tauri/gen/schemas/
+/app/src-tauri/target/
+
+# Models and runtime binaries are never committed
+/models/cache/
+/models/downloads/
+/runtime/
+*.onnx
+*.onnx.data
+*.bin
+*.ctx
+*.dlc
+*.serialized
+*.nupkg
+
+# Python (dev tooling only)
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Logs / local artifacts
+*.log
+/benchmarks/results/*.json
+/scratch/
