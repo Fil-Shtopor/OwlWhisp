@@ -118,8 +118,8 @@ pub fn build_qnn_session(
     model_path: &Path,
     cfg: &QnnSessionConfig,
 ) -> Result<Session, RuntimeError> {
-    if !runtime.qnn_registered() {
-        return Err(RuntimeError::Qnn("QNN EP not registered".into()));
+    if !runtime.register_qnn() {
+        return Err(RuntimeError::Qnn("QNN EP not available/registrable".into()));
     }
     std::fs::create_dir_all(&cfg.cache_dir)
         .map_err(|e| RuntimeError::Qnn(format!("cache dir: {e}")))?;

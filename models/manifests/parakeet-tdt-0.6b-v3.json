@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "parakeet-tdt-0.6b-v3",
+  "name": "NVIDIA Parakeet TDT 0.6B v3",
+  "version": "istupakov-8f23f0c0",
+  "license": "CC-BY-4.0",
+  "attribution": "NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0), ONNX export by Ilya Stupakov (CC-BY-4.0)",
+  "local_dir": "parakeet-tdt-0.6b-v3",
+  "languages": ["en","es","fr","de","it","pt","ru","uk","pl","nl","cs","sk","sl","hr","bg","ro","hu","el","da","sv","fi","et","lv","lt","mt"],
+  "common": [
+    {"path":"vocab.txt","url":"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/vocab.txt","bytes":93939,"sha256":"d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"},
+    {"path":"config.json","url":"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/config.json","bytes":97,"sha256":"666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466"},
+    {"path":"nemo128.onnx","url":"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/nemo128.onnx","bytes":139764,"sha256":"a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"},
+    {"path":"decoder_joint-model.int8.onnx","url":"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/decoder_joint-model.int8.onnx","bytes":18202004,"sha256":"eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"encoder-model.int8.onnx","url":"https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/encoder-model.int8.onnx","bytes":652183999,"sha256":"6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09"}
+      ]
+    }
+  ]
+}

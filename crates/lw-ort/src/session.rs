@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use ort::environment::Environment;
+use ort::memory::DeviceType;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 
@@ -32,6 +34,28 @@ pub fn build_cpu_session(
     cfg: CpuSessionConfig,
 ) -> Result<Session, RuntimeError> {
     let mut builder = Session::builder().map_err(|e| RuntimeError::Other(e.to_string()))?;
+    // Pin explicitly to the CPU *device*. Appending the CPU EP alone is not enough: once a plugin
+    // EP (QNN) is registered in the environment, ORT will still auto-apply it to a plain session
+    // and it fails on ops the HTP can't take (the dynamic `/Expand` mask). Selecting only the CPU
+    // OrtEpDevice via V2 makes the session genuinely CPU-only.
+    if let Ok(env) = Environment::current() {
+        let cpu_devices: Vec<_> = env
+            .devices()
+            .filter(|d| {
+                d.ep().map(|n| n == "CPUExecutionProvider").unwrap_or(false)
+                    && d.hardware_device().ty() == DeviceType::CPU
+            })
+            .collect();
+        if !cpu_devices.is_empty() {
+            builder = builder
+                .with_devices(cpu_devices, None)
+                .map_err(|e| RuntimeError::Other(format!("pin CPU device: {e}")))?;
+        } else {
+            builder = builder
+                .with_execution_providers([ort::ep::CPU::default().build()])
+                .map_err(|e| RuntimeError::Other(e.to_string()))?;
+        }
+    }
     builder = builder
         .with_optimization_level(if cfg.optimize {
             GraphOptimizationLevel::Level3

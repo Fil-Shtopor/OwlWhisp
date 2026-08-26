@@ -77,18 +77,24 @@ pub fn locate_runtime_dir() -> Option<PathBuf> {
 
 static INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
-/// The initialized runtime: holds the QNN EP library alive (dropping it unregisters the EP) and
-/// records what was discovered.
+struct QnnState {
+    registered: bool,
+    /// Kept alive so the EP stays registered for the process lifetime.
+    _lib: Option<ExecutionProviderLibrary>,
+}
+
+/// The initialized runtime. The QNN plugin EP is registered **lazily** (only when an NPU session is
+/// actually requested), because registering it globally causes ONNX Runtime to auto-apply it to
+/// otherwise-CPU sessions — which then fail on ops the HTP can't take (e.g. the dynamic `/Expand`
+/// attention mask). CPU sessions are built before any QNN registration and pinned to the CPU EP.
 pub struct OrtRuntime {
     runtime_dir: PathBuf,
-    /// Whether the QNN plugin EP registered successfully.
-    qnn_registered: bool,
-    /// Kept alive so the EP stays registered for the process lifetime.
-    _qnn_lib: Mutex<Option<ExecutionProviderLibrary>>,
+    qnn_dll: PathBuf,
+    qnn: Mutex<QnnState>,
 }
 
 impl OrtRuntime {
-    /// Initialize ONNX Runtime from `runtime_dir` and, if present, register the QNN plugin EP.
+    /// Initialize ONNX Runtime from `runtime_dir`. Does **not** register the QNN EP yet.
     ///
     /// `ort::init_from` is global and idempotent here: it runs once per process.
     pub fn init(runtime_dir: &Path) -> Result<Arc<Self>, RuntimeError> {
@@ -97,42 +103,59 @@ impl OrtRuntime {
             return Err(RuntimeError::NotFound(runtime_dir.display().to_string()));
         }
         let dir = runtime_dir.to_path_buf();
-        let res = INIT.get_or_init(|| {
-            match ort::init_from(&lib) {
-                Ok(builder) => {
-                    builder.with_name("localwisper").commit();
-                    Ok(())
-                }
-                Err(e) => Err(e.to_string()),
+        let res = INIT.get_or_init(|| match ort::init_from(&lib) {
+            Ok(builder) => {
+                builder.with_name("localwisper").commit();
+                Ok(())
             }
+            Err(e) => Err(e.to_string()),
         });
         if let Err(e) = res {
             return Err(RuntimeError::Init(e.clone()));
         }
-
-        // Try to register the QNN plugin EP (best effort; absence just means CPU-only).
-        let mut qnn_lib = None;
-        let mut qnn_registered = false;
-        let qnn_dll = runtime_dir.join(qnn_provider_lib_name());
-        if qnn_dll.exists() {
+        if std::env::var("LW_ORT_VERBOSE").is_ok() {
             if let Ok(env) = Environment::current() {
-                match env.register_ep_library("QNNExecutionProvider", &qnn_dll) {
-                    Ok(handle) => {
-                        qnn_lib = Some(handle);
-                        qnn_registered = true;
-                    }
-                    Err(e) => {
-                        tracing::warn!("QNN EP registration failed: {e}");
-                    }
-                }
+                env.set_log_level(ort::logging::LogLevel::Verbose);
             }
         }
 
         Ok(Arc::new(Self {
             runtime_dir: dir,
-            qnn_registered,
-            _qnn_lib: Mutex::new(qnn_lib),
+            qnn_dll: runtime_dir.join(qnn_provider_lib_name()),
+            qnn: Mutex::new(QnnState { registered: false, _lib: None }),
         }))
+    }
+
+    /// Whether the QNN plugin-EP DLL is present (i.e. NPU support *could* be available).
+    pub fn qnn_available(&self) -> bool {
+        self.qnn_dll.exists()
+    }
+
+    /// Register the QNN plugin EP if not already registered. Idempotent.
+    ///
+    /// Call this only when about to build an NPU session — after all CPU sessions are built.
+    pub fn register_qnn(&self) -> bool {
+        let mut state = self.qnn.lock();
+        if state.registered {
+            return true;
+        }
+        if !self.qnn_dll.exists() {
+            return false;
+        }
+        match Environment::current() {
+            Ok(env) => match env.register_ep_library("QNNExecutionProvider", &self.qnn_dll) {
+                Ok(handle) => {
+                    state._lib = Some(handle);
+                    state.registered = true;
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!("QNN EP registration failed: {e}");
+                    false
+                }
+            },
+            Err(_) => false,
+        }
     }
 
     /// Convenience: locate the runtime dir and initialize.
@@ -147,13 +170,16 @@ impl OrtRuntime {
         &self.runtime_dir
     }
 
-    /// Whether the QNN plugin EP registered.
+    /// Whether the QNN plugin EP has been registered this process.
     pub fn qnn_registered(&self) -> bool {
-        self.qnn_registered
+        self.qnn.lock().registered
     }
 
-    /// Whether an NPU device backed by the QNN EP is enumerable right now.
+    /// Whether an NPU device backed by the QNN EP is enumerable. Registers the QNN EP lazily.
     pub fn has_qnn_npu(&self) -> bool {
+        if !self.register_qnn() {
+            return false;
+        }
         self.qnn_npu_count() > 0
     }
 
