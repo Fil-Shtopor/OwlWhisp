@@ -14,7 +14,7 @@ first)**, macOS (Apple Silicon) and Linux — built around a modular, hardware-a
 
 - ✅ **Parakeet runs on the X2 Hexagon NPU** via ONNX Runtime's QNN plugin EP — `lw bench`:
   **RTF 0.0145, WER 4.8%** over 12 FLEURS clips (en/ru/es/uk); HTP context binary cached.
-- ✅ **CPU fallback** verified independently — **RTF 0.032, WER 4.2%**.
+- ✅ **CPU fallback** verified independently — **RTF 0.032, WER 5.4%**.
 - ✅ **Live microphone** capture → transcribe verified (`lw record`).
 - ✅ ~140 unit/integration tests green; full workspace builds; fmt + clippy clean.
 

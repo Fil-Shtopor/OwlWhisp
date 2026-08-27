@@ -159,8 +159,10 @@ mod tests {
 
     #[test]
     fn oversized_input_bypasses() {
-        let mut cfg = LlmProcessorConfig::default();
-        cfg.max_input_chars = 5;
+        let cfg = LlmProcessorConfig {
+            max_input_chars: 5,
+            ..Default::default()
+        };
         let p = LlmProcessor::new(cfg).unwrap();
         let big = "hello world this is long";
         assert_eq!(p.process(big), big);
@@ -168,9 +170,11 @@ mod tests {
 
     #[test]
     fn unreachable_endpoint_falls_back_to_raw() {
-        let mut cfg = LlmProcessorConfig::default();
-        cfg.base_url = "https://127.0.0.1:9".into(); // nothing listening
-        cfg.timeout_secs = 1;
+        let cfg = LlmProcessorConfig {
+            base_url: "https://127.0.0.1:9".into(), // nothing listening
+            timeout_secs: 1,
+            ..Default::default()
+        };
         let p = LlmProcessor::new(cfg).unwrap();
         assert_eq!(p.process("keep this text"), "keep this text");
     }

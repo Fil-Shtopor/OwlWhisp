@@ -6,6 +6,7 @@ members = [
     "crates/lw-vad-silero",
     "crates/lw-engine-parakeet",
     "crates/lw-engine-whisper",
+    "crates/lw-engine-sherpa",
     "crates/lw-platform",
     "crates/lw-cli",
     "app/src-tauri",
@@ -26,6 +27,7 @@ lw-ort = { path = "crates/lw-ort" }
 lw-vad-silero = { path = "crates/lw-vad-silero" }
 lw-engine-parakeet = { path = "crates/lw-engine-parakeet" }
 lw-engine-whisper = { path = "crates/lw-engine-whisper" }
+lw-engine-sherpa = { path = "crates/lw-engine-sherpa" }
 lw-platform = { path = "crates/lw-platform" }
 
 # serialization / config
@@ -60,6 +62,10 @@ ort = { version = "=2.0.0-rc.13", default-features = false }
 ort-sys = { version = "=2.0.0-rc.13", default-features = false }
 ndarray = "0.17"
 half = "2.7"
+# sherpa-onnx bundles its OWN ONNX Runtime. Keep the `static` feature (the crate default) so it is
+# linked into the binary instead of shipping a second `onnxruntime.dll` that would collide with the
+# one `lw-ort` loads dynamically by full path. See crates/lw-engine-sherpa/README.md.
+sherpa-onnx = { version = "1.13.6", default-features = false, features = ["static"] }
 
 # networking / hashing / files
 reqwest = { version = "0.12", default-features = false, features = ["default-tls", "stream", "json", "charset", "http2", "blocking"] }

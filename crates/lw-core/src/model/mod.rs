@@ -1,14 +1,27 @@
-//! Model management: manifest types, SHA-256 verification, resumable HTTPS download, disk-space
-//! checks, atomic promotion into the cache, and cache-state inspection.
+//! Model management: the pre-download [`catalog`] and its hardware-aware recommender, manifest
+//! types, SHA-256 verification, resumable HTTPS download, disk-space checks, atomic promotion into
+//! the cache, and cache-state inspection.
+//!
+//! The [`catalog`] describes models *before* they exist on disk (sizes, languages, speed/quality
+//! tiers, which hardware they can use) and is scrupulous about separating **estimates** from
+//! **measurements** — see the module docs there.
 //!
 //! No downloaded file is ever executed; only data files (ONNX, vocab, context binaries) are
 //! fetched, and each is verified against a pinned SHA-256 before use.
 
+pub mod catalog;
 mod download;
 mod manifest;
 
-pub use download::{DownloadEvent, ModelDownloader, Progress};
+pub use catalog::{
+    BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
+    MeasuredPoint, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf, estimate_rtf,
+};
+pub use download::{DownloadEvent, ModelDownloader, Progress, staging_dir_for};
 pub use manifest::{ArtifactSet, ArtifactTarget, FileEntry, ModelManifest};
+// Re-exported because it appears in `ModelDownloader::install`'s signature: callers must be able
+// to name the cancellation type without depending on `tokio-util` themselves.
+pub use tokio_util::sync::CancellationToken;
 
 use std::path::{Path, PathBuf};
 

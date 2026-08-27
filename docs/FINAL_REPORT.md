@@ -66,7 +66,7 @@ workspace + Tauri 2 desktop shell:
 
 - **Native ARM64 build.** `lw.exe` is `aarch64` (machine 0xAA64); no x86 emulation for our code.
 - **Parakeet transcription on CPU** — `lw bench` over 12 FLEURS clips (en/ru/es/uk):
-  **mean RTF 0.032, word-weighted WER 4.2 %**. Correct sentences in all four languages.
+  **mean RTF 0.032, word-weighted WER 5.4 %**. Correct sentences in all four languages.
 - **Parakeet encoder on the Snapdragon X2 Hexagon NPU (QNN HTP V81)** — the full encoder compiles
   to one EPContext node via on-device prepare (fp16), runs at ~23 ms/window, and the end-to-end
   `lw bench` NPU path is **mean RTF 0.0145, WER 4.8 %**. The 1.2 GB context binary is cached and
@@ -98,7 +98,7 @@ workspace + Tauri 2 desktop shell:
 | Chunk merge (overlap, trailing-drop) | unit tests | pass |
 | Mel (native) shape/normalization + Slaney filterbank | unit tests | pass |
 | ORT dynamic load + QNN registration + device enum | run on X2 (`diagnose`) | pass |
-| **End-to-end CPU transcription** | `lw transcribe`/`bench` + integration test on X2 | pass, WER 4.2 % |
+| **End-to-end CPU transcription** | `lw transcribe`/`bench` + integration test on X2 | pass, WER 5.4 % |
 | **End-to-end NPU (HTP V81) transcription** | `lw bench` on X2 | pass, WER 4.8 %, RTF 0.0145 |
 
 | **Live microphone capture → transcribe** | `lw record` on X2 (Aqstic array, 48 kHz→16 kHz) | pass, empty on silence (correct), no crash |
@@ -145,7 +145,7 @@ correct transcriptions at RTF ≈ 0.015. Full procedure and evidence: [`x2-npu.m
 
 ## 7. Performance measurements
 
-See [`benchmarks.md`](benchmarks.md). Headline (X2, 12 FLEURS clips): CPU RTF 0.032 / WER 4.2 %;
+See [`benchmarks.md`](benchmarks.md). Headline (X2, 12 FLEURS clips): CPU RTF 0.032 / WER 5.4 %;
 NPU RTF 0.0145 / WER 4.8 %; encoder-only on HTP 23 ms per 10 s window (RTF 0.0023); Silero VAD
 0.167 ms per 32 ms frame.
 

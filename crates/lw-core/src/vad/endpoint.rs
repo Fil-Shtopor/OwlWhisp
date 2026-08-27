@@ -249,7 +249,6 @@ mod tests {
             pre_roll_ms: 64,     // 2 frames
             trailing_pad_ms: 64, // 2 frames
             max_segment_ms: 0,
-            ..EndpointConfig::default()
         }
     }
 

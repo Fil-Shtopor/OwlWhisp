@@ -64,39 +64,69 @@ lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backen
 lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backend npu
 ```
 
-### 5.1 Measured `lw bench` results on the X2 (2026-08-26, native ARM64 `lw.exe`)
+### 5.1 Measured `lw bench` results on the X2 (re-measured 2026-08-27, release ARM64 `lw.exe`)
 
-**CPU** (`--backend cpu`, ONNX Runtime 1.28.1 CPU EP, default threads):
+Command (both tables): `lw bench tests/fixtures/audio --model-dir <dir> --backend {cpu,npu}`.
 
-```
-file                    dur(s) time(ms)     RTF  WER
-fleurs_en_1.wav           6.00      267   0.044  0.05
-fleurs_en_2.wav           7.50      218   0.029  0.04
-fleurs_en_3.wav           7.92      216   0.027  0.05
-fleurs_ru_1.wav           5.64      186   0.033  0.00
-fleurs_ru_2.wav           6.96      242   0.035  0.15
-fleurs_ru_3.wav           7.50      239   0.032  0.00
-fleurs_es_1/2/3.wav       ~7.4     ~204   0.028  0.00
-fleurs_uk_1.wav           5.28      177   0.034  0.12
-fleurs_uk_2.wav           5.10      174   0.034  0.00
-fleurs_uk_3.wav           7.80      260   0.033  0.08
----  mean RTF 0.032   word-weighted WER 0.042
-```
-
-**NPU** (`--backend npu`, encoder on Hexagon HTP V81, cached context):
+**CPU** (`--backend cpu`, ONNX Runtime 1.28.1 CPU EP, int8 encoder, default threads):
 
 ```
 file                    dur(s) time(ms)     RTF  WER
-fleurs_en_1.wav           6.00      109   0.018  0.20
-fleurs_en_2.wav           7.50       98   0.013  0.00
-fleurs_en_3.wav           7.92       91   0.011  0.09
-fleurs_ru_1/2/3.wav       ~6.7      ~98   0.015  0.00
-fleurs_es_1/2/3.wav       ~7.4      ~96   0.013  0.00
-fleurs_uk_1.wav           5.28       84   0.016  0.12
-fleurs_uk_2.wav           5.10       91   0.018  0.00
-fleurs_uk_3.wav           7.80      109   0.014  0.08
----  mean RTF 0.0145   word-weighted WER 0.048
+fleurs_en_1.wav           6.00      203   0.034  0.05 [en]
+fleurs_en_2.wav           7.50      224   0.030  0.09 [en]
+fleurs_en_3.wav           7.92      295   0.037  0.05 [en]
+fleurs_ru_1.wav           5.64      201   0.036  0.00 [ru]
+fleurs_ru_2.wav           6.96      197   0.028  0.15 [ru]
+fleurs_ru_3.wav           7.50      206   0.027  0.00 [ru]
+fleurs_es_1.wav           7.26      210   0.029  0.07 [es]
+fleurs_es_2.wav           7.14      203   0.028  0.00 [es]
+fleurs_es_3.wav           7.74      218   0.028  0.00 [es]
+fleurs_uk_1.wav           5.28      248   0.047  0.12 [uk]
+fleurs_uk_2.wav           5.10      181   0.036  0.00 [uk]
+fleurs_uk_3.wav           7.80      219   0.028  0.08 [uk]
+---
+mean RTF: 0.0324   word-weighted WER: 0.054
 ```
+
+**NPU** (`--backend npu`, encoder on Hexagon HTP V81, cached context binary):
+
+```
+file                    dur(s) time(ms)     RTF  WER
+fleurs_en_1.wav           6.00      113   0.019  0.20 [en]
+fleurs_en_2.wav           7.50      128   0.017  0.00 [en]
+fleurs_en_3.wav           7.92      109   0.014  0.09 [en]
+fleurs_ru_1.wav           5.64      122   0.022  0.00 [ru]
+fleurs_ru_2.wav           6.96      102   0.015  0.00 [ru]
+fleurs_ru_3.wav           7.50      112   0.015  0.00 [ru]
+fleurs_es_1.wav           7.26       76   0.010  0.00 [es]
+fleurs_es_2.wav           7.14       94   0.013  0.00 [es]
+fleurs_es_3.wav           7.74      144   0.019  0.00 [es]
+fleurs_uk_1.wav           5.28       98   0.019  0.12 [uk]
+fleurs_uk_2.wav           5.10       99   0.019  0.00 [uk]
+fleurs_uk_3.wav           7.80       88   0.011  0.08 [uk]
+---
+mean RTF: 0.0160   word-weighted WER: 0.048
+```
+
+RTF is wall-clock and varies run to run with scheduling and thermals: three consecutive CPU
+runs of the table above gave mean RTF 0.0312 / 0.0324 / 0.0346, and the NPU path has been observed
+between 0.0145 and 0.0160. WER, by contrast, is deterministic for a given build and model set.
+
+> **Correction (2026-08-27).** An earlier revision of this section recorded the CPU run as
+> **RTF 0.032 / WER 0.042**, with three of the twelve rows collapsed into a `fleurs_es_1/2/3` summary
+> line. The RTF reproduces; the **WER does not**. Re-running the same command against the same model
+> files and the same staged runtime now yields **0.054**, deterministically — three consecutive
+> release runs and one debug run all returned 0.054, and `git diff` shows the mel frontend, encoder,
+> TDT decoder and audio path are byte-for-byte unchanged (formatting only) since the commit that
+> recorded the original figure. The two rows that differ are `fleurs_en_2` (0.04 → 0.09) and
+> `fleurs_es_1` (recorded as 0.00 inside the collapsed row → 0.07); the other ten match exactly, and
+> the NPU table above reproduces its 0.048 row-for-row. **The provenance of the 0.042 figure could
+> not be established, so it is withdrawn** — 0.054 is the number the current, committed code
+> produces, and it is the one every downstream document now cites.
+>
+> Note that CPU WER (0.054) is *worse* than NPU WER (0.048) here. That is not an anomaly: the CPU
+> path runs an **int8-quantized** encoder while the HTP path runs **fp16**, so the accelerated path
+> is the more numerically faithful one on this machine.
 
 These are the **actual Rust engine** numbers (not the Python reference). The Rust engine loads the
 identical ONNX files. End-to-end totals include mel (CPU) + encoder + TDT decode (CPU); on the NPU
@@ -106,24 +136,143 @@ are number-word / casing normalization and fp16-vs-int8 decode ties, not recogni
 transcripts are correct sentences. First NPU run adds a one-time ~106 s context prepare (cached
 thereafter as a 1.2 GB `*_qnn.bin` that reloads in ~2 s).
 
-## 6. macOS / Linux (not measured here)
+## 6. Estimates vs measurements (`lw models` / `lw bench --quick`)
+
+Everything in §§1–5 is **measured**. The model catalog also has to say something useful about models
+that are *not installed yet* — you cannot benchmark a model you have not downloaded. Those numbers
+are **estimates**, and the code, the JSON and the tables keep the two apart on purpose. The rule:
+
+> A number is a **measurement** only if it was produced by running the model, and it is reported
+> together with the machine it ran on. Everything else is an **estimate** and is marked with `~`
+> under a column header containing `EST`.
+
+### 6.1 The estimate heuristic
+
+`lw_core::model::catalog::estimate_rtf(speed_tier, hardware, cpu_cores)` — deliberately simple, so
+you can judge it:
+
+1. Each catalog entry carries an editorial **speed tier**. Each tier maps to a base RTF on a
+   documented reference machine (an 8-performance-core ARM64 laptop CPU on the ORT CPU EP):
+
+   | Speed tier | Base RTF @ 8 cores |
+   |---|---|
+   | `slow` | 0.60 |
+   | `moderate` | 0.25 |
+   | `fast` | 0.08 |
+   | `very_fast` | 0.035 |
+
+   The `very_fast` anchor is set from the measured Parakeet CPU RTF of 0.032 in §5.1. The other
+   three are ordinal steps away from it — they are **not** measurements of anything.
+
+2. Scale by core count: `clamp(8 / clamp(cores, 2, 16), 0.75, 4.0)`. The clamps are asymmetric on
+   purpose. A small or unidentified machine takes up to a 4× penalty; a big machine is credited
+   with at most 1.33×, because only the encoder is multi-threaded — the mel front end and the
+   per-frame TDT decode are not. (Evidence: the 18-core X2 measured 0.032, essentially the 8-core
+   reference figure.)
+
+3. If an accelerator is available *and* the entry ships an artifact for it, multiply by
+   `NPU_RTF_RATIO = 0.45` (Qualcomm) or `COREML_RTF_RATIO = 0.60` (Apple). The NPU ratio is the one
+   measured pair we have — 0.0145 / 0.032 from §5.1 — and is validated for **no other model**. The
+   CoreML ratio is an unvalidated placeholder; see §7.
+
+An accelerator counts only when its *execution provider* is really available, not merely when the
+OS reports the hardware: `lw-platform`'s detector can see a Hexagon driver package while the QNN EP
+fails to load. `lw models list` / `info` register the QNN EP and enumerate devices; `lw models
+compare` and `lw bench --quick` use the weaker "is the EP library there" check instead, because
+registering the EP behind an engine's back pulls it into sessions meant to stay on the CPU.
+
+**How good is the heuristic?** On the one machine where both numbers exist, `lw models list`
+estimated **~0.0118** for Parakeet on the NPU and `lw models compare` measured **0.0142** on the
+same machine minutes later — about 20 % optimistic. That is the accuracy class to expect: right
+order of magnitude, useful for ranking, useless as a promise.
+
+### 6.2 `lw bench --quick`
+
+A few-second self-measurement with per-stage timings that needs no fixtures directory:
+
+```bash
+lw bench --quick --backend cpu --model-dir <models>/parakeet-tdt-0.6b-v3
+```
+
+It reuses `tests/fixtures/audio` when it can find one (walking up from the working directory and
+from the executable, or `$LW_FIXTURES`), and only synthesizes audio when it cannot. Synthetic audio
+is announced loudly, because the TDT decoder emits far fewer tokens on a synthetic sweep than on
+speech, which makes the RTF a **lower bound** rather than a representative figure. Measured on the
+X2 (2026-08-27, real FLEURS clips, CPU EP):
+
+```
+stage (measured)                     time
+ort runtime init                      1 ms
+engine load (sessions)             1171 ms
+health probe                         60 ms   provider: ONNX Runtime CPU
+transcribe fleurs_en_1.wav          185 ms   RTF 0.0308   WER 0.05
+transcribe fleurs_en_2.wav          197 ms   RTF 0.0262   WER 0.09
+transcribe fleurs_en_3.wav          209 ms   RTF 0.0264   WER 0.05
+
+MEASURED RTF (first/cold run) : 0.0308
+MEASURED RTF (warm mean)      : 0.0263   over 2 run(s), 197–209 ms
+MEASURED WER (word-weighted)  : 0.062   over 3 clip(s)
+```
+
+The cold run is reported separately from the warm mean because the first inference pays lazy
+allocation and cache warm-up. The warm mean, 0.0263, is in line with the full 12-clip fixture run
+in §5.1 (0.032) — the quick bench is a smaller, English-only sample, not a different measurement.
+The WER here (0.062) is higher than the 12-clip word-weighted figure precisely because it is only
+the three English clips, which carry all of the number-word/casing normalization noise (§3).
+
+The fixture-based `lw bench <dir>` behaviour is unchanged; `--quick` is purely additive.
+
+### 6.3 `lw models compare`
+
+One table, estimates and measurements in separate columns, for every catalog entry:
+
+```
+ID                     EST HW     EST RTF  MEAS HW  MEAS RTF  MEAS WER  STATUS
+parakeet-tdt-0.6b-v3   qnn-npu    ~0.0118  qnn-npu    0.0142     0.092  measured just now
+whisper-base           cpu        ~0.0600        —         —         —  needs the `sherpa` engine feature …
+```
+
+- **EST HW / EST RTF** — the estimate and the target it assumes.
+- **MEAS HW / MEAS RTF / MEAS WER** — a real run performed by this command, on hardware read back
+  from the engine *after* initialization. An engine that asked for the NPU and fell back reports
+  `cpu` here, and the status column says the two columns are then not comparable.
+- Models that are not installed, have no pinned manifest, or need an engine this build lacks show
+  `—` in the measured columns with the reason spelled out. Nothing is ever extrapolated into them.
+- Below the table, `compare` lists the catalog's own reference measurements together with the
+  machine each was taken on, so a number measured elsewhere can never be mistaken for yours.
+
+`--fixtures <dir>` measures with real reference transcripts (enabling WER), `--backend` forces a
+target, `--no-run` shows estimates only, and `--json` emits the same data machine-readably with an
+explicit `estimated_rtf_is_an_estimate: true` flag on every row.
+
+### 6.4 What the catalog does *not* claim
+
+`models/catalog.json` carries verified sizes and URLs for the Whisper and Moonshine entries (read
+from the GitHub release API for `k2-fsa/sherpa-onnx` tag `asr-models`), but **no** SHA-256 hashes,
+because none are published and we have not hashed the archives ourselves. Consequently those
+entries have no pinned manifest and `lw models install` refuses them rather than downloading
+something unverified. Their `wer_estimates` are empty and their `disk_bytes` is `null` for the same
+reason: an honest blank instead of a plausible fabrication. Every entry's `notes` field states
+explicitly what is verified and what is not.
+
+## 7. macOS / Linux (not measured here)
 
 - macOS ANE (FluidAudio, published): encoder ~28 ms / 15 s window on M5, RTFx ~128–146×. **Not
   measured on our hardware** — we develop on Windows ARM64; the macOS CoreML path must be benchmarked
   on real Apple Silicon before any acceleration claim.
 - Linux: ORT CPU int8, expected RTF comparable to the Windows CPU path on similar ARM cores.
 
-## 7. Memory (approximate, from process inspection)
+## 8. Memory (approximate, from process inspection)
 
 - CPU int8 encoder resident: ~1–1.3 GB during inference (int8 weights + fp32 activations).
 - HTP fp16 context: ~1.2 GB binary; NPU-side memory is managed by the HTP.
 - Silero VAD: a few MB.
 
-## 8. Benchmark matrix status
+## 9. Benchmark matrix status
 
 | Config | Latency | RTF | WER | Measured? |
 |---|---|---|---|---|
-| Parakeet CPU (X2) | ✅ | ✅ (0.032) | ✅ (4.2%) | **yes — via `lw bench`** |
+| Parakeet CPU (X2) | ✅ | ✅ (0.032) | ✅ (5.4%) | **yes — via `lw bench`** |
 | Parakeet QNN/NPU (X2 V81) | ✅ | ✅ (0.0145) | ✅ (4.8%) | **yes — via `lw bench`** |
 | Whisper CPU | — | — | — | not in v1 (engine adapter stub) |
 | Whisper QNN | — | — | — | out of scope for v1 |

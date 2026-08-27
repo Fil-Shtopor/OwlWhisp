@@ -1,0 +1,31 @@
+[package]
+name = "lw-engine-sherpa"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Portable CPU speech engine for LocalWisper backed by sherpa-onnx (Whisper, Moonshine, SenseVoice, Paraformer, NeMo transducers) — runs on any x86_64/aarch64 CPU"
+
+[features]
+# The heavy native dependency is opt-in: `cargo check --workspace` stays fast for people who do not
+# want the ~140 MB prebuilt sherpa-onnx archive. Without it the crate still compiles and exposes the
+# model-layout detection, config and language tables (everything that does not need the native lib).
+default = []
+sherpa = ["dep:sherpa-onnx"]
+
+[dependencies]
+lw-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sherpa-onnx = { workspace = true, optional = true }
+
+[dev-dependencies]
+hound.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
+# Only used by tests/dual_runtime.rs, which proves that a single binary can hold BOTH Microsoft's
+# dynamically loaded onnxruntime.dll (via lw-ort) and sherpa-onnx's statically linked ONNX Runtime.
+lw-ort.workspace = true

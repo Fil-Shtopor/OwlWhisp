@@ -3,8 +3,17 @@
 //! Subcommands:
 //! - `diagnose`  — print the capability/runtime report (JSON or text).
 //! - `transcribe`— transcribe a WAV file with Parakeet (CPU or NPU).
-//! - `bench`     — benchmark the pipeline over a fixtures directory (RTF + optional WER).
+//! - `bench`     — benchmark the pipeline over a fixtures directory (RTF + optional WER), or
+//!   `--quick` to measure this machine in a few seconds with no fixtures.
+//! - `models`    — the model catalog: `list`, `info`, `install`, `compare`.
+//! - `record` / `devices` — live microphone paths.
 //! - `selfcheck` — a machine-readable readiness report (JSON).
+//!
+//! Honesty rule for output: a number is either **measured** (timed here, now, or carried with the
+//! name of the machine it was taken on) or an **estimate**. The two are never printed in the same
+//! column, and estimates are always marked. See [`models`].
+
+mod models;
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -72,10 +81,10 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         threads: usize,
     },
-    /// Benchmark over a fixtures directory containing `fixtures.json`.
+    /// Benchmark over a fixtures directory containing `fixtures.json` (or `--quick`).
     Bench {
-        /// Directory with WAV files and `fixtures.json`.
-        fixtures: PathBuf,
+        /// Directory with WAV files and `fixtures.json`. Optional when `--quick` is given.
+        fixtures: Option<PathBuf>,
         /// Model directory.
         #[arg(long)]
         model_dir: PathBuf,
@@ -88,6 +97,18 @@ enum Command {
         /// CPU threads (0 = default).
         #[arg(long, default_value_t = 0)]
         threads: usize,
+        /// Few-second self-measurement with per-stage timings; needs no fixtures directory.
+        ///
+        /// Uses `tests/fixtures/audio` if it can find one, otherwise synthesizes speech-like
+        /// audio and says so. Every number it prints is measured on this machine.
+        #[arg(long)]
+        quick: bool,
+    },
+    /// Browse, inspect, install and compare speech models.
+    Models {
+        /// The models subcommand.
+        #[command(subcommand)]
+        cmd: models::ModelsCmd,
     },
     /// Record from the microphone for N seconds, then transcribe (live end-to-end).
     Record {
@@ -177,11 +198,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             cache_dir,
             backend,
             threads,
+            quick,
         } => {
-            let rt = init_runtime(&cli.runtime_dir)?;
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
+            if quick {
+                return models::bench_quick(models::QuickArgs {
+                    runtime_dir: cli.runtime_dir.clone(),
+                    model_dir,
+                    cache_dir: cache,
+                    backend: backend.into(),
+                    threads,
+                    fixtures,
+                });
+            }
+            let fixtures = fixtures.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "bench needs a fixtures directory containing fixtures.json — \
+                     pass one, or use `lw bench --quick` to measure this machine without fixtures"
+                )
+            })?;
+            let rt = init_runtime(&cli.runtime_dir)?;
             bench(rt, &fixtures, &model_dir, &cache, backend.into(), threads)
         }
+        Command::Models { cmd } => models::run(cmd, &cli.runtime_dir),
         Command::Devices => {
             for d in lw_platform::audio::list_input_devices() {
                 println!("{d}");
