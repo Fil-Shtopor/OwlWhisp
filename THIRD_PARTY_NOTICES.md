@@ -30,4 +30,11 @@ serde_json, thiserror, anyhow, tracing, sha2, hex, directories, sysinfo, regex, 
 zip, tar, bzip2, flate2, clap, indicatif, uuid, chrono, parking_lot, crossbeam-channel, tokio-util;
 React, Vite, TypeScript, @tauri-apps/api.
 
-No GPL/AGPL/LGPL code is linked into LocalWisper.
+No GPL/AGPL/LGPL code is linked into the **default** LocalWisper build.
+
+**Optional `sherpa` engine:** builds made with `--features sherpa` link the `sherpa-onnx` native
+library. Its *default* prebuilt archive statically includes **espeak-ng (GPL-3.0-or-later)**, which
+is incompatible with the proprietary Qualcomm QNN runtime this app also ships — such a build must
+not be distributed. Use a `-no-tts` sherpa-onnx archive (see `docs/licenses.md`) and re-check this
+file before releasing any binary with that feature enabled. Components then added are permissive:
+sherpa-onnx (Apache-2.0, © k2-fsa), kaldi-native-fbank (Apache-2.0), kissfft (BSD-3-Clause).
