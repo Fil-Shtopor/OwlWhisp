@@ -106,7 +106,7 @@ fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
         BackendPreference::ForceNpu => BackendKind::ForceNpu,
         BackendPreference::ForceCpu => BackendKind::ForceCpu,
     };
-    let mut config = ParakeetConfig::from_ctx(
+    let config = ParakeetConfig::from_ctx(
         &EngineInitContext {
             model_dir: model_dir.clone(),
             cache_dir: cache_dir.clone(),
@@ -114,10 +114,9 @@ fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
         },
         backend,
     );
-    if runtime.qnn_available() {
-        config.htp_arch = Some(81);
-        config.soc_model = Some(88);
-    }
+    // Hexagon generation comes from the detected NPU (V73 on X Elite / X Plus, V81 on X2 Elite),
+    // never from a hard-coded assumption about one SoC.
+    let config = config.with_capabilities(&lw_platform::caps::detect());
     let mut engine = ParakeetEngine::new(runtime, config);
     engine
         .initialize(&EngineInitContext {

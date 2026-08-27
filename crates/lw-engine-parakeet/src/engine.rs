@@ -79,6 +79,20 @@ pub struct ParakeetConfig {
 }
 
 impl ParakeetConfig {
+    /// Take the NPU target from detected hardware rather than assuming one SoC.
+    ///
+    /// The Hexagon generation differs per device (Snapdragon X Elite / X Plus are **V73**,
+    /// X2 Elite is **V81**), and a QNN context binary is only valid for the generation it was
+    /// prepared for — hard-coding one would silently exclude every other Snapdragon. Leaving both
+    /// values `None` is also fine: the QNN EP then picks the target itself.
+    pub fn with_capabilities(mut self, caps: &lw_core::capabilities::Capabilities) -> Self {
+        if caps.npu.present {
+            self.htp_arch = caps.npu.htp_arch.map(|a| a.num());
+            self.soc_model = caps.npu.soc_model;
+        }
+        self
+    }
+
     /// Config from an [`EngineInitContext`] and a backend kind.
     pub fn from_ctx(ctx: &EngineInitContext, backend: BackendKind) -> Self {
         Self {

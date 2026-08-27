@@ -247,7 +247,7 @@ fn build_engine(
     backend: BackendKind,
     threads: usize,
 ) -> anyhow::Result<ParakeetEngine> {
-    let mut config = ParakeetConfig::from_ctx(
+    let config = ParakeetConfig::from_ctx(
         &EngineInitContext {
             model_dir: model_dir.to_path_buf(),
             cache_dir: cache_dir.to_path_buf(),
@@ -255,11 +255,9 @@ fn build_engine(
         },
         backend,
     );
-    // On a Snapdragon X2 the HTP is V81 / soc 88; harmless as hints elsewhere.
-    if rt.qnn_available() {
-        config.htp_arch = Some(81);
-        config.soc_model = Some(88);
-    }
+    // Take the Hexagon generation from the detected hardware: X Elite / X Plus are V73, X2 Elite
+    // is V81, and a context binary prepared for one will not load on the other.
+    let config = config.with_capabilities(&lw_platform::caps::detect());
     let mut engine = ParakeetEngine::new(rt, config);
     engine
         .initialize(&EngineInitContext {
