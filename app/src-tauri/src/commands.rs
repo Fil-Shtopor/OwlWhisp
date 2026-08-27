@@ -24,13 +24,23 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<Value, String> {
 /// Validate and persist settings atomically via `lw_core::settings::Settings`.
 /// Returns the normalized settings as saved.
 #[tauri::command]
-pub fn set_settings(state: State<'_, AppState>, settings: Value) -> Result<Value, String> {
+pub fn set_settings(app: AppHandle, state: State<'_, AppState>, settings: Value) -> Result<Value, String> {
     let parsed: Settings = serde_json::from_value(settings).map_err(|e| e.to_string())?;
     parsed.save(&state.settings_path).map_err(|e| e.to_string())?;
     state
         .overlay_enabled
         .store(parsed.overlay_enabled, std::sync::atomic::Ordering::Relaxed);
+    // Apply the parts that live outside the settings file: rebind the global hotkey (and its
+    // hold/toggle behaviour) and make the worker pick up the new model/backend/dictionary.
+    crate::reregister_shortcut(&app, &parsed);
+    state.worker.send(crate::worker::WorkerCmd::ReloadSettings);
     serde_json::to_value(&parsed).map_err(|e| e.to_string())
+}
+
+/// The accelerator currently registered with the OS, for the shortcut editor to display.
+#[tauri::command]
+pub fn active_hotkey(state: State<'_, AppState>) -> Option<String> {
+    state.shortcut().map(|s| s.into_string())
 }
 
 /// The backend preferences the UI can offer (serde names of `lw_core`'s `BackendPreference`).

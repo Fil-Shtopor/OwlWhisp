@@ -4,10 +4,12 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use lw_core::settings::HotkeyMode;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::Shortcut;
 
 /// The dictation state machine as shown in the UI.
 ///
@@ -49,11 +51,21 @@ pub struct AppState {
     recording: Mutex<RecordingState>,
     /// Bumped on every transition; lets delayed transitions detect staleness.
     generation: AtomicU64,
+    /// The dictation shortcut currently registered with the OS, so it can be unregistered on change
+    /// and so the handler ignores events from any other binding.
+    shortcut: Mutex<Option<Shortcut>>,
+    /// Hold-to-talk vs tap-to-toggle vs hands-free, mirroring `Settings.hotkey.mode`.
+    hotkey_mode: Mutex<HotkeyMode>,
 }
 
 impl AppState {
     /// Create the state with the resolved settings path and the dictation worker handle.
-    pub fn new(settings_path: PathBuf, overlay_enabled: bool, worker: crate::worker::WorkerHandle) -> Self {
+    pub fn new(
+        settings_path: PathBuf,
+        overlay_enabled: bool,
+        hotkey_mode: HotkeyMode,
+        worker: crate::worker::WorkerHandle,
+    ) -> Self {
         Self {
             settings_path,
             overlay_enabled: AtomicBool::new(overlay_enabled),
@@ -61,7 +73,29 @@ impl AppState {
             worker,
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
+            shortcut: Mutex::new(None),
+            hotkey_mode: Mutex::new(hotkey_mode),
         }
+    }
+
+    /// The dictation shortcut currently registered, if any.
+    pub fn shortcut(&self) -> Option<Shortcut> {
+        *self.shortcut.lock()
+    }
+
+    /// Record the shortcut now registered with the OS.
+    pub fn set_shortcut(&self, shortcut: Option<Shortcut>) {
+        *self.shortcut.lock() = shortcut;
+    }
+
+    /// The active hotkey behaviour.
+    pub fn hotkey_mode(&self) -> HotkeyMode {
+        *self.hotkey_mode.lock()
+    }
+
+    /// Update the active hotkey behaviour (after a settings change).
+    pub fn set_hotkey_mode(&self, mode: HotkeyMode) {
+        *self.hotkey_mode.lock() = mode;
     }
 
     /// Current recording state.

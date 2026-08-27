@@ -17,7 +17,7 @@ pub mod worker;
 
 use std::time::Duration;
 
-use lw_core::settings::Settings;
+use lw_core::settings::{HotkeyMode, Settings};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -28,12 +28,53 @@ use tauri_plugin_global_shortcut::{
 
 use crate::state::{AppState, RecordingState};
 
-/// The default push-to-talk shortcut.
-///
-/// TODO: derive from `Settings.hotkey` (and re-register on settings change) once the
-/// hotkey editor lands; for now the app-level default is fixed at Ctrl+Alt+Space.
-fn dictation_shortcut() -> Shortcut {
+/// The fallback binding used when settings are missing or hold an unregistrable combination.
+fn fallback_shortcut() -> Shortcut {
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space)
+}
+
+/// Resolve the dictation shortcut from settings.
+///
+/// A modifiers-only binding (e.g. Ctrl+Win) cannot be registered through the OS shortcut API — it
+/// needs the low-level keyboard hook in `lw-platform` — so we fall back to the default binding and
+/// say so in the log rather than silently having no hotkey.
+fn shortcut_from_settings(settings: &Settings) -> Shortcut {
+    match settings.hotkey.to_accelerator() {
+        Some(accel) => match accel.parse::<Shortcut>() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("hotkey '{accel}' is not a valid accelerator ({e}); using the default");
+                fallback_shortcut()
+            }
+        },
+        None => {
+            if settings.hotkey.is_modifier_only() {
+                tracing::warn!(
+                    "modifiers-only hotkeys need the low-level hook backend; using the default binding"
+                );
+            }
+            fallback_shortcut()
+        }
+    }
+}
+
+/// Re-register the global shortcut after the binding changed. Returns the shortcut now in effect.
+pub fn reregister_shortcut(app: &AppHandle, settings: &Settings) -> Shortcut {
+    let state = app.state::<AppState>();
+    let next = shortcut_from_settings(settings);
+    let current = state.shortcut();
+    if current.as_ref() == Some(&next) {
+        return next;
+    }
+    if let Some(old) = current {
+        let _ = app.global_shortcut().unregister(old);
+    }
+    if let Err(e) = app.global_shortcut().register(next) {
+        tracing::error!("failed to register hotkey: {e}");
+    }
+    state.set_shortcut(Some(next));
+    state.set_hotkey_mode(settings.hotkey.mode);
+    next
 }
 
 /// Build and run the Tauri application.
@@ -64,18 +105,23 @@ pub fn run() {
             commands::get_recording_state,
             commands::set_recording_state,
             commands::subscribe_mic_level,
+            commands::active_hotkey,
         ])
         .setup(|app| {
             let settings_path = app.path().app_data_dir()?.join("settings.json");
-            let overlay_enabled =
-                Settings::load(&settings_path).map(|s| s.overlay_enabled).unwrap_or(true);
+            let settings = Settings::load(&settings_path).unwrap_or_default();
             let worker = worker::spawn(app.handle().clone(), settings_path.clone());
-            app.manage(AppState::new(settings_path, overlay_enabled, worker));
+            app.manage(AppState::new(
+                settings_path,
+                settings.overlay_enabled,
+                settings.hotkey.mode,
+                worker,
+            ));
 
             build_tray(app.handle())?;
             create_overlay_window(app.handle())?;
 
-            app.global_shortcut().register(dictation_shortcut())?;
+            reregister_shortcut(app.handle(), &settings);
             Ok(())
         })
         // Closing the main window hides it to the tray; "Quit" in the tray exits.
@@ -163,35 +209,54 @@ fn create_overlay_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Global-shortcut handler: push-to-talk transitions of the recording-state machine.
+/// Global-shortcut handler. Three binding behaviours, chosen by `Settings.hotkey.mode`:
 ///
-/// Pressed starts microphone capture in the [`worker`]; Released stops capture and asks the worker
-/// to transcribe and deliver the text. The worker emits the `processing → done → idle` transitions
-/// (and `transcript` / `worker_error`) itself when it finishes.
+/// - **PushToTalk** — press starts capture, release stops it and transcribes.
+/// - **Toggle** — press starts capture, the *next* press stops it; key release is ignored, so the
+///   keys do not have to be held down.
+/// - **HandsFree** — press starts capture; the worker's voice-activity detector ends the utterance
+///   on silence (the same press also stops it early).
+///
+/// The worker emits the `processing → done → idle` transitions and `transcript`/`worker_error`.
 fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
-    if *shortcut != dictation_shortcut() {
+    let state = app.state::<AppState>();
+    if state.shortcut().as_ref() != Some(shortcut) {
         return;
     }
-    let state = app.state::<AppState>();
+    let hold_to_talk = state.hotkey_mode() == HotkeyMode::PushToTalk;
     match event.state() {
         ShortcutState::Pressed => {
             if state.recording_state() == RecordingState::Listening {
-                return; // key auto-repeat
+                // Hold-to-talk sees key auto-repeat here and must ignore it; the tap modes treat a
+                // second press as "stop".
+                if hold_to_talk {
+                    return;
+                }
+                stop_recording(app, &state);
+                return;
+            }
+            if state.recording_state() == RecordingState::Processing {
+                return; // still finishing the previous utterance
             }
             let generation = state.transition(app, RecordingState::Listening);
-            state.worker.send(worker::WorkerCmd::StartRecording);
+            state.worker.send(worker::WorkerCmd::StartRecording {
+                hands_free: state.hotkey_mode() == HotkeyMode::HandsFree,
+            });
             spawn_mic_level_stub(app.clone(), generation);
         }
         ShortcutState::Released => {
-            if state.recording_state() != RecordingState::Listening {
+            if !hold_to_talk || state.recording_state() != RecordingState::Listening {
                 return;
             }
-            // Enter Processing; the worker stops capture, transcribes, injects, then emits the
-            // `done` -> `idle` state transitions itself when finished (see worker.rs).
-            state.transition(app, RecordingState::Processing);
-            state.worker.send(worker::WorkerCmd::StopRecording);
+            stop_recording(app, &state);
         }
     }
+}
+
+/// Move to `Processing` and ask the worker to finish the utterance.
+fn stop_recording(app: &AppHandle, state: &AppState) {
+    state.transition(app, RecordingState::Processing);
+    state.worker.send(worker::WorkerCmd::StopRecording);
 }
 
 /// Feed the `mic_level` channel with synthetic levels while listening.

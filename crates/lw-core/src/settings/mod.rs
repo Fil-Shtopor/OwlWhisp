@@ -40,11 +40,102 @@ pub struct HotkeyConfig {
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
-            modifiers: vec!["ctrl".into(), "win".into()],
-            trigger: "none".into(),
+            modifiers: vec!["ctrl".into(), "alt".into()],
+            trigger: "space".into(),
             mode: HotkeyMode::PushToTalk,
         }
     }
+}
+
+impl HotkeyConfig {
+    /// Render the binding as an accelerator string (`"Control+Alt+Space"`) for the OS shortcut
+    /// registry.
+    ///
+    /// Returns `None` for a modifiers-only binding (`trigger == "none"`): the OS-level
+    /// `RegisterHotKey` path needs a non-modifier key, so those bindings require the low-level
+    /// keyboard hook backend in `lw-platform` instead.
+    pub fn to_accelerator(&self) -> Option<String> {
+        let mut parts: Vec<&'static str> = Vec::new();
+        for m in &self.modifiers {
+            match m.to_ascii_lowercase().as_str() {
+                "ctrl" | "control" => parts.push("Control"),
+                "shift" => parts.push("Shift"),
+                "alt" | "option" => parts.push("Alt"),
+                "win" | "super" | "cmd" | "meta" => parts.push("Super"),
+                _ => return None,
+            }
+        }
+        let key = key_code_name(&self.trigger)?;
+        parts.push(key);
+        Some(parts.join("+"))
+    }
+
+    /// Whether this binding needs the low-level hook backend (modifiers-only combos).
+    pub fn is_modifier_only(&self) -> bool {
+        self.trigger.eq_ignore_ascii_case("none") || self.trigger.is_empty()
+    }
+
+    /// Validate the binding the way the shortcut editor should: a usable combination needs either a
+    /// trigger key, or (for the hook backend) at least two modifiers.
+    pub fn validate(&self) -> Result<()> {
+        if self.is_modifier_only() {
+            if self.modifiers.len() < 2 {
+                return Err(Error::Config(
+                    "a modifiers-only hotkey needs at least two modifiers".into(),
+                ));
+            }
+            return Ok(());
+        }
+        if key_code_name(&self.trigger).is_none() {
+            return Err(Error::Config(format!("unsupported hotkey key: {}", self.trigger)));
+        }
+        Ok(())
+    }
+}
+
+/// Map a trigger name to the `KeyboardEvent.code`-style name accelerators use.
+fn key_code_name(trigger: &str) -> Option<&'static str> {
+    const LETTERS: [&str; 26] = [
+        "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
+        "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
+        "KeyY", "KeyZ",
+    ];
+    const DIGITS: [&str; 10] = [
+        "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
+        "Digit9",
+    ];
+    const FKEYS: [&str; 20] = [
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15",
+        "F16", "F17", "F18", "F19", "F20",
+    ];
+    let t = trigger.trim().to_ascii_lowercase();
+    match t.as_str() {
+        "" | "none" => return None,
+        "space" => return Some("Space"),
+        "tab" => return Some("Tab"),
+        "enter" | "return" => return Some("Enter"),
+        "escape" | "esc" => return Some("Escape"),
+        "capslock" | "caps_lock" => return Some("CapsLock"),
+        "insert" => return Some("Insert"),
+        "backquote" | "grave" => return Some("Backquote"),
+        _ => {}
+    }
+    if t.len() == 1 {
+        let c = t.as_bytes()[0];
+        if c.is_ascii_lowercase() {
+            return Some(LETTERS[(c - b'a') as usize]);
+        }
+        if c.is_ascii_digit() {
+            return Some(DIGITS[(c - b'0') as usize]);
+        }
+    }
+    if let Some(rest) = t.strip_prefix('f')
+        && let Ok(n) = rest.parse::<usize>()
+        && (1..=20).contains(&n)
+    {
+        return Some(FKEYS[n - 1]);
+    }
+    None
 }
 
 /// Optional OpenAI-compatible LLM cleanup endpoint.
@@ -154,6 +245,7 @@ impl Settings {
         if !(0.0..=1.0).contains(&self.vad.threshold) {
             return Err(Error::Config("vad.threshold must be in [0, 1]".into()));
         }
+        self.hotkey.validate()?;
         if self.model_id.trim().is_empty() {
             return Err(Error::Config("model_id must not be empty".into()));
         }
@@ -192,6 +284,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn accelerator_from_default_binding() {
+        let h = HotkeyConfig::default();
+        assert_eq!(h.to_accelerator().as_deref(), Some("Control+Alt+Space"));
+        assert!(!h.is_modifier_only());
+        h.validate().unwrap();
+    }
+
+    #[test]
+    fn accelerator_maps_letters_digits_and_fkeys() {
+        let mk = |trigger: &str| HotkeyConfig {
+            modifiers: vec!["ctrl".into()],
+            trigger: trigger.into(),
+            mode: HotkeyMode::Toggle,
+        };
+        assert_eq!(mk("d").to_accelerator().as_deref(), Some("Control+KeyD"));
+        assert_eq!(mk("F13").to_accelerator().as_deref(), Some("Control+F13"));
+        assert_eq!(mk("1").to_accelerator().as_deref(), Some("Control+Digit1"));
+        assert_eq!(mk("tab").to_accelerator().as_deref(), Some("Control+Tab"));
+    }
+
+    #[test]
+    fn modifier_only_binding_has_no_accelerator() {
+        let h = HotkeyConfig {
+            modifiers: vec!["ctrl".into(), "win".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        assert!(h.is_modifier_only());
+        assert_eq!(h.to_accelerator(), None);
+        // two modifiers is a usable hook-backend binding
+        h.validate().unwrap();
+    }
+
+    #[test]
+    fn single_modifier_only_binding_is_rejected() {
+        let h = HotkeyConfig {
+            modifiers: vec!["ctrl".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        assert!(h.validate().is_err());
+    }
+
+    #[test]
+    fn unknown_key_is_rejected() {
+        let h = HotkeyConfig {
+            modifiers: vec!["ctrl".into()],
+            trigger: "wingding".into(),
+            mode: HotkeyMode::Toggle,
+        };
+        assert!(h.validate().is_err());
+        assert_eq!(h.to_accelerator(), None);
+    }
+
+    #[test]
+    fn hotkey_modes_roundtrip_json() {
+        for mode in [HotkeyMode::PushToTalk, HotkeyMode::Toggle, HotkeyMode::HandsFree] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let back: HotkeyMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, mode);
+        }
+        assert_eq!(serde_json::to_string(&HotkeyMode::Toggle).unwrap(), "\"toggle\"");
+    }
+
+    #[test]
     fn default_is_valid() {
         Settings::default().validate().unwrap();
     }
@@ -227,7 +384,7 @@ mod tests {
     fn preserves_unknown_fields() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        let json = r#"{"version":1,"hotkey":{"modifiers":["ctrl"],"trigger":"none","mode":"toggle"},
+        let json = r#"{"version":1,"hotkey":{"modifiers":["ctrl","alt"],"trigger":"space","mode":"toggle"},
             "audio":{"input_device":"","min_record_secs":0.25,"max_record_secs":300.0},
             "backend":"automatic","model_id":"m","vad":{"threshold":0.5,"frame_ms":32.0,
             "min_speech_ms":200,"hangover_ms":1000,"pre_roll_ms":300,"trailing_pad_ms":250,"max_segment_ms":20000},

@@ -30,7 +30,11 @@ use crate::state::{AppState, RecordingState};
 /// Commands sent to the worker thread.
 pub enum WorkerCmd {
     /// Begin capturing from the microphone.
-    StartRecording,
+    StartRecording {
+        /// End the utterance automatically once the speaker stops (hands-free mode) instead of
+        /// waiting for a second key press.
+        hands_free: bool,
+    },
     /// Stop capturing and transcribe → deliver the resulting text.
     StopRecording,
     /// Reload settings (backend, dictionary, cleanup) for the next utterance.
@@ -158,10 +162,15 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
             WorkerCmd::ReloadSettings => {
                 loaded = None; // reload lazily next utterance
             }
-            WorkerCmd::StartRecording => {
+            WorkerCmd::StartRecording { hands_free } => {
                 let mut cap = Capture::new(None, 16_000 * 120);
                 match cap.start() {
-                    Ok(()) => capture = Some(cap),
+                    Ok(()) => {
+                        if hands_free {
+                            spawn_silence_watcher(app.clone(), &cap);
+                        }
+                        capture = Some(cap);
+                    }
                     Err(e) => emit_error(&app, &format!("microphone: {e}")),
                 }
             }
@@ -215,6 +224,60 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
         }
     }
     let _ = &app;
+}
+
+/// Hands-free mode: watch the live capture and end the utterance once the speaker stops.
+///
+/// Runs the model-agnostic endpoint state machine from `lw_core::vad` over the capture's ring
+/// buffer. The detector is energy-based, so it needs no extra model download; because the endpoint
+/// logic is behind the [`Vad`](lw_core::vad::Vad) trait, swapping in Silero later changes nothing
+/// else. The watcher stops as soon as the recording leaves `Listening` (e.g. the user pressed the
+/// key again first).
+fn spawn_silence_watcher(app: AppHandle, capture: &Capture) {
+    use lw_core::audio::TARGET_SAMPLE_RATE;
+    use lw_core::vad::{EndpointConfig, EndpointDetector, EnergyVad, VAD_FRAME_SIZE, Vad};
+
+    let ring = capture.ring();
+    let native_rate = capture.native_sample_rate().max(1);
+    // The ring holds native-rate samples; size the analysis hop so it is ~32 ms of real time.
+    let hop = ((VAD_FRAME_SIZE as u64 * native_rate as u64) / TARGET_SAMPLE_RATE as u64).max(1) as usize;
+
+    std::thread::Builder::new()
+        .name("hands-free-vad".into())
+        .spawn(move || {
+            let settings = Settings::load(&app.state::<AppState>().settings_path).unwrap_or_default();
+            let cfg = EndpointConfig {
+                frame_ms: 1000.0 * hop as f32 / native_rate as f32,
+                ..settings.vad
+            };
+            let mut detector = EndpointDetector::new(cfg);
+            let mut vad = EnergyVad::default();
+            let mut consumed = 0usize;
+
+            loop {
+                if app.state::<AppState>().recording_state() != RecordingState::Listening {
+                    return; // stopped by the user or by an error
+                }
+                let samples = ring.snapshot();
+                while consumed + hop <= samples.len() {
+                    let frame = &samples[consumed..consumed + hop];
+                    consumed += hop;
+                    let Ok(p) = vad.process_frame(frame) else { continue };
+                    for event in detector.push(p) {
+                        if let lw_core::vad::EndpointEvent::SegmentComplete(_) = event {
+                            let state = app.state::<AppState>();
+                            if state.recording_state() == RecordingState::Listening {
+                                state.transition(&app, RecordingState::Processing);
+                                state.worker.send(WorkerCmd::StopRecording);
+                            }
+                            return;
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+        })
+        .ok();
 }
 
 /// Inject `text` into the foreground application; on failure, copy to the clipboard. Returns whether
