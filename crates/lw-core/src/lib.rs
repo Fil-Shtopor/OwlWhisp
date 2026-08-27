@@ -11,6 +11,7 @@
 #![warn(missing_docs)]
 
 pub mod audio;
+pub mod bench;
 pub mod capabilities;
 pub mod diagnostics;
 pub mod dictionary;

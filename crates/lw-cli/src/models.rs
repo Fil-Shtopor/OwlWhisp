@@ -18,14 +18,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use clap::Subcommand;
-use lw_core::audio::AudioBuffer;
+use lw_core::bench::{ClipResult, ClipSource, Measurement, measure, quick_clips};
 use lw_core::capabilities::Capabilities;
 use lw_core::engine::SpeechEngine;
 use lw_ort::OrtRuntime;
 
 use lw_core::model::{
-    ArtifactTarget, CacheState, CancellationToken, Catalog, CatalogEntry, EngineKind, HardwareTarget,
-    ModelDownloader, ModelManifest, ModelRegistry, Recommendation, staging_dir_for,
+    ArtifactTarget, CancellationToken, Catalog, EngineKind, EntryPaths, HardwareTarget, InstallState,
+    ModelDownloader, ModelManifest, ModelRegistry, Recommendation, default_models_root, entry_paths,
+    manifests_dir, preferred_targets, staging_dir_for,
 };
 
 use crate::BackendArg;
@@ -228,167 +229,11 @@ fn detect_caps(
 }
 
 /// The per-user models root (`%LOCALAPPDATA%/LocalWisper/models`, or the XDG equivalent).
-fn default_models_root() -> PathBuf {
-    if cfg!(windows)
-        && let Ok(base) = std::env::var("LOCALAPPDATA")
-    {
-        return PathBuf::from(base).join("LocalWisper").join("models");
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("LocalWisper")
-            .join("models");
-    }
-    PathBuf::from("models")
-}
-
-/// Walk up from `start` looking for `rel`, returning the resolved path.
-fn find_upwards(start: &Path, rel: &str) -> Option<PathBuf> {
-    let mut dir = Some(start);
-    while let Some(d) = dir {
-        let candidate = d.join(rel);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        dir = d.parent();
-    }
-    None
-}
-
-/// Locate a repo-relative directory from the working directory or next to the executable.
-fn locate_repo_path(rel: &str) -> Option<PathBuf> {
-    if let Ok(cwd) = std::env::current_dir()
-        && let Some(p) = find_upwards(&cwd, rel)
-    {
-        return Some(p);
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-        && let Some(p) = find_upwards(dir, rel)
-    {
-        return Some(p);
-    }
-    None
-}
-
-/// The directory holding pinned model manifests.
-fn manifests_dir(explicit: Option<PathBuf>) -> Option<PathBuf> {
-    explicit.or_else(|| locate_repo_path("models/manifests"))
-}
-
 /// Load the catalog: an explicit file if given, otherwise the one compiled into this binary.
 fn load_catalog(explicit: Option<PathBuf>) -> anyhow::Result<Catalog> {
     match explicit {
         Some(p) => Catalog::load(&p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display())),
         None => Catalog::builtin().map_err(|e| anyhow::anyhow!(e.to_string())),
-    }
-}
-
-/// How an entry stands on this disk.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum InstallState {
-    /// A pinned manifest exists and every file is present with the expected size.
-    Installed,
-    /// A pinned manifest exists and some files are missing or truncated.
-    Incomplete,
-    /// A pinned manifest exists and nothing is there.
-    Missing,
-    /// No pinned manifest, so there is nothing authoritative to check against.
-    Unpinned,
-}
-
-impl InstallState {
-    fn label(&self) -> &'static str {
-        match self {
-            InstallState::Installed => "yes",
-            InstallState::Incomplete => "partial",
-            InstallState::Missing => "no",
-            InstallState::Unpinned => "n/a",
-        }
-    }
-}
-
-/// Everything path-related about one entry on this machine.
-struct EntryPaths {
-    state: InstallState,
-    dir: Option<PathBuf>,
-    /// Why the manifest could not be loaded, if it could not.
-    manifest_error: Option<String>,
-}
-
-/// Artifact targets to prefer when picking files, best first, for this machine.
-fn preferred_targets(caps: &Capabilities) -> Vec<ArtifactTarget> {
-    let mut prefs = Vec::new();
-    if caps.npu.present && caps.providers.qnn {
-        match caps.npu.htp_arch.map(|a| a.num()) {
-            Some(81) => prefs.push(ArtifactTarget::QnnHtpV81),
-            Some(73) => prefs.push(ArtifactTarget::QnnHtpV73),
-            _ => {
-                prefs.push(ArtifactTarget::QnnHtpV81);
-                prefs.push(ArtifactTarget::QnnHtpV73);
-            }
-        }
-    }
-    if caps.providers.coreml {
-        prefs.push(ArtifactTarget::CoreMl);
-    }
-    prefs.push(ArtifactTarget::CpuInt8);
-    prefs.push(ArtifactTarget::Any);
-    prefs
-}
-
-/// Resolve manifest + install state for an entry.
-fn entry_paths(
-    entry: &CatalogEntry,
-    manifests: Option<&Path>,
-    root: &Path,
-    caps: &Capabilities,
-) -> EntryPaths {
-    let Some(name) = &entry.manifest else {
-        return EntryPaths {
-            state: InstallState::Unpinned,
-            dir: None,
-            manifest_error: None,
-        };
-    };
-    let Some(mdir) = manifests else {
-        return EntryPaths {
-            state: InstallState::Unpinned,
-            dir: None,
-            manifest_error: Some("manifest directory not found (pass --manifests <dir>)".to_string()),
-        };
-    };
-    let path = mdir.join(name);
-    let manifest = std::fs::read_to_string(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str::<ModelManifest>(&t).map_err(|e| e.to_string()))
-        .and_then(|m| m.validate().map(|()| m).map_err(|e| e.to_string()));
-    match manifest {
-        Err(e) => EntryPaths {
-            state: InstallState::Unpinned,
-            dir: None,
-            manifest_error: Some(format!("{}: {e}", path.display())),
-        },
-        Ok(m) => {
-            let registry = ModelRegistry::new(root);
-            let dir = registry.model_dir(&m);
-            let state = match m.select_files(&preferred_targets(caps)) {
-                Some((_, files)) => match registry.state(&m, &files) {
-                    CacheState::Installed => InstallState::Installed,
-                    CacheState::Incomplete => InstallState::Incomplete,
-                    CacheState::Missing => InstallState::Missing,
-                },
-                None => InstallState::Unpinned,
-            };
-            EntryPaths {
-                state,
-                dir: Some(dir),
-                manifest_error: None,
-            }
-        }
     }
 }
 
@@ -414,26 +259,6 @@ fn trunc(s: &str, n: usize) -> String {
         let keep: String = s.chars().take(n.saturating_sub(1)).collect();
         format!("{keep}…")
     }
-}
-
-/// A one-line description of the machine the estimates were computed for.
-fn machine_line(caps: &Capabilities) -> String {
-    let brand = if caps.cpu_brand.trim().is_empty() {
-        "unidentified CPU".to_string()
-    } else {
-        caps.cpu_brand.clone()
-    };
-    let ep = if caps.providers.qnn {
-        " via QNN EP"
-    } else {
-        " (QNN EP unavailable)"
-    };
-    let npu = match (caps.npu.present, caps.npu.htp_arch) {
-        (true, Some(a)) => format!("NPU Hexagon V{}{ep}", a.num()),
-        (true, None) => format!("NPU present{ep}"),
-        _ => "no NPU".to_string(),
-    };
-    format!("{brand} · {} cores · {npu}", caps.cpu_cores)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -488,7 +313,7 @@ fn list(
     }
 
     println!("Model catalog (schema v{})", catalog.schema_version);
-    println!("machine: {}", machine_line(&caps));
+    println!("machine: {}", caps.summary());
     println!("models : {}", root.display());
     if let Some(n) = &caps_note {
         println!("note   : {n}");
@@ -632,7 +457,7 @@ fn info(
         println!("  upstream      : {u}");
     }
     println!();
-    println!("On this machine ({})", machine_line(&caps));
+    println!("On this machine ({})", caps.summary());
     if let Some(n) = &caps_note {
         println!("  note          : {n}");
     }
@@ -826,196 +651,6 @@ fn install(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------------------------
-// Measurement (shared by `lw bench --quick` and `lw models compare`)
-// ---------------------------------------------------------------------------------------------
-
-/// Where the audio used for a measurement came from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ClipSource {
-    /// Real speech from a fixtures directory (reference transcripts available → WER).
-    Fixtures(PathBuf),
-    /// Deterministically synthesized speech-like audio (no reference → no WER).
-    Synthetic,
-}
-
-impl ClipSource {
-    fn describe(&self) -> String {
-        match self {
-            ClipSource::Fixtures(p) => format!("{} (real speech)", p.display()),
-            ClipSource::Synthetic => "synthesized speech-like sweep (no reference transcript)".to_string(),
-        }
-    }
-}
-
-/// One clip to run through the engine.
-struct Clip {
-    name: String,
-    audio: AudioBuffer,
-    duration_s: f32,
-    reference: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct FixtureItem {
-    file: String,
-    duration_s: f32,
-    transcript: String,
-}
-
-/// Find a fixtures directory: `$LW_FIXTURES`, else `tests/fixtures/audio` up from cwd or the exe.
-fn locate_fixtures() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LW_FIXTURES") {
-        let p = PathBuf::from(p);
-        if p.join("fixtures.json").exists() {
-            return Some(p);
-        }
-    }
-    locate_repo_path("tests/fixtures/audio").filter(|p| p.join("fixtures.json").exists())
-}
-
-/// Deterministic speech-like audio: a syllable-rate-gated harmonic stack with an F0 glide plus a
-/// little noise. It exercises mel + encoder + decode with the right spectral shape, but it is not
-/// speech: the TDT decoder emits few tokens, so RTF measured on it is a **lower bound**.
-fn synth_clip(index: usize, seconds: f32) -> AudioBuffer {
-    let sr = 16_000u32;
-    let n = (seconds * sr as f32) as usize;
-    let mut out = Vec::with_capacity(n);
-    // Small deterministic LCG so runs are repeatable without an rng dependency.
-    let mut seed: u32 = 0x1234_5678u32.wrapping_add(index as u32 * 2_654_435_761);
-    let mut phase = 0.0f32;
-    for i in 0..n {
-        let t = i as f32 / sr as f32;
-        // 90 -> 190 Hz glide, repeating every 1.4 s, offset per clip.
-        let cycle = (t + index as f32 * 0.37) % 1.4;
-        let f0 = 90.0 + 100.0 * (cycle / 1.4);
-        phase += std::f32::consts::TAU * f0 / sr as f32;
-        if phase > std::f32::consts::TAU {
-            phase -= std::f32::consts::TAU;
-        }
-        // Harmonic stack with a 1/k roll-off, roughly a voiced-speech spectrum.
-        let mut s = 0.0f32;
-        for k in 1..=12u32 {
-            s += (phase * k as f32).sin() / k as f32;
-        }
-        // ~4.5 Hz syllable gate with a raised-cosine envelope.
-        let syl = (std::f32::consts::TAU * 4.5 * t).sin();
-        let gate = ((syl + 1.0) * 0.5).powf(1.5);
-        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        let noise = (seed >> 8) as f32 / (1u32 << 24) as f32 - 0.5;
-        out.push((s * 0.16 + noise * 0.01) * gate);
-    }
-    AudioBuffer::new(out, sr)
-}
-
-/// Build the clip set for a quick measurement.
-fn quick_clips(fixtures: Option<PathBuf>, max_clips: usize) -> anyhow::Result<(Vec<Clip>, ClipSource)> {
-    let dir = fixtures.or_else(locate_fixtures);
-    if let Some(dir) = dir {
-        let manifest = dir.join("fixtures.json");
-        if manifest.exists() {
-            let items: Vec<FixtureItem> = serde_json::from_str(&std::fs::read_to_string(&manifest)?)?;
-            let mut clips = Vec::new();
-            for it in items.into_iter().take(max_clips) {
-                let audio = crate::load_wav(&dir.join(&it.file))?;
-                clips.push(Clip {
-                    name: it.file,
-                    duration_s: it.duration_s,
-                    audio,
-                    reference: Some(it.transcript),
-                });
-            }
-            if !clips.is_empty() {
-                return Ok((clips, ClipSource::Fixtures(dir)));
-            }
-        }
-    }
-    let clips = (0..max_clips)
-        .map(|i| {
-            let audio = synth_clip(i, 4.0);
-            Clip {
-                name: format!("synth_{i}.wav"),
-                duration_s: audio.duration_secs(),
-                audio,
-                reference: None,
-            }
-        })
-        .collect();
-    Ok((clips, ClipSource::Synthetic))
-}
-
-/// The result of one measured run, all fields genuinely timed on this machine.
-pub struct Measurement {
-    /// Mean RTF over the warm runs (the cold first run is reported separately).
-    pub warm_rtf: f32,
-    /// Cold (first) run RTF, which includes lazy allocations and cache warm-up.
-    pub cold_rtf: f32,
-    /// Per-clip warm wall time in ms.
-    pub warm_ms: Vec<f32>,
-    /// Word-weighted WER, when reference transcripts were available.
-    pub wer: Option<f32>,
-    /// Number of clips run.
-    pub clips: usize,
-    /// Total audio seconds run.
-    pub audio_secs: f32,
-    /// Where the audio came from.
-    pub source: ClipSource,
-}
-
-/// Run every clip once (first = cold) and collect honest timings.
-fn measure_engine(
-    engine: &mut lw_engine_parakeet::ParakeetEngine,
-    clips: &[Clip],
-    source: ClipSource,
-    mut per_clip: impl FnMut(&str, f32, f32, Option<f32>),
-) -> anyhow::Result<Measurement> {
-    let mut cold_rtf = 0.0f32;
-    let mut warm_ms = Vec::new();
-    let mut warm_rtf_sum = 0.0f64;
-    let mut total_err = 0.0f64;
-    let mut total_words = 0usize;
-    let mut audio_secs = 0.0f32;
-
-    for (i, clip) in clips.iter().enumerate() {
-        let t0 = Instant::now();
-        let transcript = engine
-            .transcribe(&clip.audio)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        let ms = t0.elapsed().as_secs_f32() * 1000.0;
-        let rtf = (ms / 1000.0) / clip.duration_s.max(1e-6);
-        audio_secs += clip.duration_s;
-        let wer = clip.reference.as_ref().map(|r| {
-            let (w, n) = crate::word_error_rate(r, &transcript.text);
-            total_err += w as f64 * n as f64;
-            total_words += n;
-            w
-        });
-        per_clip(&clip.name, ms, rtf, wer);
-        if i == 0 {
-            cold_rtf = rtf;
-        } else {
-            warm_ms.push(ms);
-            warm_rtf_sum += rtf as f64;
-        }
-    }
-
-    let warm_count = warm_ms.len();
-    let warm_rtf = if warm_count > 0 {
-        (warm_rtf_sum / warm_count as f64) as f32
-    } else {
-        cold_rtf
-    };
-    Ok(Measurement {
-        warm_rtf,
-        cold_rtf,
-        warm_ms,
-        wer: (total_words > 0).then(|| (total_err / total_words as f64) as f32),
-        clips: clips.len(),
-        audio_secs,
-        source,
-    })
-}
-
 /// Arguments for `lw bench --quick`.
 pub struct QuickArgs {
     /// Runtime directory override.
@@ -1047,7 +682,7 @@ pub fn bench_quick(args: QuickArgs) -> anyhow::Result<()> {
     let mut caps = lw_platform::caps::detect();
     caps.providers.cpu = true;
     caps.providers.qnn = caps.npu.present && rt.qnn_available();
-    println!("machine   : {}", machine_line(&caps));
+    println!("machine   : {}", caps.summary());
     println!();
 
     let t_load = Instant::now();
@@ -1076,14 +711,16 @@ pub fn bench_quick(args: QuickArgs) -> anyhow::Result<()> {
         None => println!("{:<30} {:>10}   {}", "health probe", "failed", health.message),
     }
 
-    let m = measure_engine(&mut engine, &clips, source, |name, ms, rtf, wer| {
-        let w = wer.map(|w| format!("   WER {w:.2}")).unwrap_or_default();
+    let m = measure(&mut engine, &clips, source, |c: &ClipResult| {
+        let w = c.wer.map(|w| format!("   WER {w:.2}")).unwrap_or_default();
         println!(
-            "{:<30} {:>8.0} ms   RTF {rtf:.4}{w}",
-            format!("transcribe {name}"),
-            ms
+            "{:<30} {:>8.0} ms   RTF {:.4}{w}",
+            format!("transcribe {}", c.name),
+            c.ms,
+            c.rtf
         );
-    })?;
+    })
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     println!();
     println!("MEASURED RTF (first/cold run) : {:.4}", m.cold_rtf);
@@ -1101,7 +738,7 @@ pub fn bench_quick(args: QuickArgs) -> anyhow::Result<()> {
     match m.wer {
         Some(w) => println!(
             "MEASURED WER (word-weighted)  : {w:.3}   over {} clip(s)",
-            m.clips
+            m.results.len()
         ),
         None => println!("MEASURED WER                  : n/a — synthetic audio has no reference text"),
     }
@@ -1214,10 +851,10 @@ fn compare(args: CompareArgs) -> anyhow::Result<()> {
                     row.measured_with = Some(format!(
                         "{}, {} clip(s), {:.1} s, {}",
                         run.provider,
-                        m.clips,
+                        m.results.len(),
                         m.audio_secs,
                         match &m.source {
-                            ClipSource::Fixtures(_) => "real speech",
+                            ClipSource::Fixtures { .. } => "real speech",
                             ClipSource::Synthetic => "SYNTHETIC audio (RTF is a lower bound)",
                         }
                     ));
@@ -1239,7 +876,7 @@ fn compare(args: CompareArgs) -> anyhow::Result<()> {
 
     if args.json {
         let out = serde_json::json!({
-            "machine": machine_line(&caps),
+            "machine": caps.summary(),
             "models_root": root.display().to_string(),
             "capability_note": caps_note,
             "estimate_disclaimer": ESTIMATE_DISCLAIMER,
@@ -1260,7 +897,7 @@ fn compare(args: CompareArgs) -> anyhow::Result<()> {
     }
 
     println!("Model comparison — estimates and measurements side by side, never mixed.");
-    println!("machine: {}", machine_line(&caps));
+    println!("machine: {}", caps.summary());
     println!("models : {}", root.display());
     if let Some(n) = &caps_note {
         println!("note   : {n}");
@@ -1359,7 +996,8 @@ fn measure_installed(
     let provider = format!("{}", engine.provider());
     let hardware = hardware_of(&engine);
     let (clips, source) = quick_clips(fixtures, 3)?;
-    let measurement = measure_engine(&mut engine, &clips, source, |_, _, _, _| {})?;
+    let measurement =
+        measure(&mut engine, &clips, source, |_| {}).map_err(|e| anyhow::anyhow!(e.to_string()))?;
     Ok(MeasuredRun {
         measurement,
         hardware,
@@ -1406,33 +1044,6 @@ mod tests {
     }
 
     #[test]
-    fn synth_clip_is_deterministic_and_right_length() {
-        let a = synth_clip(0, 1.0);
-        let b = synth_clip(0, 1.0);
-        assert_eq!(a.samples, b.samples);
-        assert_eq!(a.sample_rate, 16_000);
-        assert_eq!(a.len(), 16_000);
-        // Non-trivial signal, and not clipping.
-        assert!(a.rms() > 0.01, "rms {}", a.rms());
-        assert!(a.samples.iter().all(|s| s.abs() <= 1.0));
-    }
-
-    #[test]
-    fn synth_clips_differ_between_indices() {
-        assert_ne!(synth_clip(0, 0.5).samples, synth_clip(1, 0.5).samples);
-    }
-
-    #[test]
-    fn quick_clips_falls_back_to_synthetic_without_fixtures() {
-        // A directory with no fixtures.json (this one does not exist at all) must synthesize.
-        let dir = PathBuf::from("lw-cli-no-such-fixtures-dir");
-        let (clips, source) = quick_clips(Some(dir), 2).unwrap();
-        assert_eq!(clips.len(), 2);
-        assert_eq!(source, ClipSource::Synthetic);
-        assert!(clips.iter().all(|c| c.reference.is_none()));
-    }
-
-    #[test]
     fn install_state_labels() {
         assert_eq!(InstallState::Installed.label(), "yes");
         assert_eq!(InstallState::Unpinned.label(), "n/a");
@@ -1446,12 +1057,5 @@ mod tests {
         let p = entry_paths(e, None, Path::new("/nonexistent"), &caps);
         assert_eq!(p.state, InstallState::Unpinned);
         assert!(p.dir.is_none());
-    }
-
-    #[test]
-    fn machine_line_handles_unknown_cpu() {
-        let line = machine_line(&Capabilities::unknown());
-        assert!(line.contains("unidentified CPU"), "{line}");
-        assert!(line.contains("no NPU"), "{line}");
     }
 }

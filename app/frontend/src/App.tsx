@@ -4,18 +4,22 @@ import { getRecordingState, onOpenTab, onStateChanged } from "./ipc";
 import type { UiState } from "./stateVisuals";
 import { DictatePanel } from "./panels/Dictate";
 import { SettingsPanel } from "./panels/Settings";
+import { ModelsPanel } from "./panels/Models";
 import { DiagnosticsPanel } from "./panels/Diagnostics";
+import { BenchmarkPanel } from "./panels/Benchmark";
 
-type Tab = "dictate" | "settings" | "diagnostics";
+type Tab = "dictate" | "settings" | "models" | "diagnostics" | "benchmark";
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "dictate", label: "Dictate" },
   { id: "settings", label: "Settings" },
+  { id: "models", label: "Models" },
   { id: "diagnostics", label: "Diagnostics" },
+  { id: "benchmark", label: "Benchmark" },
 ];
 
 function isTab(value: string): value is Tab {
-  return value === "dictate" || value === "settings" || value === "diagnostics";
+  return TABS.some((t) => t.id === value);
 }
 
 export function App() {
@@ -65,7 +69,9 @@ export function App() {
       <main className="panel">
         {tab === "dictate" && <DictatePanel state={state} />}
         {tab === "settings" && <SettingsPanel />}
+        {tab === "models" && <ModelsPanel />}
         {tab === "diagnostics" && <DiagnosticsPanel />}
+        {tab === "benchmark" && <BenchmarkPanel />}
       </main>
     </div>
   );

@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use lw_core::audio::AudioBuffer;
+use lw_core::bench::{load_wav, word_error_rate};
 use lw_core::engine::{EngineInitContext, SpeechEngine};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 use lw_ort::OrtRuntime;
@@ -429,82 +429,4 @@ fn bench(
         avg_wer
     );
     Ok(())
-}
-
-/// Load a WAV file (i16 or f32) into a canonical [`AudioBuffer`] (downmixed, original rate).
-fn load_wav(path: &std::path::Path) -> anyhow::Result<AudioBuffer> {
-    let mut reader = hound::WavReader::open(path)?;
-    let spec = reader.spec();
-    let channels = spec.channels;
-    let interleaved: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
-        hound::SampleFormat::Int => {
-            let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            reader
-                .samples::<i32>()
-                .map(|s| s.map(|v| v as f32 / max))
-                .collect::<Result<_, _>>()?
-        }
-    };
-    let mono = lw_core::audio::downmix_to_mono(&interleaved, channels);
-    Ok(AudioBuffer::new(mono, spec.sample_rate))
-}
-
-/// Word error rate (Levenshtein over normalized words) and the reference word count.
-fn word_error_rate(reference: &str, hypothesis: &str) -> (f32, usize) {
-    let norm = |s: &str| -> Vec<String> {
-        s.to_lowercase()
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c.is_whitespace() {
-                    c
-                } else {
-                    ' '
-                }
-            })
-            .collect::<String>()
-            .split_whitespace()
-            .map(|w| w.to_string())
-            .collect()
-    };
-    let r = norm(reference);
-    let h = norm(hypothesis);
-    if r.is_empty() {
-        return (if h.is_empty() { 0.0 } else { 1.0 }, 0);
-    }
-    let mut prev: Vec<usize> = (0..=h.len()).collect();
-    let mut cur = vec![0usize; h.len() + 1];
-    for (i, rw) in r.iter().enumerate() {
-        cur[0] = i + 1;
-        for (j, hw) in h.iter().enumerate() {
-            let cost = if rw == hw { 0 } else { 1 };
-            cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
-        }
-        std::mem::swap(&mut prev, &mut cur);
-    }
-    (prev[h.len()] as f32 / r.len() as f32, r.len())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wer_identical_is_zero() {
-        let (w, n) = word_error_rate("hello world", "hello world");
-        assert_eq!(w, 0.0);
-        assert_eq!(n, 2);
-    }
-
-    #[test]
-    fn wer_one_sub() {
-        let (w, _) = word_error_rate("hello world", "hello there");
-        assert!((w - 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn wer_normalizes_punctuation_and_case() {
-        let (w, _) = word_error_rate("Hello, World.", "hello world");
-        assert_eq!(w, 0.0);
-    }
 }

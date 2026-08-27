@@ -12,6 +12,7 @@
 pub mod catalog;
 mod download;
 mod manifest;
+pub mod paths;
 
 pub use catalog::{
     BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
@@ -19,6 +20,10 @@ pub use catalog::{
 };
 pub use download::{DownloadEvent, ModelDownloader, Progress, staging_dir_for};
 pub use manifest::{ArtifactSet, ArtifactTarget, FileEntry, ModelManifest};
+pub use paths::{
+    EntryPaths, InstallState, default_models_root, entry_paths, find_upwards, locate_repo_path,
+    manifests_dir, preferred_targets,
+};
 // Re-exported because it appears in `ModelDownloader::install`'s signature: callers must be able
 // to name the cancellation type without depending on `tokio-util` themselves.
 pub use tokio_util::sync::CancellationToken;

@@ -102,6 +102,31 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
+    /// One-line human summary of this machine, e.g.
+    /// `"Snapdragon(R) X2 Elite Extreme ... - 18 cores - NPU Hexagon V81 via QNN EP"`.
+    ///
+    /// The NPU clause distinguishes *present* from *usable*: a driver package can be installed
+    /// while the QNN execution provider still fails to load, and saying "NPU" in that case would
+    /// promise acceleration the machine cannot deliver.
+    pub fn summary(&self) -> String {
+        let brand = if self.cpu_brand.trim().is_empty() {
+            "unidentified CPU".to_string()
+        } else {
+            self.cpu_brand.clone()
+        };
+        let ep = if self.providers.qnn {
+            " via QNN EP"
+        } else {
+            " (QNN EP unavailable)"
+        };
+        let npu = match (self.npu.present, self.npu.htp_arch) {
+            (true, Some(a)) => format!("NPU Hexagon V{}{ep}", a.num()),
+            (true, None) => format!("NPU present{ep}"),
+            _ => "no NPU".to_string(),
+        };
+        format!("{brand} · {} cores · {npu}", self.cpu_cores)
+    }
+
     /// A minimal, honest report for an unknown machine.
     pub fn unknown() -> Self {
         Self {
@@ -137,6 +162,29 @@ impl Capabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summary_names_an_unknown_cpu_honestly() {
+        let line = Capabilities::unknown().summary();
+        assert!(line.contains("unidentified CPU"), "{line}");
+        assert!(line.contains("no NPU"), "{line}");
+    }
+
+    #[test]
+    fn summary_distinguishes_npu_present_from_npu_usable() {
+        let mut caps = Capabilities::unknown();
+        caps.cpu_brand = "Test CPU".into();
+        caps.npu.present = true;
+        caps.npu.htp_arch = Some(HtpArch::V81);
+
+        caps.providers.qnn = false;
+        let unusable = caps.summary();
+        assert!(unusable.contains("QNN EP unavailable"), "{unusable}");
+
+        caps.providers.qnn = true;
+        let usable = caps.summary();
+        assert!(usable.contains("NPU Hexagon V81 via QNN EP"), "{usable}");
+    }
 
     #[test]
     fn htp_arch_roundtrip() {
