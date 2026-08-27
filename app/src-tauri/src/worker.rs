@@ -173,7 +173,8 @@ fn build_engine_for(
     };
     // Hexagon generation comes from the detected NPU (V73 on X Elite / X Plus, V81 on X2 Elite),
     // never from a hard-coded assumption about one SoC.
-    let config = ParakeetConfig::from_ctx(ctx, backend).with_capabilities(&lw_platform::caps::detect());
+    let config =
+        ParakeetConfig::from_ctx(ctx, backend).with_capabilities(crate::catalog::probe_capabilities());
     Ok(Box::new(ParakeetEngine::new(runtime, config)))
 }
 
@@ -261,7 +262,7 @@ fn run_benchmark_job(
     let m = lw_core::bench::measure(engine.as_mut(), &clips, source, |_| {}).map_err(|e| e.to_string())?;
 
     let report = BenchReport {
-        machine: lw_platform::caps::detect().summary(),
+        machine: crate::catalog::probe_capabilities().summary(),
         // Read back what ran, not what was asked for: a requested NPU run that fell back to CPU
         // must say CPU.
         backend: format!("{} on {}", engine.provider(), engine.acceleration()),

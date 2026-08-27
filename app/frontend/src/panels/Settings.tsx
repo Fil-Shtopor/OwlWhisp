@@ -86,58 +86,20 @@ const VALID_TRIGGERS: ReadonlySet<string> = new Set([
   ...FKEYS,
 ]);
 
-function triggerLabel(key: string): string {
-  switch (key) {
-    case "space":
-      return "Space";
-    case "tab":
-      return "Tab";
-    case "enter":
-      return "Enter";
-    case "esc":
-      return "Esc";
-    case "none":
-      return "None (modifiers only)";
-    default:
-      return key.toUpperCase();
-  }
-}
-
-function modifierLabel(name: string): string {
-  const known = MODIFIER_OPTIONS.find((m) => m.aliases.includes(name.toLowerCase()));
-  return known?.label.split(" ")[0] ?? name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-/** Same rule as `HotkeyConfig::is_modifier_only`, including its case-insensitivity. */
-function isModifierOnly(hotkey: HotkeyConfig): boolean {
-  const trigger = hotkey.trigger.trim().toLowerCase();
-  return trigger === "none" || trigger === "";
-}
-
-function hasModifier(hotkey: HotkeyConfig, id: string): boolean {
-  const option = MODIFIER_OPTIONS.find((m) => m.id === id);
-  if (option === undefined) return false;
-  return hotkey.modifiers.some((m) => option.aliases.includes(m.toLowerCase()));
-}
-
-/** Mirrors `HotkeyConfig::validate` in crates/lw-core/src/settings/mod.rs. */
+/**
+ * Mirrors `HotkeyConfig::validate` in crates/lw-core/src/settings/mod.rs: a binding needs a real
+ * key. Modifiers on their own are rejected there no matter how many are ticked, because an OS
+ * global-shortcut registration has nothing to register without one.
+ */
 function hotkeyError(hotkey: HotkeyConfig): string | null {
-  if (isModifierOnly(hotkey)) {
-    if (hotkey.modifiers.length < 2) {
-      return "A modifiers-only hotkey needs at least two modifiers — otherwise a single Ctrl press would trigger it.";
-    }
-    return null;
+  const trigger = hotkeyTrigger(hotkey);
+  if (trigger === "") {
+    return "A hotkey needs a non-modifier key — pick a trigger key such as Space, a letter, or a function key. Modifiers on their own cannot be registered as a global shortcut.";
   }
-  if (!VALID_TRIGGERS.has(hotkey.trigger.trim().toLowerCase())) {
+  if (!VALID_TRIGGERS.has(trigger)) {
     return `Unsupported hotkey key: ${hotkey.trigger}`;
   }
   return null;
-}
-
-function formatHotkey(hotkey: HotkeyConfig): string {
-  const parts = hotkey.modifiers.map(modifierLabel);
-  if (!isModifierOnly(hotkey)) parts.push(triggerLabel(hotkey.trigger));
-  return parts.length > 0 ? parts.join(" + ") : "nothing bound";
 }
 
 /** Map a `KeyboardEvent.code` to a trigger name, or null for bare modifiers/unsupported keys. */
@@ -263,7 +225,9 @@ export function SettingsPanel() {
   };
 
   const hotkeyErr = hotkeyError(settings.hotkey);
-  const triggerValue = isModifierOnly(settings.hotkey) ? "none" : settings.hotkey.trigger;
+  // "" when the saved file holds `none` (or nothing): no longer offered, but still shown so the
+  // error below explains why Save is disabled.
+  const triggerValue = hotkeyTrigger(settings.hotkey);
 
   const save = async () => {
     setSaving(true);
@@ -334,7 +298,7 @@ export function SettingsPanel() {
                   checked={hasModifier(settings.hotkey, mod.id)}
                   onChange={(e) => toggleModifier(mod.id, e.currentTarget.checked)}
                 />
-                <span>{mod.label}</span>
+                <span>{mod.detail === null ? mod.label : `${mod.label} (${mod.detail})`}</span>
               </label>
             ))}
           </div>
@@ -350,8 +314,10 @@ export function SettingsPanel() {
             onChange={(e) => updateHotkey({ trigger: e.currentTarget.value })}
           >
             {!SELECTABLE_TRIGGERS.has(triggerValue) && (
-              <optgroup label="Saved value">
-                <option value={triggerValue}>{triggerValue}</option>
+              <optgroup label={triggerValue === "" ? "Not set" : "Saved value"}>
+                <option value={triggerValue}>
+                  {triggerValue === "" ? "No key — pick one below" : triggerLabel(triggerValue)}
+                </option>
               </optgroup>
             )}
             {TRIGGER_GROUPS.map((group) => (
@@ -365,8 +331,8 @@ export function SettingsPanel() {
             ))}
           </select>
           <span className="sub">
-            &quot;None&quot; makes a modifiers-only binding, which runs on the low-level keyboard
-            hook instead of the OS shortcut registry.
+            A global shortcut needs a real key. Modifiers on their own cannot be registered with
+            the OS, so every binding pairs them with one of these.
           </span>
         </div>
 
@@ -385,9 +351,8 @@ export function SettingsPanel() {
             </span>
           ) : (
             <span className="sub">
-              {isModifierOnly(settings.hotkey)
-                ? "No OS accelerator — a modifiers-only binding is served by the low-level keyboard hook, which this field cannot see."
-                : "The OS holds no accelerator for this app right now. If you just saved, registration did not take — another app may already own the combination."}
+              The OS holds no accelerator for this app right now. If you just saved, registration
+              did not take — another app may already own the combination.
             </span>
           )}
         </div>

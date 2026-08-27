@@ -241,9 +241,13 @@ export function BenchmarkPanel() {
             </div>
             <div className="stat">
               <span className="perf-label">Warm RTF</span>
-              <span className="mono stat-value">{formatRtf(report.warm_rtf)}</span>
+              <span className="mono stat-value">
+                {report.warm_rtf === null ? "no warm run" : formatRtf(report.warm_rtf)}
+              </span>
               <span className="sub">
-                Mean of {report.warm_count} run{report.warm_count === 1 ? "" : "s"} after the first.
+                {report.warm_rtf === null
+                  ? "Only one clip, so nothing ran after the first — there is no warm figure to average."
+                  : `Mean of ${report.warm_count} run${report.warm_count === 1 ? "" : "s"} after the first.`}
               </span>
             </div>
             <div className="stat">

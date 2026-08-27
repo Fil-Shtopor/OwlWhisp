@@ -44,13 +44,42 @@ interface InstallProgress {
   file: string | null;
   received: number;
   total: number;
+  /** 0-based, from the `progress` event. Null until the first one arrives. */
+  fileIndex: number | null;
+  fileCount: number | null;
   verified: number;
   finishing: boolean;
 }
 
+/** Progress of the file currently downloading — the bar is per file, not per download. */
 function percent(p: InstallProgress): number {
   if (p.total <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((p.received / p.total) * 100)));
+}
+
+/**
+ * The line under the bar. A 640 MB model arrives as several files, so "file 2 of 5" is the part
+ * that tells you how much is actually left; the percentage alone would keep resetting to 0.
+ */
+function progressLine(p: InstallProgress): string {
+  if (p.finishing) return "Finishing up…";
+  const parts: string[] = [];
+  if (p.fileIndex !== null && p.fileCount !== null && p.fileCount > 0) {
+    parts.push(`File ${Math.min(p.fileIndex + 1, p.fileCount)} of ${p.fileCount}`);
+  }
+  parts.push(
+    p.total > 0
+      ? `${percent(p)}% — ${formatBytes(p.received)} of ${formatBytes(p.total)}`
+      : "Starting…",
+  );
+  if (p.verified > 0) {
+    parts.push(
+      p.fileCount !== null && p.fileCount > 0
+        ? `${p.verified} of ${p.fileCount} verified`
+        : `${p.verified} verified`,
+    );
+  }
+  return parts.join(" · ");
 }
 
 function MeasuredLine({ point }: { point: MeasuredPoint }) {
@@ -78,8 +107,6 @@ export function ModelsPanel() {
   const [installError, setInstallError] = useState<{ id: string; message: string } | null>(null);
   const [installNotice, setInstallNotice] = useState<{ id: string; message: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  // Read inside the install callback/catch, where `cancelling` would be a stale closure value.
-  const cancelRequested = useRef<string | null>(null);
 
   // Mirrors App.tsx's `disposed` flag, for callbacks that outlive a render.
   const alive = useRef(true);
@@ -134,9 +161,16 @@ export function ModelsPanel() {
     setInstallError(null);
     setInstallNotice(null);
     setCancelling(false);
-    cancelRequested.current = null;
-    setProgress({ id, file: null, received: 0, total: 0, verified: 0, finishing: false });
-    let refreshed = false;
+    setProgress({
+      id,
+      file: null,
+      received: 0,
+      total: 0,
+      fileIndex: null,
+      fileCount: null,
+      verified: 0,
+      finishing: false,
+    });
     try {
       await installModel(id, (e) => {
         if (!alive.current) return;
@@ -150,7 +184,14 @@ export function ModelsPanel() {
             setProgress((p) =>
               p === null || p.id !== id
                 ? p
-                : { ...p, file: e.path, received: e.received, total: e.total },
+                : {
+                    ...p,
+                    file: e.path,
+                    received: e.received,
+                    total: e.total,
+                    fileIndex: e.file_index,
+                    fileCount: e.file_count,
+                  },
             );
             break;
           case "file_verified":
@@ -159,48 +200,59 @@ export function ModelsPanel() {
             );
             break;
           case "completed":
+            // Two of these arrive: a bare one from the downloader, then one carrying `dir`. Both
+            // mean the same thing, so the later message simply replaces the earlier one.
             setProgress((p) => (p === null || p.id !== id ? p : { ...p, finishing: true }));
-            setInstallNotice({ id, message: `Downloaded and verified into ${e.dir}` });
-            refreshed = true;
-            void refresh();
+            setInstallNotice({
+              id,
+              message:
+                e.dir === undefined
+                  ? "Downloaded and verified."
+                  : `Downloaded and verified into ${e.dir}`,
+            });
+            break;
+          case "cancelled":
+            // Not an error: the command resolves after this, and staging keeps the partial files.
+            setInstallError(null);
+            setInstallNotice({
+              id,
+              message: "Download cancelled. Partial files stay in staging and resume next time.",
+            });
             break;
           case "failed":
-            if (cancelRequested.current !== id) setInstallError({ id, message: e.message });
+            setInstallError({ id, message: e.message });
             break;
         }
       });
-      if (!refreshed) await refresh();
-    } catch (e: unknown) {
-      if (!alive.current) return;
-      if (cancelRequested.current === id) {
-        // Cancelling makes the command fail; that is not an error worth shouting about.
-        setInstallNotice({
-          id,
-          message: "Download cancelled. Partial files stay in staging and resume next time.",
-        });
-        await refresh();
-      } else {
-        // A `failed` event carries the better message; only fall back to the rejection.
-        setInstallError((prev) =>
-          prev !== null && prev.id === id ? prev : { id, message: String(e) },
+      // Resolved: completed or cancelled, and the matching event has almost certainly already set
+      // the notice. Only fill one in if none landed — the channel and the promise are separate
+      // deliveries, so their order is not guaranteed.
+      if (alive.current) {
+        setInstallNotice((prev) =>
+          prev !== null && prev.id === id ? prev : { id, message: "Downloaded and verified." },
         );
       }
+    } catch (e: unknown) {
+      if (!alive.current) return;
+      // A `failed` event carries the better message; only fall back to the rejection.
+      setInstallError((prev) =>
+        prev !== null && prev.id === id ? prev : { id, message: String(e) },
+      );
     } finally {
       if (alive.current) {
         setProgress(null);
         setCancelling(false);
+        // One refresh covers every outcome: installed, resumable after a cancel, or failed.
+        void refresh();
       }
-      cancelRequested.current = null;
     }
   };
 
   const stopInstall = async (id: string) => {
     setCancelling(true);
-    cancelRequested.current = id;
     try {
       await cancelInstall(id);
     } catch (e: unknown) {
-      cancelRequested.current = null;
       if (alive.current) {
         setCancelling(false);
         setInstallError({ id, message: String(e) });
@@ -382,14 +434,7 @@ export function ModelsPanel() {
             <div className="progress-bar">
               <div className="progress-fill" style={{ width: `${percent(progress)}%` }} />
             </div>
-            <div className="sub progress-line">
-              {progress.finishing
-                ? "Finishing up…"
-                : progress.total > 0
-                  ? `${percent(progress)}% — ${formatBytes(progress.received)} of ${formatBytes(progress.total)}`
-                  : "Starting…"}
-              {progress.verified > 0 && ` · ${progress.verified} file(s) verified`}
-            </div>
+            <div className="sub progress-line">{progressLine(progress)}</div>
             {progress.file !== null && <div className="sub mono path">{progress.file}</div>}
           </div>
         )}

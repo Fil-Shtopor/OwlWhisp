@@ -118,8 +118,8 @@ export function onOpenTab(handler: (tab: string) => void): Promise<UnlistenFn> {
 /**
  * The accelerator the OS shortcut registry currently holds, e.g. `"Control+Alt+Space"`.
  *
- * `null` means no OS-level accelerator is registered — either registration failed, or the
- * binding is modifier-only and runs on the low-level keyboard hook instead.
+ * `null` means no OS-level accelerator is registered, i.e. registration genuinely failed —
+ * `HotkeyConfig::validate` rejects modifier-only bindings, so there is no other reason for it.
  */
 export function activeHotkey(): Promise<string | null> {
   return invoke<string | null>("active_hotkey");

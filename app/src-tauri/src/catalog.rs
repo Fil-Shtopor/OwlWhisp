@@ -14,6 +14,7 @@
 //! - `run_benchmark(modelId?, backend?) -> BenchReport`
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use lw_core::capabilities::Capabilities;
 use lw_core::engine::BackendPreference;
@@ -44,17 +45,40 @@ fn models_root(state: &AppState) -> PathBuf {
         .unwrap_or_else(default_models_root)
 }
 
+/// Detected hardware **with ONNX Runtime provider availability filled in**, probed once.
+///
+/// `lw_platform::caps::detect()` deliberately leaves `providers.*` false: it reads the OS and the
+/// driver store, and cannot know whether an execution provider actually loads. Using it raw would
+/// make the app report "QNN EP unavailable" on a machine whose NPU works, refuse to prefer NPU
+/// artifacts, and never recommend the NPU path.
+///
+/// Enumerating devices is the only honest way to answer "is the NPU usable", so that is what this
+/// does. It registers the QNN plugin EP process-wide, which is safe here because every CPU session
+/// is pinned to the CPU device (see `lw_ort::build_cpu_session`). The result is cached: the probe
+/// costs a DLL load, and the answer cannot change while the process runs.
+pub fn probe_capabilities() -> &'static Capabilities {
+    static CAPS: OnceLock<Capabilities> = OnceLock::new();
+    CAPS.get_or_init(|| {
+        let mut caps = lw_platform::caps::detect();
+        caps.providers.cpu = true;
+        match lw_ort::OrtRuntime::auto() {
+            Ok(rt) => caps.providers.qnn = rt.has_qnn_npu(),
+            Err(e) => tracing::warn!(
+                "ONNX Runtime not loaded ({e}); accelerator availability is unverified,                  so everything reported here assumes CPU"
+            ),
+        }
+        caps
+    })
+}
+
 /// Detect hardware and report it, including whether the NPU is merely present or actually usable.
 ///
 /// Probing loads `onnxruntime.dll`, so this runs on a blocking thread.
 #[tauri::command]
 pub async fn get_capabilities() -> Value {
-    tauri::async_runtime::spawn_blocking(|| {
-        let caps = lw_platform::caps::detect();
-        capabilities_json(&caps)
-    })
-    .await
-    .unwrap_or_else(|e| json!({ "error": format!("capability probe failed: {e}") }))
+    tauri::async_runtime::spawn_blocking(|| capabilities_json(probe_capabilities()))
+        .await
+        .unwrap_or_else(|e| json!({ "error": format!("capability probe failed: {e}") }))
 }
 
 fn capabilities_json(caps: &Capabilities) -> Value {
@@ -92,10 +116,10 @@ pub async fn list_models(state: State<'_, AppState>) -> Result<Value, String> {
 
 fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
     let catalog = Catalog::builtin().map_err(|e| e.to_string())?;
-    let caps = lw_platform::caps::detect();
+    let caps = probe_capabilities();
     let manifests = manifests_dir(None);
     let features = engine_features();
-    let recs = catalog.recommend_with(&caps, &features);
+    let recs = catalog.recommend_with(caps, &features);
 
     // `recommend_with` sorts best-first, so the first runnable entry is the recommendation.
     let recommended = recs.iter().find(|r| r.runnable).map(|r| r.entry.id.clone());
@@ -104,7 +128,7 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
         .iter()
         .map(|r| {
             let e = r.entry;
-            let paths = entry_paths(e, manifests.as_deref(), &root, &caps);
+            let paths = entry_paths(e, manifests.as_deref(), &root, caps);
             json!({
                 "id": e.id,
                 "name": e.name,
@@ -197,9 +221,8 @@ async fn install_inner(
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     manifest.validate().map_err(|e| e.to_string())?;
 
-    let caps = lw_platform::caps::detect();
     let (target, files) = manifest
-        .select_files(&preferred_targets(&caps))
+        .select_files(&preferred_targets(probe_capabilities()))
         .ok_or_else(|| format!("no artifact in '{manifest_name}' matches this machine"))?;
     tracing::info!("installing {id} ({} files, target {target:?})", files.len());
 

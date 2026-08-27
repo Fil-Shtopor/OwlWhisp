@@ -36,9 +36,10 @@ fn fallback_shortcut() -> Shortcut {
 
 /// Resolve the dictation shortcut from settings.
 ///
-/// A modifiers-only binding (e.g. Ctrl+Win) cannot be registered through the OS shortcut API — it
-/// needs the low-level keyboard hook in `lw-platform` — so we fall back to the default binding and
-/// say so in the log rather than silently having no hotkey.
+/// Falling back to the default binding is a last resort for a settings file that bypassed
+/// validation: `Settings::validate` rejects anything unregistrable (including modifiers-only
+/// bindings) so the UI can report it, rather than letting the app listen on keys the user did
+/// not choose.
 fn shortcut_from_settings(settings: &Settings) -> Shortcut {
     match settings.hotkey.to_accelerator() {
         Some(accel) => match accel.parse::<Shortcut>() {
@@ -287,4 +288,76 @@ fn spawn_mic_level_stub(app: AppHandle, generation: u64) {
             let _ = channel.send(0.0);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lw_core::settings::{HotkeyConfig, HotkeyMode};
+
+    fn hotkey(modifiers: &[&str], trigger: &str) -> Settings {
+        Settings {
+            hotkey: HotkeyConfig {
+                modifiers: modifiers.iter().map(|m| m.to_string()).collect(),
+                trigger: trigger.into(),
+                mode: HotkeyMode::PushToTalk,
+            },
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn the_default_binding_is_ctrl_alt_space() {
+        assert_eq!(shortcut_from_settings(&Settings::default()), fallback_shortcut());
+    }
+
+    #[test]
+    fn a_configured_binding_is_honoured() {
+        assert_eq!(
+            shortcut_from_settings(&hotkey(&["ctrl", "shift"], "d")),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyD)
+        );
+        assert_eq!(
+            shortcut_from_settings(&hotkey(&["alt"], "F9")),
+            Shortcut::new(Some(Modifiers::ALT), Code::F9)
+        );
+    }
+
+    #[test]
+    fn a_binding_with_no_modifiers_still_registers() {
+        assert_eq!(
+            shortcut_from_settings(&hotkey(&[], "F13")),
+            Shortcut::new(None, Code::F13)
+        );
+    }
+
+    #[test]
+    fn an_unregistrable_binding_falls_back_rather_than_leaving_no_hotkey() {
+        // Only reachable from a hand-edited settings file: `Settings::validate` rejects both.
+        assert_eq!(
+            shortcut_from_settings(&hotkey(&["ctrl", "win"], "none")),
+            fallback_shortcut()
+        );
+        assert_eq!(
+            shortcut_from_settings(&hotkey(&["ctrl"], "wingding")),
+            fallback_shortcut()
+        );
+    }
+
+    #[test]
+    fn validation_rejects_what_shortcut_resolution_cannot_register() {
+        // The two must agree, or the UI would accept a binding the app then ignores.
+        for (mods, trigger) in [
+            (vec!["ctrl", "win"], "none"),
+            (vec!["ctrl", "alt", "shift"], "none"),
+            (vec!["ctrl"], "wingding"),
+        ] {
+            let s = hotkey(&mods, trigger);
+            assert!(
+                s.hotkey.validate().is_err(),
+                "{mods:?}+{trigger} should be rejected"
+            );
+            assert_eq!(shortcut_from_settings(&s), fallback_shortcut());
+        }
+    }
 }
