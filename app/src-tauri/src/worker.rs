@@ -92,44 +92,76 @@ fn runtime_dir() -> Option<PathBuf> {
 }
 
 struct Loaded {
-    engine: ParakeetEngine,
+    engine: Box<dyn SpeechEngine>,
     settings: Settings,
 }
 
 fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
     let settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
-    let rt_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found (set LW_RUNTIME_DIR)".to_string())?;
-    let runtime = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
-
     let data = app_data_dir(settings_path);
     let model_dir = data.join("models").join(&settings.model_id);
     let cache_dir = data.join("cache");
+    if !model_dir.exists() {
+        return Err(format!(
+            "model '{}' is not installed ({})",
+            settings.model_id,
+            model_dir.display()
+        ));
+    }
+    let ctx = EngineInitContext {
+        model_dir: model_dir.clone(),
+        cache_dir: cache_dir.clone(),
+        cpu_threads: 0,
+    };
 
+    // Pick the engine from what is actually in the model directory, so switching models in
+    // Settings is enough to switch engines — no per-model wiring in the UI.
+    let mut engine = build_engine_for(&model_dir, &settings, &ctx)?;
+    engine.initialize(&ctx).map_err(|e| e.to_string())?;
+    Ok(Loaded { engine, settings })
+}
+
+/// Choose an engine for the model directory's contents.
+///
+/// A sherpa-onnx style layout (Whisper / Moonshine / SenseVoice / NeMo transducer) goes to
+/// [`lw_engine_sherpa`]; anything else is treated as the Parakeet TDT layout, which is the only one
+/// that can use the Qualcomm NPU.
+fn build_engine_for(
+    model_dir: &std::path::Path,
+    settings: &Settings,
+    ctx: &EngineInitContext,
+) -> Result<Box<dyn SpeechEngine>, String> {
+    if let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+        let kind = files.kind();
+        #[cfg(feature = "sherpa")]
+        {
+            tracing::info!(
+                "model '{}' detected as {kind}; using the sherpa engine",
+                settings.model_id
+            );
+            let cfg = lw_engine_sherpa::SherpaConfig::new(model_dir);
+            return Ok(Box::new(lw_engine_sherpa::SherpaEngine::new(cfg)));
+        }
+        #[cfg(not(feature = "sherpa"))]
+        {
+            return Err(format!(
+                "model '{}' is a {kind} model, which needs a build with the `sherpa` engine feature",
+                settings.model_id
+            ));
+        }
+    }
+
+    let rt_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found (set LW_RUNTIME_DIR)".to_string())?;
+    let runtime = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
     let backend = match settings.backend {
         BackendPreference::Automatic => BackendKind::Auto,
         BackendPreference::ForceNpu => BackendKind::ForceNpu,
         BackendPreference::ForceCpu => BackendKind::ForceCpu,
     };
-    let config = ParakeetConfig::from_ctx(
-        &EngineInitContext {
-            model_dir: model_dir.clone(),
-            cache_dir: cache_dir.clone(),
-            cpu_threads: 0,
-        },
-        backend,
-    );
     // Hexagon generation comes from the detected NPU (V73 on X Elite / X Plus, V81 on X2 Elite),
     // never from a hard-coded assumption about one SoC.
-    let config = config.with_capabilities(&lw_platform::caps::detect());
-    let mut engine = ParakeetEngine::new(runtime, config);
-    engine
-        .initialize(&EngineInitContext {
-            model_dir,
-            cache_dir,
-            cpu_threads: 0,
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(Loaded { engine, settings })
+    let config = ParakeetConfig::from_ctx(ctx, backend).with_capabilities(&lw_platform::caps::detect());
+    Ok(Box::new(ParakeetEngine::new(runtime, config)))
 }
 
 fn build_pipeline(settings: &Settings) -> TextPipeline {
