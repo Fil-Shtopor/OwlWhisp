@@ -108,6 +108,15 @@ fn runtime_candidates(
 
 static INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
+/// The one runtime handle for the process.
+///
+/// ONNX Runtime's environment, and therefore execution-provider registration, is global. A second
+/// `OrtRuntime` would carry its own `registered` flag while sharing that one environment, so its
+/// `register_qnn` would call `register_ep_library("QNNExecutionProvider", ..)` a second time and
+/// be refused -- and the caller would read that refusal as "this machine has no NPU" and quietly
+/// fall back to the CPU. One instance, one registration, one answer.
+static INSTANCE: OnceLock<Arc<OrtRuntime>> = OnceLock::new();
+
 struct QnnState {
     registered: bool,
     /// Kept alive so the EP stays registered for the process lifetime.
@@ -150,14 +159,24 @@ impl OrtRuntime {
             env.set_log_level(ort::logging::LogLevel::Verbose);
         }
 
-        Ok(Arc::new(Self {
-            runtime_dir: dir,
-            qnn_dll: runtime_dir.join(qnn_provider_lib_name()),
-            qnn: Mutex::new(QnnState {
-                registered: false,
-                _lib: None,
-            }),
-        }))
+        let instance = INSTANCE.get_or_init(|| {
+            Arc::new(Self {
+                runtime_dir: dir.clone(),
+                qnn_dll: dir.join(qnn_provider_lib_name()),
+                qnn: Mutex::new(QnnState {
+                    registered: false,
+                    _lib: None,
+                }),
+            })
+        });
+        if instance.runtime_dir != dir {
+            tracing::warn!(
+                "ONNX Runtime already initialized from {}; ignoring {}",
+                instance.runtime_dir.display(),
+                dir.display()
+            );
+        }
+        Ok(Arc::clone(instance))
     }
 
     /// Whether the QNN plugin-EP DLL is present (i.e. NPU support *could* be available).
@@ -264,6 +283,28 @@ pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    /// A second `init` must hand back the *same* runtime, or the second caller's `register_qnn`
+    /// would be refused by an environment that already holds the registration -- and the NPU
+    /// would silently disappear. Needs a real runtime directory, so it is ignored by default:
+    /// `LW_RUNTIME_DIR=<dir> cargo test -p lw-ort -- --ignored`.
+    #[test]
+    #[ignore = "needs a staged ONNX Runtime; run explicitly"]
+    fn init_returns_one_shared_instance_per_process() {
+        let dir = locate_runtime_dir().expect("a staged runtime directory");
+        let a = OrtRuntime::init(&dir).expect("init");
+        let b = OrtRuntime::init(&dir).expect("init again");
+        let c = OrtRuntime::auto().expect("auto");
+        assert!(Arc::ptr_eq(&a, &b), "init must be a singleton");
+        assert!(Arc::ptr_eq(&a, &c), "auto must return the same instance");
+
+        if a.qnn_available() {
+            // Registration must stay true across repeated calls and across handles.
+            assert!(a.register_qnn(), "first registration");
+            assert!(b.register_qnn(), "second handle must see it registered");
+            assert!(a.qnn_registered());
+        }
+    }
+
     use super::*;
 
     #[test]

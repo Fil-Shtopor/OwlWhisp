@@ -73,12 +73,61 @@ pub fn reregister_shortcut(app: &AppHandle, settings: &Settings) -> Shortcut {
     if let Some(old) = current {
         let _ = app.global_shortcut().unregister(old);
     }
-    if let Err(e) = app.global_shortcut().register(next) {
-        tracing::error!("failed to register hotkey: {e}");
-    }
+    let registered = match app.global_shortcut().register(next) {
+        Ok(()) => {
+            tracing::info!("hotkey registered: {}", next.into_string());
+            true
+        }
+        Err(e) => {
+            tracing::error!("failed to register hotkey {}: {e}", next.into_string());
+            false
+        }
+    };
     state.set_shortcut(Some(next));
     state.set_hotkey_mode(settings.hotkey.mode);
+    // The UI cannot rely on polling alone: the main webview exists before `setup` runs, so its
+    // first `active_hotkey` call can land before the binding is in place. Announcing every
+    // (re)registration means a frontend that asked too early is corrected, and one open while
+    // the binding changes elsewhere (tray, external edit) stays accurate.
+    let _ = app.emit(
+        "hotkey_changed",
+        serde_json::json!({
+            "accelerator": registered.then(|| next.into_string()),
+            "mode": settings.hotkey.mode,
+        }),
+    );
     next
+}
+
+/// Start file logging under `<app-data>/logs/`, returning the guard that must stay alive.
+///
+/// Without this every `tracing` call in the app is discarded: a release build has no console
+/// (`windows_subsystem = "windows"`), so a user hitting a problem has nothing to send and no way
+/// to see why, for instance, a hotkey failed to register.
+///
+/// **Nothing private is written.** No transcript text, audio, clipboard contents or keys are ever
+/// passed to `tracing` (audited), and the default filter is `info`, which carries device and
+/// backend facts only. `LW_LOG` raises it for debugging (e.g. `LW_LOG=debug`).
+fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::EnvFilter;
+
+    let logs = dir.join("logs");
+    std::fs::create_dir_all(&logs).ok()?;
+    let appender = tracing_appender::rolling::daily(&logs, "localwisper.log");
+    let (writer, guard) = tracing_appender::non_blocking(appender);
+    let filter = EnvFilter::try_from_env("LW_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(writer)
+        .with_ansi(false)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).ok()?;
+    tracing::info!(
+        "LocalWisper {} starting; logs in {}",
+        env!("CARGO_PKG_VERSION"),
+        logs.display()
+    );
+    Some(guard)
 }
 
 /// Build and run the Tauri application.
@@ -117,7 +166,12 @@ pub fn run() {
             catalog::run_benchmark,
         ])
         .setup(|app| {
-            let settings_path = app.path().app_data_dir()?.join("settings.json");
+            let data_dir = app.path().app_data_dir()?;
+            // Held for the process lifetime so the non-blocking writer flushes.
+            if let Some(guard) = init_logging(&data_dir) {
+                app.manage(guard);
+            }
+            let settings_path = data_dir.join("settings.json");
             let settings = Settings::load(&settings_path).unwrap_or_default();
             let worker = worker::spawn(app.handle().clone(), settings_path.clone());
             app.manage(AppState::new(
@@ -127,10 +181,13 @@ pub fn run() {
                 worker,
             ));
 
+            // Before the tray and the overlay: windows declared in tauri.conf.json already exist
+            // by the time `setup` runs, so their webview can call `active_hotkey` at any moment.
+            // Registering first shrinks that window; `hotkey_changed` closes it for good.
+            reregister_shortcut(app.handle(), &settings);
+
             build_tray(app.handle())?;
             create_overlay_window(app.handle())?;
-
-            reregister_shortcut(app.handle(), &settings);
             Ok(())
         })
         // Closing the main window hides it to the tray; "Quit" in the tray exits.

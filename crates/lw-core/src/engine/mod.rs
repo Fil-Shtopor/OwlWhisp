@@ -188,6 +188,15 @@ pub trait SpeechEngine: Send {
             "streaming not supported by this engine".into(),
         ))
     }
+    /// Notes recorded while selecting a backend, in order.
+    ///
+    /// This is how a fallback becomes visible instead of silent: when an engine asks for the NPU
+    /// and ends up on the CPU, the reason belongs somewhere the user can read it, not only in a
+    /// log. Engines with nothing to say return an empty slice.
+    fn notes(&self) -> &[String] {
+        &[]
+    }
+
     /// Release resources.
     fn shutdown(&mut self) {}
 }

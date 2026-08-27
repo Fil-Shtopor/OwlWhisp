@@ -132,6 +132,22 @@ export function subscribeMicLevel(handler: (level: number) => void): Promise<voi
   return invoke<void>("subscribe_mic_level", { channel });
 }
 
+/** Payload of the `hotkey_changed` event, emitted on every (re)registration. */
+export interface HotkeyChanged {
+  /** What the OS holds, or null when registration failed. */
+  accelerator: string | null;
+  mode: HotkeyMode;
+}
+
+/**
+ * Subscribe to `hotkey_changed`. The main webview exists before the backend finishes starting,
+ * so a first `activeHotkey()` can legitimately answer null; this event carries the correction,
+ * and every later rebinding too.
+ */
+export function onHotkeyChanged(handler: (payload: HotkeyChanged) => void): Promise<UnlistenFn> {
+  return listen<HotkeyChanged>("hotkey_changed", (event) => handler(event.payload));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Hardware capabilities
 // ---------------------------------------------------------------------------------------------
@@ -285,6 +301,11 @@ export interface BenchReport {
   /** Word-weighted WER, or null when the clips had no reference transcripts. */
   wer: number | null;
   audio_secs: number;
+  /**
+   * What the engine decided while selecting a backend, in order - including why it fell back.
+   * A run that asked for the NPU and ended up on the CPU says so here; show them.
+   */
+  notes: string[];
 }
 
 /**

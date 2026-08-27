@@ -217,6 +217,8 @@ pub struct BenchReport {
     pub wer: Option<f32>,
     /// Total seconds of audio processed.
     pub audio_secs: f32,
+    /// What the engine decided while selecting a backend -- including why it fell back, if it did.
+    pub notes: Vec<String>,
 }
 
 /// Build the requested engine, measure it on real (or, failing that, synthetic) clips, and report.
@@ -276,6 +278,7 @@ fn run_benchmark_job(
         warm_count: m.warm_count,
         wer: m.wer,
         audio_secs: m.audio_secs,
+        notes: engine.notes().to_vec(),
     };
     engine.shutdown();
     Ok(report)
@@ -443,4 +446,82 @@ fn deliver(text: &str) -> bool {
         let _ = clip.set_text(text);
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exercise the exact path the app's Benchmark button takes, against a real installed model.
+    ///
+    /// Ignored by default: it needs a model on disk and takes tens of seconds (minutes on a first
+    /// NPU run, which prepares and caches the HTP context). Run it explicitly with
+    /// `cargo test -p localwisper --lib -- --ignored --nocapture`, optionally pointing
+    /// `LW_TEST_SETTINGS` at a settings.json other than the installed app's.
+    #[test]
+    #[ignore = "needs an installed model; run explicitly"]
+    fn benchmark_job_measures_a_real_model() {
+        let settings_path = std::env::var("LW_TEST_SETTINGS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let base = std::env::var("APPDATA").expect("APPDATA");
+                PathBuf::from(base)
+                    .join("ai.localwisper.app")
+                    .join("settings.json")
+            });
+        // `Settings::load` falls back to defaults when the file is absent, which is the state of
+        // a fresh install - so only the model has to be there.
+        let models = app_data_dir(&settings_path).join("models");
+        assert!(
+            models.is_dir() && models.read_dir().is_ok_and(|mut d| d.next().is_some()),
+            "no model installed under {}",
+            models.display()
+        );
+
+        let report = run_benchmark_job(&settings_path, None, None).expect("benchmark should run");
+        println!("machine     : {}", report.machine);
+        println!("backend     : {}", report.backend);
+        println!("model       : {} ({})", report.model_id, report.model_dir);
+        println!("clips from  : {}", report.clip_source);
+        println!("engine load : {:.0} ms", report.engine_load_ms);
+        for n in &report.notes {
+            println!("note        : {n}");
+        }
+        for c in &report.clips {
+            println!(
+                "  {:<22} {:>7.0} ms  RTF {:.4}  WER {}",
+                c.name,
+                c.ms,
+                c.rtf,
+                c.wer.map(|w| format!("{w:.2}")).unwrap_or_else(|| "-".into())
+            );
+        }
+        println!("cold RTF    : {:.4}", report.cold_rtf);
+        println!(
+            "warm RTF    : {}  over {} run(s)",
+            report
+                .warm_rtf
+                .map(|r| format!("{r:.4}"))
+                .unwrap_or_else(|| "n/a".into()),
+            report.warm_count
+        );
+        println!(
+            "WER         : {}",
+            report
+                .wer
+                .map(|w| format!("{w:.3}"))
+                .unwrap_or_else(|| "n/a".into())
+        );
+
+        assert!(
+            !report.clips.is_empty(),
+            "a report with no clips measures nothing"
+        );
+        assert!(report.cold_rtf > 0.0, "RTF must be a real timing");
+        assert!(report.audio_secs > 0.0);
+        // warm_rtf is Some exactly when a second run happened - the invariant the UI relies on.
+        assert_eq!(report.warm_rtf.is_some(), report.warm_count > 0);
+        // The backend string must describe what ran, so it can never be empty.
+        assert!(!report.backend.is_empty());
+    }
 }

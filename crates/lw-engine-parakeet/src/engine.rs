@@ -342,6 +342,10 @@ impl SpeechEngine for ParakeetEngine {
         Ok(())
     }
 
+    fn notes(&self) -> &[String] {
+        &self.notes
+    }
+
     fn health_check(&mut self) -> HealthReport {
         // Probe with 0.5 s of near-silence through the whole pipeline.
         let probe = vec![0.0f32; 8000];

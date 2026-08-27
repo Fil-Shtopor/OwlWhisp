@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   activeHotkey,
   getSettings,
+  onHotkeyChanged,
   setRecordingState,
   subscribeMicLevel,
   type HotkeyConfig,
@@ -115,8 +117,20 @@ export function DictatePanel({ state }: { state: UiState }) {
       .catch(() => {
         // Leave it "unknown": a silent line beats a warning we cannot stand behind.
       });
+    // The backend announces every (re)registration. That corrects the answer above when this
+    // panel asked before startup finished, and keeps the line accurate if the binding changes
+    // while the panel is open.
+    let unlisten: UnlistenFn | undefined;
+    void onHotkeyChanged((payload) => {
+      if (disposed) return;
+      setRegistration(payload.accelerator === null ? "none" : "held");
+    }).then((un) => {
+      if (disposed) un();
+      else unlisten = un;
+    });
     return () => {
       disposed = true;
+      unlisten?.();
     };
   }, []);
 
