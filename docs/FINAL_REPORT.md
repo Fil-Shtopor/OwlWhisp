@@ -54,10 +54,22 @@ workspace + Tauri 2 desktop shell:
   wired — reports unavailable).
 - **`lw-platform`** — OS integration traits (audio capture, global hotkey, text injection,
   clipboard, capabilities, secure storage) with Windows implementations and macOS/Linux modules.
-- **`lw-cli`** (`lw`) — `diagnose`, `transcribe`, `bench`, `devices`, `record`, `selfcheck`.
+- **`lw-engine-sherpa`** — a portable CPU engine (Whisper / Moonshine / SenseVoice / NeMo
+  transducer) via sherpa-onnx, behind the optional `sherpa` feature. Off by default; see
+  [`licenses.md`](licenses.md) for the espeak-ng GPL-3.0 trap that makes the default archive
+  unshippable alongside the proprietary Qualcomm runtime.
+- **`lw_core::model::catalog`** — a pre-download catalog: per model, size, languages, quality and
+  speed tiers, supported hardware, and a hardware-aware recommender. It keeps **estimates** and
+  **measurements** in separate fields, and every measurement carries the machine it was taken on.
+- **`lw_core::bench`** — the measurement core (clip loading, `measure()`, word-weighted WER),
+  shared by the CLI and the app so the two can never disagree about what a number means.
+- **`lw-cli`** (`lw`) — `diagnose`, `transcribe`, `bench`, `bench --quick`, `devices`, `record`,
+  `selfcheck`, `models list|info|install|compare`.
 - **`app/`** — Tauri 2 shell (tray, settings window, non-activating overlay, global shortcut,
-  typed command/event IPC) + React/TypeScript UI (Dictate / Settings / Diagnostics), with a
-  background dictation worker wiring hotkey → mic capture → Parakeet → text pipeline → injection.
+  typed command/event IPC) + React/TypeScript UI (Dictate / Settings / Models / Diagnostics /
+  Benchmark), with a background dictation worker wiring hotkey → mic capture → engine → text
+  pipeline → injection. Three hotkey modes (push-to-talk, toggle, hands-free), an in-app model
+  picker with verified download, and an in-app benchmark. See [`using.md`](using.md).
 - Docs (`research.md`, `architecture.md`, `x2-npu.md`, `benchmarks.md`, `licenses.md`, `build.md`),
   scripts (model download, runtime fetch, ARM64 build, QNN probe/quantize, benchmark), a pinned
   model manifest, and CC-BY-4.0 FLEURS test fixtures.
@@ -78,9 +90,14 @@ workspace + Tauri 2 desktop shell:
 - **The CPU fallback is genuinely independent** — with the QNN DLL absent, the CPU path transcribes
   identically. (A real ORT gotcha was fixed here: a registered QNN EP auto-applies to CPU sessions
   and fails the encoder's dynamic `/Expand`; CPU sessions are now pinned to the CPU device.)
-- **Unit tests**: 70 (lw-core) + 9 (lw-ort) + 17 (lw-engine-parakeet) + 1 (whisper) + VAD/CLI, all
-  passing. **Integration test**: the ignored `transcribe_fixture` passes with the real model
-  (WER < 0.35 on the English fixture).
+- **The desktop app on the NPU** — the app's own benchmark path, run against the model installed
+  in its app-data directory, reports `QNN on NPU` at warm RTF **0.0099** (vs 0.0357 on the CPU).
+  Getting there uncovered a real bug: `OrtRuntime` tracked EP registration per instance while
+  ONNX Runtime's environment is global, so a second handle's registration was refused and the
+  caller read that as "no NPU" and fell back to the CPU. The runtime is now one handle per
+  process, with a regression test.
+- **Unit tests**: 263 across the workspace, all passing, plus ignored integration tests that need
+  a real model (`transcribe_fixture`, the app's benchmark path, and the ORT singleton check).
 
 ## 3. What was tested
 
@@ -100,14 +117,23 @@ workspace + Tauri 2 desktop shell:
 | ORT dynamic load + QNN registration + device enum | run on X2 (`diagnose`) | pass |
 | **End-to-end CPU transcription** | `lw transcribe`/`bench` + integration test on X2 | pass, WER 5.4 % |
 | **End-to-end NPU (HTP V81) transcription** | `lw bench` on X2 | pass, WER 4.8 %, RTF 0.0145 |
+| Model catalog JSON shape + estimate/measurement separation | unit tests | pass |
+| Benchmark arithmetic (cold/warm split, word-weighted WER) | unit tests with a scripted mock engine | pass |
+| Install state detection against the app's real model directory | `LW_MODELS_ROOT=<app dir> lw models list` on X2 | pass (`INSTALLED: yes`) |
+| Hotkey resolution, and that validation rejects exactly what cannot be registered | unit tests | pass |
+| **The app's benchmark path end to end** | ignored integration test against the installed model on X2 | pass, `QNN on NPU`, warm RTF 0.0099 |
+| **The app running with all five tabs** | launched on X2, window captured | pass |
 
 | **Live microphone capture → transcribe** | `lw record` on X2 (Aqstic array, 48 kHz→16 kHz) | pass, empty on silence (correct), no crash |
 
-Not tested at runtime: text injection into live apps, global-hotkey capture in a live GUI session,
-and the Tauri app's on-screen hotkey→inject loop as a whole (the loop is fully wired in
-`app/src-tauri/src/worker.rs` and compiles, but driving the GUI needs a live desktop + WebView2, not
-available headlessly). The identical capture→engine→text path **is** runtime-verified via `lw record`.
-macOS/Linux were not executed (no hardware).
+Not tested at runtime: text injection into live apps, and clicking through the GUI (model
+download, benchmark button, hotkey editor) — the session running this work has no composited
+desktop, so screen capture returns black and only `PrintWindow` renders, which cannot be trusted
+for layout. What **is** runtime-verified: the app launches with all five tabs, its settings and
+hotkey IPC answer correctly on screen, and its benchmark path was driven end to end against the
+real model through an integration test. The identical capture→engine→text path is runtime-verified
+via `lw record`. **The frontend panels themselves have been type-checked and built, not clicked** —
+that verification needs a human at the machine. macOS/Linux were not executed (no hardware).
 
 ## 4. Exact supported platforms
 

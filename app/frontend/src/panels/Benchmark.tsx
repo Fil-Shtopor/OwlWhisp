@@ -23,6 +23,16 @@ function isBackendPreference(value: string): value is BackendPreference {
   return value === "automatic" || value === "force_npu" || value === "force_cpu";
 }
 
+/**
+ * A note reports a fallback when the run did not get the backend it asked for — the one thing on
+ * this panel the user must not miss. Deliberately a loose substring test: a note this fails to
+ * classify is still rendered, just without the warning weight, so nothing is ever hidden.
+ */
+function isFallbackNote(note: string): boolean {
+  const text = note.toLowerCase();
+  return text.includes("unavailable") || text.includes("using cpu");
+}
+
 export function BenchmarkPanel() {
   const [models, setModels] = useState<ModelEntry[] | null>(null);
   const [backends, setBackends] = useState<BackendPreference[]>([
@@ -203,6 +213,32 @@ export function BenchmarkPanel() {
               </tr>
             </tbody>
           </table>
+
+          {report.notes.length > 0 && (
+            <div className="bench-notes">
+              <h3 className="bench-heading">Backend selection</h3>
+              <p className="sub">
+                “backend that ran” above is what actually executed; these are the engine’s notes on
+                why, in the order it decided them.
+              </p>
+              <ul className="bench-note-list">
+                {report.notes.map((note, i) => {
+                  const fallback = isFallbackNote(note);
+                  return (
+                    <li
+                      key={`${i}-${note}`}
+                      className={fallback ? "bench-note fallback" : "bench-note"}
+                    >
+                      <span className={fallback ? "badge warn" : "badge"}>
+                        {fallback ? "fallback" : "note"}
+                      </span>
+                      <span className="bench-note-text">{note}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           <h3 className="bench-heading">Per clip</h3>
           {report.clips.length === 0 ? (
