@@ -160,34 +160,51 @@ export function ModelsPanel() {
             break;
           case "completed":
             setProgress((p) => (p === null || p.id !== id ? p : { ...p, finishing: true }));
+            setInstallNotice({ id, message: `Downloaded and verified into ${e.dir}` });
             refreshed = true;
             void refresh();
             break;
           case "failed":
-            setInstallError({ id, message: e.message });
+            if (cancelRequested.current !== id) setInstallError({ id, message: e.message });
             break;
         }
       });
       if (!refreshed) await refresh();
     } catch (e: unknown) {
-      // A `failed` event carries the better message; only fall back to the rejection.
-      if (alive.current) {
-        setInstallError((prev) => (prev !== null && prev.id === id ? prev : { id, message: String(e) }));
+      if (!alive.current) return;
+      if (cancelRequested.current === id) {
+        // Cancelling makes the command fail; that is not an error worth shouting about.
+        setInstallNotice({
+          id,
+          message: "Download cancelled. Partial files stay in staging and resume next time.",
+        });
+        await refresh();
+      } else {
+        // A `failed` event carries the better message; only fall back to the rejection.
+        setInstallError((prev) =>
+          prev !== null && prev.id === id ? prev : { id, message: String(e) },
+        );
       }
     } finally {
       if (alive.current) {
         setProgress(null);
         setCancelling(false);
       }
+      cancelRequested.current = null;
     }
   };
 
   const stopInstall = async (id: string) => {
     setCancelling(true);
+    cancelRequested.current = id;
     try {
       await cancelInstall(id);
     } catch (e: unknown) {
-      if (alive.current) setInstallError({ id, message: String(e) });
+      cancelRequested.current = null;
+      if (alive.current) {
+        setCancelling(false);
+        setInstallError({ id, message: String(e) });
+      }
     }
   };
 
@@ -229,6 +246,8 @@ export function ModelsPanel() {
       entry.runnable && entry.install_state !== "unpinned" && entry.install_state !== "installed";
     const canSelect = entry.runnable && entry.install_state === "installed" && !isSelected;
     const error = installError !== null && installError.id === entry.id ? installError.message : null;
+    const notice =
+      installNotice !== null && installNotice.id === entry.id ? installNotice.message : null;
 
     return (
       <article
@@ -252,6 +271,10 @@ export function ModelsPanel() {
             {state.label}
           </span>
         </header>
+
+        {entry.install_state !== "installed" && (
+          <p className="sub install-hint">{state.hint}</p>
+        )}
 
         <dl className="model-facts">
           <div>
@@ -417,6 +440,7 @@ export function ModelsPanel() {
         </div>
 
         {error !== null && <p className="status-err">Download failed: {error}</p>}
+        {notice !== null && <p className="sub">{notice}</p>}
       </article>
     );
   };

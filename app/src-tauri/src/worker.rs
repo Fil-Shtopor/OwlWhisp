@@ -39,6 +39,19 @@ pub enum WorkerCmd {
     StopRecording,
     /// Reload settings (backend, dictionary, cleanup) for the next utterance.
     ReloadSettings,
+    /// Measure a model on this machine and reply with the report.
+    ///
+    /// Benchmarks run **on the worker thread** rather than a fresh one so that a second engine
+    /// can never exist alongside the dictation engine: two QNN sessions would compete for the
+    /// same Hexagon context, and the failure would look like a benchmark result.
+    Benchmark {
+        /// Model to measure; `None` means whatever Settings currently selects.
+        model_id: Option<String>,
+        /// Backend to force; `None` means the configured preference.
+        backend: Option<BackendPreference>,
+        /// Where to send the report.
+        reply: Sender<Result<BenchReport, String>>,
+    },
     /// Shut the worker down.
     Shutdown,
 }
@@ -175,6 +188,98 @@ fn build_pipeline(settings: &Settings) -> TextPipeline {
     pipeline
 }
 
+/// A benchmark report: every number in it was measured on this machine by this run.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BenchReport {
+    /// One-line description of the machine.
+    pub machine: String,
+    /// The backend that **actually** executed, read back from the engine rather than requested.
+    pub backend: String,
+    /// The model that was measured.
+    pub model_id: String,
+    /// Where its files were loaded from.
+    pub model_dir: String,
+    /// Where the audio came from, including whether WER was computable.
+    pub clip_source: String,
+    /// Time spent constructing and initializing the engine.
+    pub engine_load_ms: f32,
+    /// Per-clip results in run order.
+    pub clips: Vec<lw_core::bench::ClipResult>,
+    /// First run, which includes one-time warm-up.
+    pub cold_rtf: f32,
+    /// Mean of the runs after the first, or `None` when there was no second run: reporting a
+    /// "warm" number derived from a single cold run would be a measurement of nothing.
+    pub warm_rtf: Option<f32>,
+    /// How many runs contributed to `warm_rtf`.
+    pub warm_count: usize,
+    /// Word-weighted WER, or `None` when the clips carried no reference transcripts.
+    pub wer: Option<f32>,
+    /// Total seconds of audio processed.
+    pub audio_secs: f32,
+}
+
+/// Build the requested engine, measure it on real (or, failing that, synthetic) clips, and report.
+///
+/// Overrides are applied to a *copy* of the settings, so measuring a model the user has not
+/// selected never changes what dictation uses.
+fn run_benchmark_job(
+    settings_path: &std::path::Path,
+    model_id: Option<String>,
+    backend: Option<BackendPreference>,
+) -> Result<BenchReport, String> {
+    let mut settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
+    if let Some(id) = model_id {
+        settings.model_id = id;
+    }
+    if let Some(b) = backend {
+        settings.backend = b;
+    }
+
+    let data = app_data_dir(settings_path);
+    let model_dir = data.join("models").join(&settings.model_id);
+    if !model_dir.exists() {
+        return Err(format!(
+            "model '{}' is not installed ({})",
+            settings.model_id,
+            model_dir.display()
+        ));
+    }
+    let ctx = EngineInitContext {
+        model_dir: model_dir.clone(),
+        cache_dir: data.join("cache"),
+        cpu_threads: 0,
+    };
+
+    let t0 = std::time::Instant::now();
+    let mut engine = build_engine_for(&model_dir, &settings, &ctx)?;
+    engine.initialize(&ctx).map_err(|e| e.to_string())?;
+    let engine_load_ms = t0.elapsed().as_secs_f32() * 1000.0;
+
+    // Three clips keeps a first NPU run tolerable; the CLI's `--quick` uses the same number.
+    let (clips, source) = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+    let clip_source = source.describe();
+    let m = lw_core::bench::measure(engine.as_mut(), &clips, source, |_| {}).map_err(|e| e.to_string())?;
+
+    let report = BenchReport {
+        machine: lw_platform::caps::detect().summary(),
+        // Read back what ran, not what was asked for: a requested NPU run that fell back to CPU
+        // must say CPU.
+        backend: format!("{} on {}", engine.provider(), engine.acceleration()),
+        model_id: settings.model_id.clone(),
+        model_dir: model_dir.display().to_string(),
+        clip_source,
+        engine_load_ms,
+        clips: m.results,
+        cold_rtf: m.cold_rtf,
+        warm_rtf: (m.warm_count > 0).then_some(m.warm_rtf),
+        warm_count: m.warm_count,
+        wer: m.wer,
+        audio_secs: m.audio_secs,
+    };
+    engine.shutdown();
+    Ok(report)
+}
+
 fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) {
     // Lazy-load the engine on first use so app startup is not blocked by the 650 MB model.
     let mut loaded: Option<Result<Loaded, String>> = None;
@@ -193,6 +298,15 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
             WorkerCmd::Shutdown => break,
             WorkerCmd::ReloadSettings => {
                 loaded = None; // reload lazily next utterance
+            }
+            WorkerCmd::Benchmark {
+                model_id,
+                backend,
+                reply,
+            } => {
+                // Drop the dictation engine first: only one engine may hold the NPU at a time.
+                loaded = None;
+                let _ = reply.send(run_benchmark_job(&settings_path, model_id, backend));
             }
             WorkerCmd::StartRecording { hands_free } => {
                 let mut cap = Capture::new(None, 16_000 * 120);

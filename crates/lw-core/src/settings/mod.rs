@@ -79,12 +79,15 @@ impl HotkeyConfig {
     /// trigger key, or (for the hook backend) at least two modifiers.
     pub fn validate(&self) -> Result<()> {
         if self.is_modifier_only() {
-            if self.modifiers.len() < 2 {
-                return Err(Error::Config(
-                    "a modifiers-only hotkey needs at least two modifiers".into(),
-                ));
-            }
-            return Ok(());
+            // Accepting this would be a lie: an OS global-shortcut registration needs a
+            // non-modifier key, so the app would silently fall back to the default binding and
+            // the user's chosen keys would never fire. Reject it here, where the message can
+            // reach the settings UI, rather than warning into a log nobody reads. Supporting it
+            // needs a low-level keyboard hook backend, which this build does not ship.
+            return Err(Error::Config(
+                "a hotkey needs a non-modifier key (modifiers-only bindings need a low-level                  keyboard hook, which this build does not provide)"
+                    .into(),
+            ));
         }
         if key_code_name(&self.trigger).is_none() {
             return Err(Error::Config(format!("unsupported hotkey key: {}", self.trigger)));
@@ -312,15 +315,28 @@ mod tests {
         };
         assert!(h.is_modifier_only());
         assert_eq!(h.to_accelerator(), None);
-        // two modifiers is a usable hook-backend binding
-        h.validate().unwrap();
     }
 
     #[test]
-    fn single_modifier_only_binding_is_rejected() {
+    fn modifier_only_bindings_are_rejected_because_they_would_silently_fall_back() {
+        // No number of modifiers makes this registrable without a low-level hook backend, and
+        // accepting it would leave the app listening on the default binding instead.
+        for mods in [vec!["ctrl"], vec!["ctrl", "win"], vec!["ctrl", "alt", "shift"]] {
+            let h = HotkeyConfig {
+                modifiers: mods.iter().map(|m| m.to_string()).collect(),
+                trigger: "none".into(),
+                mode: HotkeyMode::PushToTalk,
+            };
+            let err = h.validate().unwrap_err().to_string();
+            assert!(err.contains("non-modifier key"), "{err}");
+        }
+    }
+
+    #[test]
+    fn an_empty_trigger_is_rejected_too() {
         let h = HotkeyConfig {
-            modifiers: vec!["ctrl".into()],
-            trigger: "none".into(),
+            modifiers: vec!["ctrl".into(), "alt".into()],
+            trigger: String::new(),
             mode: HotkeyMode::PushToTalk,
         };
         assert!(h.validate().is_err());

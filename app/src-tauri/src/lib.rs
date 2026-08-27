@@ -11,6 +11,7 @@
 //! - a background [`worker`] that owns the microphone capture and the Parakeet engine and turns
 //!   hotkey press/release into capture → transcription → text pipeline → injection.
 
+pub mod catalog;
 pub mod commands;
 pub mod state;
 pub mod worker;
@@ -48,11 +49,13 @@ fn shortcut_from_settings(settings: &Settings) -> Shortcut {
             }
         },
         None => {
-            if settings.hotkey.is_modifier_only() {
-                tracing::warn!(
-                    "modifiers-only hotkeys need the low-level hook backend; using the default binding"
-                );
-            }
+            // `Settings::validate` rejects modifier-only bindings precisely so this cannot be
+            // reached from the UI; only a hand-edited settings file gets here.
+            tracing::warn!(
+                "hotkey {:?}+{} cannot be registered with the OS; using the default binding",
+                settings.hotkey.modifiers,
+                settings.hotkey.trigger
+            );
             fallback_shortcut()
         }
     }
@@ -106,6 +109,11 @@ pub fn run() {
             commands::set_recording_state,
             commands::subscribe_mic_level,
             commands::active_hotkey,
+            catalog::get_capabilities,
+            catalog::list_models,
+            catalog::install_model,
+            catalog::cancel_install,
+            catalog::run_benchmark,
         ])
         .setup(|app| {
             let settings_path = app.path().app_data_dir()?.join("settings.json");

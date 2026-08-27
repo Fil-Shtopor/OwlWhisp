@@ -94,6 +94,35 @@ GitHub release API for `k2-fsa/sherpa-onnx` tag `asr-models`) but upstream publi
 pinning them honestly requires downloading and hashing them first. Until then the CLI declines
 rather than fetching something it cannot verify.
 
+### Where models live, and keeping the app and the CLI in agreement
+
+The **desktop app** keeps models inside its own Tauri app-data directory, next to `settings.json`:
+
+| Platform | App models directory |
+|---|---|
+| Windows | `%APPDATA%\ai.localwisper.app\models` |
+| macOS | `~/Library/Application Support/ai.localwisper.app/models` |
+| Linux | `~/.local/share/ai.localwisper.app/models` |
+
+The **CLI** defaults somewhere else (`%LOCALAPPDATA%\LocalWisper\models` /
+`~/.local/share/LocalWisper/models`), because it is usable without the app ever being installed.
+That means the two can disagree about what is installed unless you tell them not to. Set
+`LW_MODELS_ROOT` (or pass `--dest`) to point the CLI at the app's copy:
+
+```bash
+LW_MODELS_ROOT="$APPDATA/ai.localwisper.app/models" lw models list
+#   parakeet-tdt-0.6b-v3 ... INSTALLED: yes
+```
+
+Both read install state through the same `lw_core::model::paths` code, so with the same root they
+always give the same answer.
+
+### From the app
+
+Settings → **Models** shows the same catalog, marks the entry recommended for your hardware, and
+downloads through the same verified path with a progress bar and a cancel button. Cancelling is not
+an error: partial files stay in staging and the next attempt resumes them.
+
 ## 5. Measure your own machine
 
 Estimates get you to a shortlist. These get you the truth:

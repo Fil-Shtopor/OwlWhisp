@@ -224,14 +224,24 @@ export function listModels(): Promise<ModelCatalog> {
 /** Progress events streamed while a model downloads. */
 export type InstallEvent =
   | { event: "file_started"; path: string; total: number }
-  | { event: "progress"; path: string; received: number; total: number }
+  | {
+      event: "progress";
+      path: string;
+      received: number;
+      total: number;
+      file_index: number;
+      file_count: number;
+    }
   | { event: "file_verified"; path: string }
-  | { event: "completed"; dir: string }
+  | { event: "completed"; dir?: string }
+  /** The user cancelled. Not an error: partial files stay in staging and resume next time. */
+  | { event: "cancelled" }
   | { event: "failed"; message: string };
 
 /**
  * Download and SHA-256-verify a model. Resolves when the download finishes; progress arrives
- * through `onEvent`. A `failed` event is also delivered before the promise rejects.
+ * through `onEvent`. A `failed` event is also delivered before the promise rejects. A cancelled
+ * download delivers `cancelled` and RESOLVES, so cancelling is never surfaced as an error.
  */
 export function installModel(id: string, onEvent: (e: InstallEvent) => void): Promise<void> {
   const channel = new Channel<InstallEvent>();
@@ -269,8 +279,8 @@ export interface BenchReport {
   clips: BenchClip[];
   /** First run - includes one-time warm-up. */
   cold_rtf: number;
-  /** Mean over the runs after the first. */
-  warm_rtf: number;
+  /** Mean over the runs after the first, or null when there was no second run. */
+  warm_rtf: number | null;
   warm_count: number;
   /** Word-weighted WER, or null when the clips had no reference transcripts. */
   wer: number | null;

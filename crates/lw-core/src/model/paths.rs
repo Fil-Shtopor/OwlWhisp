@@ -16,9 +16,19 @@ use crate::model::{CacheState, ModelManifest, ModelRegistry};
 
 /// The per-user models directory used when the caller does not pass one.
 ///
-/// Windows: `%LOCALAPPDATA%\LocalWisper\models`. Unix: `$HOME/.local/share/LocalWisper/models`.
-/// Falls back to a relative `models` directory when neither variable is set.
+/// `$LW_MODELS_ROOT` wins when set. Otherwise Windows uses `%LOCALAPPDATA%\LocalWisper\models`
+/// and Unix uses `$HOME/.local/share/LocalWisper/models`, falling back to a relative `models`
+/// directory when neither variable is set.
+///
+/// The desktop app does **not** use this: it keeps models under its own Tauri app-data directory
+/// and passes that root explicitly. `LW_MODELS_ROOT` is how you point the CLI at the app's copy
+/// so `lw models list` and the app agree about what is installed.
 pub fn default_models_root() -> PathBuf {
+    if let Ok(explicit) = std::env::var("LW_MODELS_ROOT")
+        && !explicit.trim().is_empty()
+    {
+        return PathBuf::from(explicit);
+    }
     if cfg!(windows)
         && let Ok(base) = std::env::var("LOCALAPPDATA")
     {

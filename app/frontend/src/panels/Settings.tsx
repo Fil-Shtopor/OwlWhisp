@@ -9,6 +9,13 @@ import {
   type HotkeyMode,
   type Settings,
 } from "../ipc";
+import {
+  formatHotkey,
+  hasModifier,
+  hotkeyTrigger,
+  triggerLabel,
+  MODIFIER_OPTIONS,
+} from "../format";
 
 const BACKEND_LABELS: Record<BackendPreference, string> = {
   automatic: "Automatic",
@@ -34,18 +41,6 @@ const MODE_OPTIONS: ReadonlyArray<{ id: HotkeyMode; label: string; help: string 
   },
 ];
 
-/**
- * The four modifiers the editor offers. `aliases` exist because the backend also accepts
- * `control`/`option`/`win`/`super`/`cmd` in a saved settings file; we tick the matching box and
- * write back the canonical name.
- */
-const MODIFIER_OPTIONS: ReadonlyArray<{ id: string; label: string; aliases: readonly string[] }> = [
-  { id: "ctrl", label: "Ctrl", aliases: ["ctrl", "control"] },
-  { id: "alt", label: "Alt", aliases: ["alt", "option"] },
-  { id: "shift", label: "Shift", aliases: ["shift"] },
-  { id: "meta", label: "Meta (Win/Cmd)", aliases: ["meta", "win", "super", "cmd"] },
-];
-
 const LETTERS: readonly string[] = Array.from({ length: 26 }, (_, i) =>
   String.fromCharCode(97 + i),
 );
@@ -54,7 +49,6 @@ const FKEYS: readonly string[] = Array.from({ length: 20 }, (_, i) => `f${i + 1}
 
 const TRIGGER_GROUPS: ReadonlyArray<{ label: string; keys: readonly string[] }> = [
   { label: "Common", keys: ["space", "tab", "enter", "esc"] },
-  { label: "Modifiers only", keys: ["none"] },
   { label: "Letters", keys: LETTERS },
   { label: "Digits", keys: DIGITS },
   { label: "Function keys", keys: FKEYS },
@@ -66,7 +60,6 @@ const SELECTABLE_TRIGGERS: ReadonlySet<string> = new Set([
   "tab",
   "enter",
   "esc",
-  "none",
   ...LETTERS,
   ...DIGITS,
   ...FKEYS,
@@ -115,8 +108,10 @@ function modifierLabel(name: string): string {
   return known?.label.split(" ")[0] ?? name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** Same rule as `HotkeyConfig::is_modifier_only`, including its case-insensitivity. */
 function isModifierOnly(hotkey: HotkeyConfig): boolean {
-  return hotkey.trigger === "none" || hotkey.trigger.trim() === "";
+  const trigger = hotkey.trigger.trim().toLowerCase();
+  return trigger === "none" || trigger === "";
 }
 
 function hasModifier(hotkey: HotkeyConfig, id: string): boolean {

@@ -48,6 +48,8 @@ pub struct AppState {
     pub mic_level: Mutex<Option<Channel<f32>>>,
     /// Handle to the dictation worker (audio capture + engine on a background thread).
     pub worker: crate::worker::WorkerHandle,
+    /// Cancellation tokens for model downloads in flight, keyed by catalog id.
+    pub installs: Mutex<std::collections::HashMap<String, lw_core::model::CancellationToken>>,
     recording: Mutex<RecordingState>,
     /// Bumped on every transition; lets delayed transitions detect staleness.
     generation: AtomicU64,
@@ -71,6 +73,7 @@ impl AppState {
             overlay_enabled: AtomicBool::new(overlay_enabled),
             mic_level: Mutex::new(None),
             worker,
+            installs: Mutex::new(std::collections::HashMap::new()),
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
             shortcut: Mutex::new(None),

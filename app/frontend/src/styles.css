@@ -387,8 +387,8 @@ input[type="checkbox"] {
   gap: 6px;
 }
 
-.radio-row,
-.check-row {
+.field .radio-row,
+.field .check-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -396,8 +396,13 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-.check-row {
+.field .check-row {
   align-items: center;
+}
+
+.field .perf-label {
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .radio-label {
@@ -545,7 +550,8 @@ input[type="radio"] {
 
 .notes-body,
 .model-reason,
-.manifest-note {
+.manifest-note,
+.install-hint {
   margin: 0;
   user-select: text;
 }
