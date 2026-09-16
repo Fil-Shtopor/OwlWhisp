@@ -108,6 +108,14 @@ pub fn reregister_shortcut(app: &AppHandle, settings: &Settings) -> Shortcut {
 /// **Nothing private is written.** No transcript text, audio, clipboard contents or keys are ever
 /// passed to `tracing` (audited), and the default filter is `info`, which carries device and
 /// backend facts only. `LW_LOG` raises it for debugging (e.g. `LW_LOG=debug`).
+/// The log writer's flush guard.
+///
+/// Held here rather than in Tauri's managed state because [`quit`] must be able to *take* it: the
+/// guard flushes on drop, and the exit path it uses does not run the appender's own shutdown.
+static LOG_GUARD: std::sync::OnceLock<
+    parking_lot::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
+> = std::sync::OnceLock::new();
+
 fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::EnvFilter;
 
@@ -159,6 +167,10 @@ pub fn run() {
             commands::set_recording_state,
             commands::subscribe_mic_level,
             commands::active_hotkey,
+            commands::preview_sound,
+            commands::list_sound_themes,
+            commands::get_autostart,
+            commands::set_autostart,
             catalog::get_capabilities,
             catalog::list_accelerators,
             catalog::active_backend,
@@ -166,12 +178,14 @@ pub fn run() {
             catalog::install_model,
             catalog::cancel_install,
             catalog::run_benchmark,
+            catalog::run_benchmark_all,
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             // Held for the process lifetime so the non-blocking writer flushes.
             if let Some(guard) = init_logging(&data_dir) {
-                app.manage(guard);
+                let slot = LOG_GUARD.get_or_init(|| parking_lot::Mutex::new(None));
+                *slot.lock() = Some(guard);
             }
             let settings_path = data_dir.join("settings.json");
             let settings = Settings::load(&settings_path).unwrap_or_default();
@@ -182,6 +196,24 @@ pub fn run() {
                 settings.hotkey.mode,
                 worker,
             ));
+
+            {
+                let state = app.state::<AppState>();
+                state.set_cue_settings(&settings);
+                // The OS owns the autostart registration; settings.json only mirrors it. If a user
+                // removed the entry outside the app, believe the OS and write the file back.
+                use tauri_plugin_autostart::ManagerExt;
+                match app.autolaunch().is_enabled() {
+                    Ok(actual) if actual != settings.autostart => {
+                        tracing::info!("autostart: settings said {}, the OS says {actual}; following the OS", settings.autostart);
+                        let mut s = settings.clone();
+                        s.autostart = actual;
+                        let _ = s.save(&state.settings_path);
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::debug!("could not read the autostart registration: {e}"),
+                }
+            }
 
             // Before the tray and the overlay: windows declared in tauri.conf.json already exist
             // by the time `setup` runs, so their webview can call `active_hotkey` at any moment.
@@ -204,6 +236,23 @@ pub fn run() {
         .expect("failed to run LocalWisper");
 }
 
+/// Quit the application.
+///
+/// Not `app.exit(0)`: once a WebGPU session has existed in the process, ONNX Runtime's WebGPU
+/// execution provider crashes during library detach, so an ordinary exit ends in a crash dialog
+/// rather than a quit (see `lw_ort::exit_without_teardown`). Logs are flushed first, because that
+/// path does not run the appender's own shutdown.
+fn quit(app: &AppHandle) {
+    tracing::info!("quitting");
+    // Dropping the non-blocking writer's guard is what flushes it; the state holds it.
+    if let Some(slot) = LOG_GUARD.get() {
+        drop(slot.lock().take()); // dropping the guard is what flushes the writer
+    }
+    let _ = app;
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    lw_ort::exit_without_teardown(0);
+}
+
 /// System tray with Settings / Diagnostics / Quit.
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
@@ -218,7 +267,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" => show_main_window(app, Some("settings")),
             "diagnostics" => show_main_window(app, Some("diagnostics")),
-            "quit" => app.exit(0),
+            "quit" => quit(app),
             _ => {}
         });
     if let Some(icon) = app.default_window_icon() {

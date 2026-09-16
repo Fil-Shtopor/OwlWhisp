@@ -194,6 +194,19 @@ pub struct Settings {
     pub overlay_enabled: bool,
     /// Whether start/stop sounds play.
     pub sounds_enabled: bool,
+    /// Which cue sound to use. Defaults added with serde so older settings files still load.
+    #[serde(default)]
+    pub sound_theme: crate::sound::SoundTheme,
+    /// Cue volume in `[0, 1]`. Clamped on load, so a hand-edited 11 is not deafening.
+    #[serde(default = "default_sound_volume")]
+    pub sound_volume: f32,
+    /// Start LocalWisper when the user logs in.
+    ///
+    /// The operating system, not this file, is the source of truth: the app reads the real state
+    /// from the autostart registration at startup and writes this back to match. It lives here so
+    /// the UI has something to render before that probe returns.
+    #[serde(default)]
+    pub autostart: bool,
     /// LLM cleanup config.
     pub llm: LlmConfig,
     /// Replacement dictionary.
@@ -214,6 +227,9 @@ fn default_version() -> u32 {
 fn default_log_level() -> String {
     "info".into()
 }
+fn default_sound_volume() -> f32 {
+    0.55
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -226,6 +242,9 @@ impl Default for Settings {
             vad: EndpointConfig::default(),
             overlay_enabled: true,
             sounds_enabled: true,
+            sound_theme: crate::sound::SoundTheme::default(),
+            sound_volume: default_sound_volume(),
+            autostart: false,
             llm: LlmConfig::default(),
             dictionary: Dictionary::new(),
             profiles: ProfileSet::default(),
@@ -250,6 +269,9 @@ impl Settings {
         self.hotkey.validate()?;
         if self.model_id.trim().is_empty() {
             return Err(Error::Config("model_id must not be empty".into()));
+        }
+        if !self.sound_volume.is_finite() || !(0.0..=1.0).contains(&self.sound_volume) {
+            return Err(Error::Config("sound_volume must be in [0, 1]".into()));
         }
         Ok(())
     }
@@ -304,6 +326,52 @@ mod tests {
         assert_eq!(mk("F13").to_accelerator().as_deref(), Some("Control+F13"));
         assert_eq!(mk("1").to_accelerator().as_deref(), Some("Control+Digit1"));
         assert_eq!(mk("tab").to_accelerator().as_deref(), Some("Control+Tab"));
+    }
+
+    #[test]
+    fn sound_defaults_are_sane() {
+        let s = Settings::default();
+        assert!(s.sounds_enabled, "the cue is on by default");
+        assert_eq!(s.sound_theme, crate::sound::SoundTheme::Chime);
+        assert!((0.0..=1.0).contains(&s.sound_volume));
+        s.validate().unwrap();
+    }
+
+    #[test]
+    fn an_out_of_range_volume_is_rejected() {
+        for bad in [-0.1f32, 1.5, f32::NAN, f32::INFINITY] {
+            let s = Settings {
+                sound_volume: bad,
+                ..Settings::default()
+            };
+            assert!(s.validate().is_err(), "accepted volume {bad}");
+        }
+    }
+
+    #[test]
+    fn a_settings_file_written_before_sounds_existed_still_loads() {
+        // The three fields are `#[serde(default)]` precisely so an upgrade does not wipe someone's
+        // settings; this pins that.
+        let old = r#"{
+            "version": 1,
+            "hotkey": {"modifiers":["ctrl","alt"],"trigger":"space","mode":"push_to_talk"},
+            "audio": {"input_device":"","min_record_secs":0.3,"max_record_secs":120.0},
+            "backend": "automatic",
+            "model_id": "parakeet-tdt-0.6b-v3",
+            "vad": {"threshold":0.5,"frame_ms":32.0,"min_speech_ms":96,"hangover_ms":480,
+                    "pre_roll_ms":300,"trailing_pad_ms":200,"max_segment_ms":0},
+            "overlay_enabled": true,
+            "sounds_enabled": true,
+            "llm": {"enabled":false,"base_url":"","model":"","key_in_keychain":false},
+            "dictionary": {"rules":[]},
+            "profiles": {"profiles":[]},
+            "log_level": "info"
+        }"#;
+        let s: Settings = serde_json::from_str(old).expect("old settings must still parse");
+        s.validate().unwrap();
+        assert_eq!(s.sound_theme, crate::sound::SoundTheme::Chime);
+        assert!((0.0..=1.0).contains(&s.sound_volume));
+        assert!(!s.autostart);
     }
 
     #[test]

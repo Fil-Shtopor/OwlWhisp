@@ -28,3 +28,45 @@ pub use session::{CpuSessionConfig, build_accel_session, build_cpu_session};
 
 /// Re-export of the underlying `ort` crate.
 pub use ort;
+
+/// End the process without running C `atexit` handlers.
+///
+/// ONNX Runtime's **WebGPU** execution provider registers teardown that crashes the process on
+/// exit once a WebGPU session has existed: the work completes, the results print, and then the
+/// process dies with `STATUS_STACK_BUFFER_OVERRUN` (0xC0000409). Reproduced on Windows ARM64 with
+/// the WebGPU plugin EP 0.3.0 — an early release — and only ever *after* all useful work is done.
+///
+/// Neither `std::process::exit` nor `ExitProcess` avoids it — both were tried, and both still
+/// crashed, which places the fault in `DLL_PROCESS_DETACH` rather than in a C `atexit` handler.
+/// So this asks the OS to end the process outright.
+///
+/// **The cost is real and bounded:** nothing buffered is written after this point. Callers must
+/// flush anything they care about first — this flushes the standard streams, but a caller with a
+/// non-blocking log writer has to drop its guard beforehand. In exchange, a user who chose the
+/// GPU does not get a crash dialog every time they quit.
+///
+/// **Do not** reach for this as a general shutdown. It is a workaround for one upstream bug in an
+/// early (0.3.0) execution provider, and it should be deleted when that bug is fixed.
+pub fn exit_without_teardown(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+
+    #[cfg(windows)]
+    // SAFETY: both calls are infallible for the current process and take no pointers we own;
+    // TerminateProcess on self never returns. The streams are flushed above.
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        TerminateProcess(GetCurrentProcess(), code as u32);
+        // TerminateProcess is asynchronous in principle; park rather than fall through.
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        // No equivalent problem is known off Windows, so take the ordinary path there.
+        std::process::exit(code)
+    }
+}

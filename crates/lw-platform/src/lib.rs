@@ -28,6 +28,7 @@ pub mod hotkey;
 pub mod inject;
 pub mod overlay;
 pub mod secrets;
+pub mod sound;
 
 #[cfg(windows)]
 pub mod windows;
@@ -44,6 +45,7 @@ pub use hotkey::{GlobalHotkey, HotkeyEvent, HotkeySpec};
 pub use inject::{ForegroundApp, TextInjector};
 pub use overlay::{NoopOverlay, NoopTray, OverlayWindow, SystemTray};
 pub use secrets::SecureStore;
+pub use sound::play as play_cue;
 
 /// The crate-wide result type.
 pub type Result<T> = std::result::Result<T, Error>;

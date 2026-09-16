@@ -174,7 +174,9 @@ fn main() {
             1
         }
     };
-    std::process::exit(code);
+    // Not std::process::exit: see lw_ort::exit_without_teardown for the upstream WebGPU EP
+    // teardown crash this avoids. Output is already flushed there.
+    lw_ort::exit_without_teardown(code);
 }
 
 fn init_runtime(runtime_dir: &Option<PathBuf>) -> anyhow::Result<std::sync::Arc<OrtRuntime>> {

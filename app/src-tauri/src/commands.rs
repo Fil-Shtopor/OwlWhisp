@@ -30,11 +30,81 @@ pub fn set_settings(app: AppHandle, state: State<'_, AppState>, settings: Value)
     state
         .overlay_enabled
         .store(parsed.overlay_enabled, std::sync::atomic::Ordering::Relaxed);
+    // Mirrored into memory so a state transition never reads the disk to decide whether to beep.
+    state.set_cue_settings(&parsed);
     // Apply the parts that live outside the settings file: rebind the global hotkey (and its
     // hold/toggle behaviour) and make the worker pick up the new model/backend/dictionary.
     crate::reregister_shortcut(&app, &parsed);
     state.worker.send(crate::worker::WorkerCmd::ReloadSettings);
     serde_json::to_value(&parsed).map_err(|e| e.to_string())
+}
+
+/// Play one cue so the user can hear a theme before committing to it.
+///
+/// Takes the theme and volume as arguments rather than reading settings, so the preview follows
+/// the controls the user is moving right now instead of the last thing they saved.
+#[tauri::command]
+pub fn preview_sound(theme: String, volume: Option<f32>, cue: Option<String>) -> Result<(), String> {
+    let theme = lw_core::sound::SoundTheme::from_id(&theme)
+        .ok_or_else(|| format!("unknown sound theme '{theme}'"))?;
+    let cue = match cue.as_deref() {
+        None | Some("start") => lw_core::sound::Cue::Start,
+        Some("stop") => lw_core::sound::Cue::Stop,
+        Some(other) => return Err(format!("unknown cue '{other}'")),
+    };
+    lw_platform::play_cue(theme, cue, volume.unwrap_or(0.55));
+    Ok(())
+}
+
+/// The cue sounds this build offers, for the settings picker.
+#[tauri::command]
+pub fn list_sound_themes() -> Vec<Value> {
+    lw_core::sound::ALL_SOUND_THEMES
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id(),
+                "label": t.label(),
+                "description": t.description(),
+            })
+        })
+        .collect()
+}
+
+/// Whether LocalWisper is registered to start when the user logs in.
+///
+/// Read from the operating system, not from `settings.json`: the registration can be removed in
+/// Task Manager, `launchctl` or a desktop environment's own startup list, and a checkbox that
+/// disagreed with the OS would be worse than no checkbox.
+#[tauri::command]
+pub fn get_autostart(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// Register or unregister LocalWisper for login start, and mirror the result into settings.
+///
+/// Returns what the OS reports *afterwards*, which is not always what was asked: a managed or
+/// locked-down machine can refuse. The UI shows the returned value, so it can never claim an
+/// autostart that does not exist.
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if enabled {
+        launcher.enable().map_err(|e| e.to_string())?;
+    } else {
+        launcher.disable().map_err(|e| e.to_string())?;
+    }
+    let actual = launcher.is_enabled().map_err(|e| e.to_string())?;
+    // Keep settings.json in step so the UI has the right value before its first probe returns.
+    if let Ok(mut settings) = Settings::load(&state.settings_path)
+        && settings.autostart != actual
+    {
+        settings.autostart = actual;
+        let _ = settings.save(&state.settings_path);
+    }
+    Ok(actual)
 }
 
 /// The accelerator currently registered with the OS, for the shortcut editor to display.

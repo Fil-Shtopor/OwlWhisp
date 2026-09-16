@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use lw_core::settings::HotkeyMode;
+use lw_core::settings::{HotkeyMode, Settings};
+use lw_core::sound::{Cue, SoundTheme};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -50,6 +51,8 @@ pub struct AppState {
     pub worker: crate::worker::WorkerHandle,
     /// Cancellation tokens for model downloads in flight, keyed by catalog id.
     pub installs: Mutex<std::collections::HashMap<String, lw_core::model::CancellationToken>>,
+    /// Cue settings, mirrored from `settings.json` so a state transition never touches the disk.
+    cue: Mutex<CueSettings>,
     recording: Mutex<RecordingState>,
     /// Bumped on every transition; lets delayed transitions detect staleness.
     generation: AtomicU64,
@@ -58,6 +61,38 @@ pub struct AppState {
     shortcut: Mutex<Option<Shortcut>>,
     /// Hold-to-talk vs tap-to-toggle vs hands-free, mirroring `Settings.hotkey.mode`.
     hotkey_mode: Mutex<HotkeyMode>,
+}
+
+/// The parts of `Settings` the audible cues need, kept in memory.
+#[derive(Clone, Copy, Debug)]
+pub struct CueSettings {
+    /// Whether cues play at all.
+    pub enabled: bool,
+    /// Which sound.
+    pub theme: SoundTheme,
+    /// Volume in `[0, 1]`.
+    pub volume: f32,
+}
+
+impl Default for CueSettings {
+    fn default() -> Self {
+        let s = Settings::default();
+        Self {
+            enabled: s.sounds_enabled,
+            theme: s.sound_theme,
+            volume: s.sound_volume,
+        }
+    }
+}
+
+impl From<&Settings> for CueSettings {
+    fn from(s: &Settings) -> Self {
+        Self {
+            enabled: s.sounds_enabled,
+            theme: s.sound_theme,
+            volume: s.sound_volume,
+        }
+    }
 }
 
 impl AppState {
@@ -74,6 +109,7 @@ impl AppState {
             mic_level: Mutex::new(None),
             worker,
             installs: Mutex::new(std::collections::HashMap::new()),
+            cue: Mutex::new(CueSettings::default()),
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
             shortcut: Mutex::new(None),
@@ -118,6 +154,7 @@ impl AppState {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = app.emit("state_changed", StatePayload { state: next });
         self.sync_overlay(app, next);
+        self.play_cue_for(next);
         generation
     }
 
@@ -138,7 +175,37 @@ impl AppState {
         drop(recording);
         let _ = app.emit("state_changed", StatePayload { state: next });
         self.sync_overlay(app, next);
+        self.play_cue_for(next);
         Some(generation)
+    }
+
+    /// Update the cue settings after a settings save.
+    pub fn set_cue_settings(&self, settings: &Settings) {
+        *self.cue.lock() = CueSettings::from(settings);
+    }
+
+    /// The cue settings currently in force.
+    pub fn cue_settings(&self) -> CueSettings {
+        *self.cue.lock()
+    }
+
+    /// Play the cue this transition calls for, if any.
+    ///
+    /// Only two of the five states make a sound, and they are the two the user can act on:
+    /// `Listening` means "speak now" and `Processing` means "I stopped listening". `Done` and
+    /// `Error` are deliberately silent — by then the text has already appeared (or not), which is
+    /// feedback enough, and a cue on every utterance's end would double the noise.
+    fn play_cue_for(&self, state: RecordingState) {
+        let cue = match state {
+            RecordingState::Listening => Cue::Start,
+            RecordingState::Processing => Cue::Stop,
+            _ => return,
+        };
+        let s = self.cue_settings();
+        if !s.enabled {
+            return;
+        }
+        lw_platform::play_cue(s.theme, cue, s.volume);
     }
 
     /// Show the overlay while not idle (if enabled), hide it when idle.

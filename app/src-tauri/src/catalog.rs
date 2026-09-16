@@ -339,6 +339,26 @@ pub async fn active_backend(state: State<'_, AppState>) -> Result<crate::worker:
     .map_err(|e| format!("active_backend task failed: {e}"))?
 }
 
+/// Measure a model on **every usable accelerator** and return the comparison.
+///
+/// One action instead of "pick a backend, run, write the number down, repeat". All runs use the
+/// same clips, which is what makes the numbers comparable at all. Long: a first NPU run can spend
+/// minutes preparing its context binary, so the backend emits `benchmark_progress` as it goes.
+#[tauri::command]
+pub async fn run_benchmark_all(
+    state: State<'_, AppState>,
+    model_id: Option<String>,
+) -> Result<crate::worker::BenchSuite, String> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    state.worker.send(WorkerCmd::BenchmarkAll { model_id, reply: tx });
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .unwrap_or_else(|_| Err("benchmark worker stopped".to_string()))
+    })
+    .await
+    .map_err(|e| format!("benchmark task failed: {e}"))?
+}
+
 /// Measure a model on this machine.
 ///
 /// Runs on the dictation worker thread so that no second engine can exist while the dictation

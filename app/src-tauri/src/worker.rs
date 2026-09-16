@@ -44,6 +44,16 @@ pub enum WorkerCmd {
         /// Where to send the description.
         reply: Sender<ActiveBackend>,
     },
+    /// Measure a model on **every usable accelerator** and reply with the comparison.
+    ///
+    /// The point is to answer "which should I use here" in one action rather than making the
+    /// user run, record and compare each backend by hand.
+    BenchmarkAll {
+        /// Model to measure; `None` means whatever Settings currently selects.
+        model_id: Option<String>,
+        /// Where to send the suite.
+        reply: Sender<Result<BenchSuite, String>>,
+    },
     /// Measure a model on this machine and reply with the report.
     ///
     /// Benchmarks run **on the worker thread** rather than a fresh one so that a second engine
@@ -224,6 +234,8 @@ pub struct BenchReport {
     pub machine: String,
     /// The backend that **actually** executed, read back from the engine rather than requested.
     pub backend: String,
+    /// That backend's stable accelerator id, for comparing runs without matching display prose.
+    pub accelerator: Option<String>,
     /// The model that was measured.
     pub model_id: String,
     /// Where its files were loaded from.
@@ -249,6 +261,122 @@ pub struct BenchReport {
     pub notes: Vec<String>,
 }
 
+/// One accelerator that was offered but not measured, and why.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BenchSkipped {
+    /// Stable accelerator id.
+    pub accelerator: String,
+    /// Human label.
+    pub label: String,
+    /// Why it was skipped or how it failed.
+    pub reason: String,
+}
+
+/// Every accelerator measured on the same clips, so the numbers can honestly be compared.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BenchSuite {
+    /// One-line description of the machine.
+    pub machine: String,
+    /// The model every run used.
+    pub model_id: String,
+    /// Where the audio came from. One clip set for all runs -- that is what makes this a comparison.
+    pub clip_source: String,
+    /// One report per accelerator that ran, in the order they were measured.
+    pub runs: Vec<BenchReport>,
+    /// Accelerators that could not be measured, with the reason.
+    pub skipped: Vec<BenchSkipped>,
+    /// The id of the fastest run by warm RTF, or `None` if nothing ran.
+    pub fastest: Option<String>,
+    /// The id of the most accurate run by word-weighted WER, when WER was computable.
+    pub most_accurate: Option<String>,
+}
+
+/// Measure every usable accelerator on one clip set and return the comparison.
+///
+/// Emits `benchmark_progress` as each accelerator starts and finishes, because a full sweep takes
+/// minutes -- a first NPU run alone can spend several preparing its context binary.
+fn run_benchmark_suite(
+    settings_path: &std::path::Path,
+    model_id: Option<String>,
+    mut on_progress: impl FnMut(serde_json::Value),
+) -> Result<BenchSuite, String> {
+    let settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
+    let model = model_id.unwrap_or(settings.model_id);
+    let caps = crate::catalog::probe_capabilities();
+
+    let runtime_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found".to_string())?;
+    let runtime = lw_ort::OrtRuntime::init(&runtime_dir).map_err(|e| e.to_string())?;
+    let usable = runtime.usable_accelerators();
+    if usable.is_empty() {
+        return Err("no usable accelerator on this machine".into());
+    }
+
+    // Load once. Every backend must see identical audio or the comparison means nothing.
+    let clips = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+    let clip_source = clips.1.describe();
+    let total = usable.len();
+
+    let mut runs = Vec::new();
+    let mut skipped = Vec::new();
+    for (i, accel) in usable.iter().enumerate() {
+        on_progress(serde_json::json!({
+            "index": i, "total": total,
+            "accelerator": accel.id(), "label": accel.label(),
+            "stage": "running",
+        }));
+        let pref = lw_core::engine::BackendPreference::for_accelerator(*accel);
+        match run_benchmark_job(settings_path, Some(model.clone()), Some(pref), Some(&clips)) {
+            Ok(report) => {
+                on_progress(serde_json::json!({
+                    "index": i, "total": total,
+                    "accelerator": accel.id(), "label": accel.label(),
+                    "stage": "done",
+                    "warm_rtf": report.warm_rtf, "wer": report.wer,
+                }));
+                runs.push(report);
+            }
+            Err(reason) => {
+                on_progress(serde_json::json!({
+                    "index": i, "total": total,
+                    "accelerator": accel.id(), "label": accel.label(),
+                    "stage": "failed", "reason": reason.clone(),
+                }));
+                skipped.push(BenchSkipped {
+                    accelerator: accel.id().to_string(),
+                    label: accel.label().to_string(),
+                    reason,
+                });
+            }
+        }
+    }
+
+    // "Fastest" uses the warm figure: the cold run carries one-time setup that says nothing about
+    // steady-state dictation. A run with no warm figure is not eligible rather than being ranked
+    // on a number that means something else.
+    let fastest = runs
+        .iter()
+        .filter_map(|r| r.warm_rtf.map(|w| (r, w)))
+        .filter(|(_, w)| w.is_finite() && *w > 0.0)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .and_then(|(r, _)| r.accelerator.clone());
+    let most_accurate = runs
+        .iter()
+        .filter_map(|r| r.wer.map(|w| (r, w)))
+        .filter(|(_, w)| w.is_finite())
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .and_then(|(r, _)| r.accelerator.clone());
+
+    Ok(BenchSuite {
+        machine: caps.summary(),
+        model_id: model,
+        clip_source,
+        runs,
+        skipped,
+        fastest,
+        most_accurate,
+    })
+}
+
 /// Build the requested engine, measure it on real (or, failing that, synthetic) clips, and report.
 ///
 /// Overrides are applied to a *copy* of the settings, so measuring a model the user has not
@@ -257,6 +385,7 @@ fn run_benchmark_job(
     settings_path: &std::path::Path,
     model_id: Option<String>,
     backend: Option<BackendPreference>,
+    clips: Option<&(Vec<lw_core::bench::Clip>, lw_core::bench::ClipSource)>,
 ) -> Result<BenchReport, String> {
     let mut settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
     if let Some(id) = model_id {
@@ -287,15 +416,25 @@ fn run_benchmark_job(
     let engine_load_ms = t0.elapsed().as_secs_f32() * 1000.0;
 
     // Three clips keeps a first NPU run tolerable; the CLI's `--quick` uses the same number.
-    let (clips, source) = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+    // Comparing backends is only meaningful on identical audio, so a suite loads the clips once
+    // and hands the same set to every run.
+    let owned;
+    let (clips, source) = match clips {
+        Some(c) => (&c.0, c.1.clone()),
+        None => {
+            owned = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+            (&owned.0, owned.1.clone())
+        }
+    };
     let clip_source = source.describe();
-    let m = lw_core::bench::measure(engine.as_mut(), &clips, source, |_| {}).map_err(|e| e.to_string())?;
+    let m = lw_core::bench::measure(engine.as_mut(), clips, source, |_| {}).map_err(|e| e.to_string())?;
 
     let report = BenchReport {
         machine: crate::catalog::probe_capabilities().summary(),
         // Read back what ran, not what was asked for: a requested NPU run that fell back to CPU
         // must say CPU.
         backend: format!("{} on {}", engine.provider(), engine.acceleration()),
+        accelerator: engine.accelerator().map(|a| a.id().to_string()),
         model_id: settings.model_id.clone(),
         model_dir: model_dir.display().to_string(),
         clip_source,
@@ -364,6 +503,13 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                 };
                 let _ = reply.send(desc);
             }
+            WorkerCmd::BenchmarkAll { model_id, reply } => {
+                loaded = None;
+                let app2 = app.clone();
+                let _ = reply.send(run_benchmark_suite(&settings_path, model_id, move |p| {
+                    let _ = app2.emit("benchmark_progress", p);
+                }));
+            }
             WorkerCmd::Benchmark {
                 model_id,
                 backend,
@@ -371,7 +517,7 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
             } => {
                 // Drop the dictation engine first: only one engine may hold the NPU at a time.
                 loaded = None;
-                let _ = reply.send(run_benchmark_job(&settings_path, model_id, backend));
+                let _ = reply.send(run_benchmark_job(&settings_path, model_id, backend, None));
             }
             WorkerCmd::StartRecording { hands_free } => {
                 let mut cap = Capture::new(None, 16_000 * 120);
@@ -513,6 +659,81 @@ fn deliver(text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Run the full comparison the Benchmark tab's "compare all" offers, on real hardware.
+    ///
+    /// Ignored by default: it needs an installed model and measures every usable accelerator, so
+    /// it takes minutes. Run with
+    /// `cargo test -p localwisper --lib -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs an installed model; run explicitly"]
+    fn benchmark_suite_compares_every_usable_backend() {
+        let settings_path = std::env::var("LW_TEST_SETTINGS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let base = std::env::var("APPDATA").expect("APPDATA");
+                PathBuf::from(base)
+                    .join("ai.localwisper.app")
+                    .join("settings.json")
+            });
+        let models = app_data_dir(&settings_path).join("models");
+        assert!(
+            models.is_dir() && models.read_dir().is_ok_and(|mut d| d.next().is_some()),
+            "no model installed under {}",
+            models.display()
+        );
+
+        let mut progress = Vec::new();
+        let suite = run_benchmark_suite(&settings_path, None, |p| {
+            println!("  progress: {p}");
+            progress.push(p);
+        })
+        .expect("the suite should run");
+
+        println!("machine : {}", suite.machine);
+        println!("model   : {}", suite.model_id);
+        println!("clips   : {}", suite.clip_source);
+        println!();
+        println!(
+            "{:<28} {:>10} {:>10} {:>8}",
+            "BACKEND", "COLD RTF", "WARM RTF", "WER"
+        );
+        for r in &suite.runs {
+            println!(
+                "{:<28} {:>10.4} {:>10} {:>8}",
+                r.backend,
+                r.cold_rtf,
+                r.warm_rtf
+                    .map(|w| format!("{w:.4}"))
+                    .unwrap_or_else(|| "n/a".into()),
+                r.wer.map(|w| format!("{w:.3}")).unwrap_or_else(|| "n/a".into()),
+            );
+        }
+        for s in &suite.skipped {
+            println!("{:<28} skipped: {}", s.label, s.reason);
+        }
+        println!();
+        println!("fastest       : {:?}", suite.fastest);
+        println!("most accurate : {:?}", suite.most_accurate);
+
+        assert!(!suite.runs.is_empty(), "nothing was measured");
+        // Every run must have used the same audio, or the comparison is meaningless.
+        let clip_names: Vec<Vec<&str>> = suite
+            .runs
+            .iter()
+            .map(|r| r.clips.iter().map(|c| c.name.as_str()).collect())
+            .collect();
+        assert!(
+            clip_names.windows(2).all(|w| w[0] == w[1]),
+            "backends were measured on different clips: {clip_names:?}"
+        );
+        // Progress must cover every accelerator that was offered.
+        assert_eq!(progress.len(), (suite.runs.len() + suite.skipped.len()) * 2);
+        // The winner must be one of the runs, not invented.
+        if let Some(f) = &suite.fastest {
+            assert!(suite.runs.iter().any(|r| r.accelerator.as_ref() == Some(f)));
+        }
+    }
+
     /// Exercise the exact path the app's Benchmark button takes, against a real installed model.
     ///
     /// Ignored by default: it needs a model on disk and takes tens of seconds (minutes on a first
@@ -539,7 +760,7 @@ mod tests {
             models.display()
         );
 
-        let report = run_benchmark_job(&settings_path, None, None).expect("benchmark should run");
+        let report = run_benchmark_job(&settings_path, None, None, None).expect("benchmark should run");
         println!("machine     : {}", report.machine);
         println!("backend     : {}", report.backend);
         println!("model       : {} ({})", report.model_id, report.model_dir);

@@ -20,6 +20,7 @@ pub mod error;
 pub mod model;
 pub mod profiles;
 pub mod settings;
+pub mod sound;
 pub mod text;
 pub mod vad;
 
