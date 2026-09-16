@@ -44,12 +44,20 @@ Snapdragon X2 Elite Extreme (X2E94100), Windows 11 ARM64, 12 FLEURS clips (en/ru
 |---|---|---:|---:|---|
 | **NPU** | QNN / Hexagon HTP V81, fp16 | **0.0160** | 4.8 % | ✅ verified |
 | **CPU** | ONNX Runtime CPU EP, int8 | 0.0324 | 5.4 % | ✅ verified |
-| **GPU** | WebGPU (Dawn → D3D12) on Adreno | 0.0609 | 5.4 % | ✅ verified |
+| **GPU** | WebGPU (Dawn → D3D12) on Adreno, int8 | 0.0862 | 4.8 % | ✅ verified |
 
-All three produce correct sentences in all four languages. The ordering is specific to this
-machine: an 18-core Oryon CPU is genuinely faster than its integrated mobile GPU for this model.
-On a desktop with a discrete GPU the GPU row is expected to move well above the CPU — but that is
-an expectation, not a measurement, and no such machine was available.
+All three produce correct sentences in all four languages.
+
+The GPU row is the **shipped artifact set** — the same quantized encoder the CPU uses, run on the
+GPU. That matters: GPU acceleration needs no extra download and works on a standard install. With
+a locally produced static fp32 encoder the same GPU measures 0.0609 / 5.4 % instead; the engine
+prefers a dynamic fp32 encoder, then a static one, then the quantized one, and reports which it
+used.
+
+The ordering is specific to this machine: an 18-core Oryon CPU is genuinely faster than its
+integrated mobile GPU for this model. On a desktop with a discrete GPU the GPU row is expected to
+move well above the CPU — but that is an expectation, not a measurement, and no such machine was
+available.
 
 ---
 
@@ -85,7 +93,7 @@ finding no device. **Only a device count above zero means acceleration.**
 |---|---|---|---|---|
 | CPU | built in | — | no | ✅ verified |
 | **Qualcomm NPU** | `onnxruntime_providers_qnn.dll` | ✅ (win-arm64 only) | **yes** — HTP context per Hexagon generation | ✅ verified on V81; ⚙️ V73 (X Elite / X Plus) |
-| **GPU, portable** | `onnxruntime_providers_webgpu.dll` | ✅ (win-x64, win-arm64, osx-arm64, linux-x64) | no | ✅ verified on Adreno; ⚙️ elsewhere |
+| **GPU, portable** | `onnxruntime_providers_webgpu.dll` | ✅ (win-x64, win-arm64, osx-arm64, linux-x64) | no — runs the shipped encoder | ✅ verified on Adreno; ⚙️ elsewhere |
 | **NVIDIA CUDA** | `onnxruntime_providers_cuda.dll` | ❌ | no | 📦 §5 |
 | **NVIDIA TensorRT** | `onnxruntime_providers_tensorrt.dll` | ❌ | no (builds an engine cache on first run) | 📦 §5 |
 | **DirectML** | `onnxruntime_providers_dml.dll` | ❌ | no | 📦 §5 |

@@ -322,6 +322,23 @@ pub fn cancel_install(state: State<'_, AppState>, id: String) {
     }
 }
 
+/// What the dictation engine is running on right now.
+///
+/// The answer comes from the engine itself, not from settings: a run that asked for the NPU and
+/// fell back reports the CPU, and `notes` says why. Before the first dictation the engine has not
+/// been loaded and `loaded` is false — the UI should say so rather than predict.
+#[tauri::command]
+pub async fn active_backend(state: State<'_, AppState>) -> Result<crate::worker::ActiveBackend, String> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    state.worker.send(WorkerCmd::Describe { reply: tx });
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(std::time::Duration::from_secs(20))
+            .map_err(|_| "the dictation worker did not answer".to_string())
+    })
+    .await
+    .map_err(|e| format!("active_backend task failed: {e}"))?
+}
+
 /// Measure a model on this machine.
 ///
 /// Runs on the dictation worker thread so that no second engine can exist while the dictation

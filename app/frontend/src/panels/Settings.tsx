@@ -20,6 +20,7 @@ import {
 import {
   getLastRun,
   isCoarse,
+  preferenceLabel,
   probeAccelerators,
   resolveOption,
   strictnessNote,
@@ -552,7 +553,7 @@ export function SettingsPanel() {
                 <strong>{lastRun.backend}</strong>
                 {lastRun.requested === null
                   ? " (with the preference from Settings)."
-                  : ` (asked for ${lastRun.requested}).`}
+                  : ` (asked for ${preferenceLabel(options, lastRun.requested)}).`}
               </span>
             )}
             <span className="sub">

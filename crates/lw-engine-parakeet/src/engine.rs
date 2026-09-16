@@ -272,17 +272,38 @@ impl ParakeetEngine {
         &self,
         accel: lw_core::capabilities::Accelerator,
     ) -> Result<Box<dyn EncoderBackend>> {
+        // A GPU has no static-shape requirement -- that was only ever the Hexagon HTP's -- so
+        // prefer the ordinary dynamic graph and fall back to the static one when that is all the
+        // install has. Either way nothing is compiled or cached: one artifact serves every GPU
+        // vendor, which is the whole reason GPU coverage generalizes and NPU coverage does not.
         let t = self.config.npu_window_frames;
-        let path = self.model_file(&[
-            &format!("encoder-static-t{t}.onnx"),
-            "encoder-static.onnx",
-            "encoder-model.onnx",
-        ])?;
-        Ok(Box::new(StaticWindowEncoder::on_accelerator(
+        if let Ok(path) = self.model_file(&["encoder-model.onnx", "encoder.onnx"]) {
+            return Ok(Box::new(CpuEncoder::on_accelerator(
+                &self.runtime,
+                accel,
+                &path,
+                self.config.cpu_threads,
+                accel.label(),
+            )?));
+        }
+        if let Ok(path) = self.model_file(&[&format!("encoder-static-t{t}.onnx"), "encoder-static.onnx"]) {
+            return Ok(Box::new(StaticWindowEncoder::on_accelerator(
+                &self.runtime,
+                accel,
+                &path,
+                t,
+                self.config.cpu_threads,
+                accel.label(),
+            )?));
+        }
+        // Last resort: the quantized graph. Support for int8 operators varies a lot between GPU
+        // providers, so this may legitimately fail -- and then Auto falls back to the CPU, which
+        // runs this exact file well.
+        let path = self.model_file(&["encoder-model.int8.onnx", "encoder.int8.onnx"])?;
+        Ok(Box::new(CpuEncoder::on_accelerator(
             &self.runtime,
             accel,
             &path,
-            t,
             self.config.cpu_threads,
             accel.label(),
         )?))

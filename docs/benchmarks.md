@@ -112,7 +112,8 @@ RTF is wall-clock and varies run to run with scheduling and thermals: three cons
 runs of the table above gave mean RTF 0.0312 / 0.0324 / 0.0346, and the NPU path has been observed
 between 0.0145 and 0.0160. WER, by contrast, is deterministic for a given build and model set.
 
-**GPU** (`--backend webgpu`, WebGPU plugin EP → Dawn → D3D12 on the integrated Adreno):
+**GPU** (`--backend webgpu`, WebGPU plugin EP → Dawn → D3D12 on the integrated Adreno). This run
+used a locally produced **static fp32** encoder; see the note below for the shipped artifact:
 
 ```
 file                    dur(s) time(ms)     RTF  WER
@@ -134,6 +135,12 @@ mean RTF: 0.0609   word-weighted WER: 0.054
 
 The first clip carries the one-time shader compilation (871 ms vs ~360 ms steady state), which is
 why the cold/warm split matters more here than on the other two paths.
+
+**On the shipped artifact set** — the same quantized encoder the CPU path uses, which is all a
+standard install downloads — the same GPU measures **mean RTF 0.0862, word-weighted WER 0.048**.
+That is the number that describes a fresh install: GPU acceleration needs no extra download. The
+engine prefers a dynamic fp32 encoder, then a static one, then the quantized one, and its
+backend-selection notes say which it took.
 
 Ordering on **this** machine is NPU (0.0160) → CPU (0.0324) → GPU (0.0609). That is not a general
 claim about GPUs: an 18-core Oryon competing against an integrated mobile Adreno is close to the

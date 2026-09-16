@@ -13,6 +13,7 @@ import {
   listAccelerators,
   type AcceleratorReport,
   type AcceleratorStatus,
+  type ActiveBackend,
   type BackendOption,
   type BackendPreference,
   type BenchReport,
@@ -247,8 +248,25 @@ export function appliesTo(run: LastRun, preference: BackendPreference): boolean 
 // The "what is running" line
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The loaded engine's own answer, in the same shape as `BenchReport.backend` ("QNN on NPU"),
+ * with the device appended when it named one.
+ *
+ * Every part is optional in the contract, so each is checked rather than assumed: a `loaded`
+ * engine that named nothing still gets a truthful line instead of "null on null".
+ */
+export function describeActive(active: ActiveBackend): string {
+  const { provider, acceleration, device } = active;
+  let head: string;
+  if (provider !== null && acceleration !== null) head = `${provider} on ${acceleration}`;
+  else if (provider !== null) head = provider;
+  else if (acceleration !== null) head = acceleration;
+  else head = "an engine that did not name its provider";
+  return device === null ? head : `${head} (${device})`;
+}
+
 /** How far the line can be trusted, which also decides how it is styled. */
-export type BackendLineTone = "pending" | "measured" | "probed" | "warning";
+export type BackendLineTone = "running" | "pending" | "measured" | "probed" | "warning";
 
 export interface BackendLine {
   tone: BackendLineTone;

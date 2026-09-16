@@ -95,6 +95,34 @@ impl CpuEncoder {
             ),
         })
     }
+
+    /// Load the same dynamic-shape graph on another accelerator's execution provider.
+    ///
+    /// A GPU has no static-shape requirement — that was only ever the Hexagon HTP's — so it can
+    /// take the ordinary encoder and process a clip in one pass instead of fixed windows.
+    pub fn on_accelerator(
+        runtime: &OrtRuntime,
+        accel: lw_core::capabilities::Accelerator,
+        path: &Path,
+        threads: usize,
+        device_label: impl Into<String>,
+    ) -> Result<Self> {
+        if !path.exists() {
+            return Err(Error::MissingFile(path.display().to_string()));
+        }
+        let cfg = CpuSessionConfig {
+            intra_threads: threads,
+            optimize: true,
+        };
+        let session = lw_ort::build_accel_session(runtime, accel, path, cfg).map_err(|e| match e {
+            lw_ort::RuntimeError::Unsupported(msg) => Error::Other(msg),
+            other => Error::Ort(other.to_string()),
+        })?;
+        Ok(Self {
+            session,
+            label: device_label.into(),
+        })
+    }
 }
 
 impl EncoderBackend for CpuEncoder {

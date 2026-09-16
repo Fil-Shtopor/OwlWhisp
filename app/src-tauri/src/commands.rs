@@ -108,9 +108,10 @@ fn collect_diagnostics() -> Value {
                 json!(rt.runtime_dir().display().to_string()),
             );
             m.insert("qnn_dll_present".into(), json!(rt.qnn_available()));
-            // NOTE: has_qnn_npu() lazily registers the QNN plugin EP process-wide. That is fine
-            // while this process runs no inference, but once engines are wired in, CPU sessions
-            // must be built *before* the first NPU probe (see lw-ort's OrtRuntime docs).
+            // Probing registers the QNN plugin EP process-wide. That used to mean probe order
+            // mattered -- a registered EP gets auto-applied to later sessions. It no longer does:
+            // every CPU session is pinned to the CPU *device*, so a registered provider cannot be
+            // applied where it was not asked for (see lw-ort's session builder).
             let npu_available = rt.has_qnn_npu();
             m.insert("npu_available".into(), json!(npu_available));
             m.insert("qnn_registered".into(), json!(rt.qnn_registered()));

@@ -157,6 +157,27 @@ export interface AcceleratorReport {
   items: AcceleratorStatus[];
 }
 
+/**
+ * What the dictation engine is running on right now — read back from the engine, not predicted
+ * from settings. A run that asked for the NPU and fell back reports the CPU, and `notes` says why.
+ */
+export interface ActiveBackend {
+  /** False until the first dictation: the engine loads lazily, and before that nothing is running. */
+  loaded: boolean;
+  provider: string | null;
+  acceleration: string | null;
+  device: string | null;
+  notes: string[];
+  model_id: string;
+  /** Why loading failed, when it did. */
+  error: string | null;
+}
+
+/** Ask the dictation worker what its engine actually selected. Does not load one. */
+export function activeBackend(): Promise<ActiveBackend> {
+  return invoke<ActiveBackend>("active_backend");
+}
+
 /** What this machine can actually accelerate with, probed live. */
 export function listAccelerators(): Promise<AcceleratorReport> {
   return invoke<AcceleratorReport>("list_accelerators");

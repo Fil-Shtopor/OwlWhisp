@@ -39,6 +39,11 @@ pub enum WorkerCmd {
     StopRecording,
     /// Reload settings (backend, dictionary, cleanup) for the next utterance.
     ReloadSettings,
+    /// Report what the loaded engine is actually running on, without loading one.
+    Describe {
+        /// Where to send the description.
+        reply: Sender<ActiveBackend>,
+    },
     /// Measure a model on this machine and reply with the report.
     ///
     /// Benchmarks run **on the worker thread** rather than a fresh one so that a second engine
@@ -185,6 +190,28 @@ fn build_pipeline(settings: &Settings) -> TextPipeline {
     pipeline
 }
 
+/// What the dictation engine is running on right now.
+///
+/// `loaded` is false until the first dictation, because the engine loads lazily — and the honest
+/// answer before that is "nothing yet", not a prediction from settings.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct ActiveBackend {
+    /// Whether an engine is loaded at all.
+    pub loaded: bool,
+    /// The execution provider that actually ran, read back from the engine.
+    pub provider: Option<String>,
+    /// Its acceleration class (CPU / GPU / NPU / ANE).
+    pub acceleration: Option<String>,
+    /// Device description.
+    pub device: Option<String>,
+    /// Backend-selection notes, including the reason for any fallback.
+    pub notes: Vec<String>,
+    /// The model it loaded.
+    pub model_id: String,
+    /// Why loading failed, when it did.
+    pub error: Option<String>,
+}
+
 /// A benchmark report: every number in it was measured on this machine by this run.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct BenchReport {
@@ -298,6 +325,32 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
             WorkerCmd::Shutdown => break,
             WorkerCmd::ReloadSettings => {
                 loaded = None; // reload lazily next utterance
+            }
+            WorkerCmd::Describe { reply } => {
+                // Deliberately does not load the engine: the honest answer before the first
+                // dictation is "nothing is running yet", not a guess dressed up as a fact.
+                let desc = match &loaded {
+                    Some(Ok(l)) => ActiveBackend {
+                        loaded: true,
+                        provider: Some(l.engine.provider().to_string()),
+                        acceleration: Some(l.engine.acceleration().to_string()),
+                        device: Some(l.engine.device().name.clone()),
+                        notes: l.engine.notes().to_vec(),
+                        model_id: l.settings.model_id.clone(),
+                        error: None,
+                    },
+                    Some(Err(e)) => ActiveBackend {
+                        loaded: false,
+                        provider: None,
+                        acceleration: None,
+                        device: None,
+                        notes: Vec::new(),
+                        model_id: String::new(),
+                        error: Some(e.clone()),
+                    },
+                    None => ActiveBackend::default(),
+                };
+                let _ = reply.send(desc);
             }
             WorkerCmd::Benchmark {
                 model_id,

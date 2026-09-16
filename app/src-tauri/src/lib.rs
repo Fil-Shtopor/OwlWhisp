@@ -161,6 +161,7 @@ pub fn run() {
             commands::active_hotkey,
             catalog::get_capabilities,
             catalog::list_accelerators,
+            catalog::active_backend,
             catalog::list_models,
             catalog::install_model,
             catalog::cancel_install,
