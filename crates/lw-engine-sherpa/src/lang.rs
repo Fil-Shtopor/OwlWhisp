@@ -183,7 +183,8 @@ pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
         ModelFiles::MoonshineV1 { .. } | ModelFiles::MoonshineV2 { .. } => ENGLISH_ONLY,
         // A transducer's `encoder/decoder/joiner` layout carries no language metadata, and the
         // family spans everything from a 25-language NeMo release to a Russian-only Zipformer.
-        // Returning the family superset was actively harmful: `zipformer-ru` claimed 25
+        // Returning the family superset was actively harmful: a Russian-only export measured
+        // here (`zipformer-ru`, since dropped from the catalog, but in git history) claimed 25
         // languages, so benchmarking it against the multilingual fixtures scored it at WER 0.784
         // when it is 0.000 on the Russian clips it actually handles. Claiming nothing is the
         // truth here -- callers that need the list should take it from the model catalog, which

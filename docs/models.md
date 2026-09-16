@@ -53,13 +53,13 @@ can run, the only one with a Qualcomm NPU path, and the only one measured on an 
 [§5.1](benchmarks.md#51-measured-lw-bench-results-on-the-x2-2026-08-26-native-arm64-lwexe)). It
 covers 25 European languages with punctuation and casing. Cost: a 640 MiB download.
 
-The other sixteen entries are hash-pinned and installable, but need a build with the `sherpa`
+The other fourteen entries are hash-pinned and installable, but need a build with the `sherpa`
 engine feature (see the box at the end of this section); they are marked
 `requires_engine_feature: "sherpa"`.
 
 ### 3.1 What has actually been measured here
 
-Eleven of the seventeen entries carry a `measurements` point taken on this project's target machine
+Nine of the fifteen entries carry a `measurements` point taken on this project's target machine
 (Snapdragon X2 Elite Extreme X2E94100, CPU only, 8 threads) with `lw bench` over
 `tests/fixtures/audio` — 12 FLEURS clips, three each in **en, es, ru, uk**. Nothing in this table
 came from an upstream claim.
@@ -91,13 +91,22 @@ The same gap applies to `sense-voice-small` (zh/ja/ko/yue), which is why it carr
 at all.
 
 `lw bench` scores WER only on clips in languages the engine claims, so an English-only model is not
-punished for the Russian clips. That protection is family-wide, though: `lw-engine-sherpa` reports
-the whole 25-language NeMo list for *any* offline transducer, so a monolingual transducer export
-would be scored against languages it cannot speak. Run against the full 12 clips, a Russian-only
-transducer
-scores 0.784; against the three Russian ones, 0.000. The three monolingual transducer entries
-(`parakeet-tdt-ctc-110m-en`) were therefore measured on a
-language-subset copy of the fixture directory, and each says so in its `source`.
+punished for the Russian clips.
+
+That protection used to have a hole worth recording. `lw-engine-sherpa` reported the whole
+25-language NeMo list for *any* offline transducer, because the `encoder/decoder/joiner` layout
+carries no language metadata and the family spans everything from a multilingual NeMo release to a
+monolingual export. A Russian-only transducer therefore claimed 25 languages and scored **0.784**
+over the full 12 clips where it scores **0.000** over the three Russian ones — a number that was
+about to be printed as its accuracy.
+
+A detected transducer now claims nothing, which is the truth its files support; the catalog states
+languages per entry, which is where a fact the files do not carry belongs. `lw bench` prints a
+**per-language breakdown** whenever the clips span more than one language, and when a model claims
+nothing it refuses to print a single blended figure at all, naming the languages instead.
+`--languages ru` states what a model handles when its files cannot. The measurement for
+`parakeet-tdt-ctc-110m-en` predates that change and was taken on a language-subset copy of the
+fixture directory; its `source` says so.
 
 ### 3.2 Picking one
 
@@ -117,6 +126,8 @@ language-subset copy of the fixture directory, and each says so in its `source`.
 | Mandarin + Cantonese + English | `paraformer-trilingual-zh-yue-en` | 233 MiB | SeACo-Paraformer; the only other Cantonese option here |
 | English from the same family | `paraformer-en` | 219 MiB | WER 0.077 at RTF 0.011; no punctuation or casing |
 | the top English-only quality tier | `parakeet-tdt-0.6b-v2-en` | 631 MiB | same architecture as v3, English-only; the tier is editorial, nobody here has measured it |
+| **Russian, or any of 25 European languages** | `parakeet-tdt-0.6b-v3` | 640 MiB | the built-in default, and the only entry with an NPU path; WER 0.054 across en/es/ru/uk |
+| Russian with wider language coverage | `whisper-turbo` | 989 MiB | best accuracy measured here, 100 languages, but CPU-only and RTF 0.469 |
 
 Every download figure above is the exact sum of the pinned file sizes in that entry's manifest, not
 a rounded upstream claim. All but one pin the **int8** exports only: for `whisper-small` that is the
@@ -132,7 +143,7 @@ not a measurement; **speed tier** is the input to the RTF estimate; and neither 
 model does on *your* audio, accent, or vocabulary. The only way to know that is §5.
 
 > **These need a `sherpa` build of the CLI.** The default `lw` links only `lw-engine-parakeet`, so
-> `lw models install` will fetch and verify any of the sixteen sherpa entries but `lw transcribe`
+> `lw models install` will fetch and verify any of the fourteen sherpa entries but `lw transcribe`
 > and `lw bench` will not load one. Build the CLI with the feature — the extra step keeps GPL-3.0
 > espeak-ng out of the binary, see [build.md](build.md) and [licenses.md](licenses.md):
 >
@@ -290,10 +301,11 @@ see [benchmarks.md §6](benchmarks.md#6-estimates-vs-measurements-lw-models--lw-
    bytes you downloaded; never copy a checksum out of upstream metadata. Pin URLs that cannot move
    under you — a Hugging Face `/resolve/<commit sha>/` path, not `/resolve/main/`.
 7. Get the licence from the model's own LICENSE file or model card, never from the family it
-   belongs to. The two Alibaba entries here disagree: `sense-voice-small` carries the custom,
-   non-SPDX `LicenseRef-FunASR-Model-1.1`, while the three Paraformer entries are Apache-2.0 per
-   their ModelScope pages. A repository can also ship a file called `LICENSE` that is not one —
-   the GigaAM export's is a saved GitHub web page.
+   belongs to. The four Alibaba entries here disagree with each other:
+   `sense-voice-small` carries the custom, non-SPDX `LicenseRef-FunASR-Model-1.1`, while the three
+   Paraformer entries are Apache-2.0 per their ModelScope pages. A repository can also ship a file
+   called `LICENSE` that is not one — in an export reviewed for this catalog it was a saved copy of
+   a GitHub web page, which grants nothing.
 8. Mind the `local_dir`. `lw-engine-sherpa` cannot tell SenseVoice from Paraformer by file layout
    (both are `model.onnx` + `tokens.txt`) and breaks the tie on the directory name, so a Paraformer
    manifest's `local_dir` must keep the word `paraformer` in it.
