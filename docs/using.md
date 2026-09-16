@@ -155,8 +155,14 @@ The **Benchmark** tab measures the selected model here and now. It reports:
 - the **backend that actually executed** — read back from the engine, not from what was requested,
   so a run that asked for the NPU and fell back to the CPU says CPU;
 - **notes** explaining the choice, including the reason for any fallback;
-- per-clip wall time, RTF and (when the clips have reference transcripts) WER;
+- per-clip wall time, RTF and (when the clips have reference transcripts) WER, over the whole
+  twelve-clip fixture set — three each in English, Russian, Spanish and Ukrainian;
 - a **cold** RTF for the first run and a **warm** mean for the rest.
+
+**WER is scored only on languages the model claims.** An English-only model is judged on the
+English clips and the rest are transcribed, timed, and marked *not scored* — a word error rate
+against a language a model never advertised measures the question, not the model. (Moonshine tiny
+en: 0.092 on English, 0.850 if you score it on all four.)
 
 It takes tens of seconds. The **first NPU run takes minutes**: the encoder's Hexagon context binary
 is prepared on-device and cached (~1.2 GB), after which it reloads in about two seconds.
