@@ -120,6 +120,13 @@ enum Command {
         /// CPU threads (0 = default).
         #[arg(long, default_value_t = 0)]
         threads: usize,
+        /// Score only these languages, comma-separated (e.g. `--languages ru` or `en,ru`).
+        ///
+        /// For a model whose files carry no language metadata -- an `encoder/decoder/joiner`
+        /// transducer export, say -- this is how you state what it actually handles, so the run
+        /// produces one meaningful figure instead of a blend across languages it cannot speak.
+        #[arg(long, value_delimiter = ',')]
+        languages: Vec<String>,
         /// Few-second self-measurement with per-stage timings; needs no fixtures directory.
         ///
         /// Uses `tests/fixtures/audio` if it can find one, otherwise synthesizes speech-like
@@ -223,6 +230,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             cache_dir,
             backend,
             threads,
+            languages,
             quick,
         } => {
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
@@ -243,7 +251,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 )
             })?;
             let rt = init_runtime(&cli.runtime_dir)?;
-            bench(rt, &fixtures, &model_dir, &cache, backend.into(), threads)
+            bench(
+                rt,
+                &fixtures,
+                &model_dir,
+                &cache,
+                backend.into(),
+                threads,
+                &languages,
+            )
         }
         Command::Models { cmd } => models::run(cmd, &cli.runtime_dir),
         Command::Devices => {
@@ -464,11 +480,32 @@ fn bench(
     cache_dir: &std::path::Path,
     backend: BackendKind,
     threads: usize,
+    languages: &[String],
 ) -> anyhow::Result<()> {
     use lw_core::bench::{ClipResult, ClipSource, fixture_clips, measure};
 
     // usize::MAX: take the whole fixture set, not the 3-clip sample `--quick` uses.
-    let clips = fixture_clips(fixtures, usize::MAX).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let mut clips = fixture_clips(fixtures, usize::MAX).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    if !languages.is_empty() {
+        let want: Vec<String> = languages
+            .iter()
+            .map(|l| l.trim().to_ascii_lowercase())
+            .filter(|l| !l.is_empty())
+            .collect();
+        clips.retain(|c| {
+            c.language
+                .as_ref()
+                .is_some_and(|l| want.contains(&l.to_ascii_lowercase()))
+        });
+        if clips.is_empty() {
+            anyhow::bail!(
+                "no clips in {} for language(s) {}",
+                fixtures.display(),
+                want.join("/")
+            );
+        }
+        println!("languages: restricted to {} by --languages", want.join("/"));
+    }
     if clips.is_empty() {
         anyhow::bail!("no clips in {}", fixtures.display());
     }
@@ -480,7 +517,6 @@ fn bench(
         "file", "dur(s)", "time(ms)", "RTF"
     );
 
-    let mut all_rtf = 0.0f64;
     let m = measure(
         engine.as_mut(),
         &clips,
@@ -502,13 +538,52 @@ fn bench(
     )
     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-    for r in &m.results {
-        all_rtf += r.rtf as f64;
+    println!("---");
+
+    // Per-language first: it is the only view that stays honest whatever the model claims.
+    if m.per_language.len() > 1 {
+        println!("per language:");
+        for l in &m.per_language {
+            println!(
+                "  {:<4} WER {:.3}   over {} clip(s), {} word(s){}",
+                l.language,
+                l.wer,
+                l.clips,
+                l.words,
+                if l.claimed {
+                    ""
+                } else {
+                    "   (language not claimed by this model)"
+                }
+            );
+        }
     }
+
     let scored: Vec<&ClipResult> = m.results.iter().filter(|r| r.scored).collect();
     let scored_rtf: f64 = scored.iter().map(|r| r.rtf as f64).sum();
+    let all_rtf: f64 = m.results.iter().map(|r| r.rtf as f64).sum();
 
-    println!("---");
+    if !m.engine_claimed_languages && m.per_language.len() > 1 {
+        // The model told us nothing about its languages, and the clips span several. Blending
+        // them into one figure would invent a claim on the model's behalf -- a Russian-only
+        // transducer scored this way reads 0.78 when it is 0.00 on the Russian clips.
+        println!(
+            "mean RTF: {:.4}   over {} clip(s)",
+            all_rtf / m.results.len().max(1) as f64,
+            m.results.len()
+        );
+        println!(
+            "WER: no single figure - this model declares no languages, and the clips span {}.",
+            m.per_language
+                .iter()
+                .map(|l| l.language.as_str())
+                .collect::<Vec<_>>()
+                .join("/")
+        );
+        println!("     Read the per-language breakdown above, or pass --languages to pick a subset.");
+        return Ok(());
+    }
+
     println!(
         "mean RTF: {:.4}   word-weighted WER: {:.3}   over {} clip(s) in {}",
         scored_rtf / scored.len().max(1) as f64,

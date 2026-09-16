@@ -91,6 +91,21 @@ pub struct ClipResult {
     pub scored: bool,
 }
 
+/// WER over the clips of one language.
+#[derive(Clone, Debug, Serialize)]
+pub struct LanguageScore {
+    /// The language tag.
+    pub language: String,
+    /// Word-weighted WER over this language's clips.
+    pub wer: f32,
+    /// How many clips contributed.
+    pub clips: usize,
+    /// How many reference words contributed.
+    pub words: usize,
+    /// Whether the engine claimed this language.
+    pub claimed: bool,
+}
+
 /// The result of one measured run. Every field was genuinely timed on the running machine.
 #[derive(Clone, Debug, Serialize)]
 pub struct Measurement {
@@ -108,6 +123,18 @@ pub struct Measurement {
     pub scored_languages: Vec<String>,
     /// Clips that were transcribed and timed but not scored, and the languages they were in.
     pub unscored_languages: Vec<String>,
+    /// WER broken down per language, over every clip that had a reference — claimed or not.
+    ///
+    /// This is what makes a misfit visible: a Russian-only model run against multilingual
+    /// fixtures shows `ru` near zero and the rest near one, instead of one blended number that
+    /// describes neither.
+    pub per_language: Vec<LanguageScore>,
+    /// Whether the engine declared any languages at all.
+    ///
+    /// False means it made no claim — not that it supports nothing. A single word-weighted total
+    /// over several languages is not meaningful for such a model, and callers should say so
+    /// rather than print one.
+    pub engine_claimed_languages: bool,
     /// Every clip's individual result, in run order.
     pub results: Vec<ClipResult>,
     /// Total audio seconds run.
@@ -163,6 +190,9 @@ pub fn measure(
     let mut results = Vec::with_capacity(clips.len());
     let mut scored_languages: Vec<String> = Vec::new();
     let mut unscored_languages: Vec<String> = Vec::new();
+    // language -> (weighted error, words, clips)
+    let mut by_language: std::collections::BTreeMap<String, (f64, usize, usize)> =
+        std::collections::BTreeMap::new();
 
     for (i, clip) in clips.iter().enumerate() {
         let scored = counts(clip);
@@ -182,6 +212,13 @@ pub fn measure(
                 total_err += w as f64 * n as f64;
                 total_words += n;
             }
+            // The per-language tally counts every clip that has a reference, claimed or not:
+            // seeing what an unclaimed language actually scored is the point of the breakdown.
+            let key = clip.language.clone().unwrap_or_else(|| "unknown".to_string());
+            let slot = by_language.entry(key).or_insert((0.0, 0, 0));
+            slot.0 += w as f64 * n as f64;
+            slot.1 += n;
+            slot.2 += 1;
             w
         });
         if let Some(lang) = &clip.language {
@@ -222,6 +259,20 @@ pub fn measure(
     };
     scored_languages.sort();
     unscored_languages.sort();
+    let per_language = by_language
+        .into_iter()
+        .map(|(language, (err, words, clips))| LanguageScore {
+            wer: if words > 0 {
+                (err / words as f64) as f32
+            } else {
+                0.0
+            },
+            claimed: claimed.is_empty() || claimed.contains(&language.to_ascii_lowercase()),
+            language,
+            clips,
+            words,
+        })
+        .collect();
     Ok(Measurement {
         warm_rtf,
         cold_rtf,
@@ -230,6 +281,8 @@ pub fn measure(
         wer: (total_words > 0).then(|| (total_err / total_words as f64) as f32),
         scored_languages,
         unscored_languages,
+        per_language,
+        engine_claimed_languages: !claimed.is_empty(),
         results,
         audio_secs,
         source,
@@ -648,6 +701,59 @@ mod tests {
         );
         assert_eq!(m.scored_languages, vec!["en".to_string(), "ru".to_string()]);
         assert!(m.unscored_languages.is_empty());
+    }
+
+    #[test]
+    fn the_per_language_breakdown_covers_claimed_and_unclaimed_alike() {
+        // The breakdown is what stays honest when the claim is wrong or missing: a Russian-only
+        // transducer run against these fixtures shows ru at 0 and the rest near 1, instead of one
+        // blended figure that describes neither.
+        use crate::engine::Language;
+        const EN: &[Language] = &[Language("en")];
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b c d"), Some("en")),
+            clip_in("ru1.wav", 1.0, Some("а б"), Some("ru")),
+            clip_in("ru2.wav", 1.0, Some("в г"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b c d".into(), "wrong".into(), "wrong".into()],
+            next: 0,
+            languages: EN,
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+
+        assert!(m.engine_claimed_languages);
+        let en = m.per_language.iter().find(|l| l.language == "en").unwrap();
+        let ru = m.per_language.iter().find(|l| l.language == "ru").unwrap();
+        assert_eq!(en.wer, 0.0);
+        assert!(en.claimed);
+        assert_eq!(en.clips, 1);
+        assert!(ru.wer > 0.5, "the unclaimed language still gets a real number");
+        assert!(!ru.claimed);
+        assert_eq!(ru.clips, 2);
+        assert_eq!(ru.words, 4);
+        // ...but it must not touch the headline.
+        assert_eq!(m.wer, Some(0.0));
+    }
+
+    #[test]
+    fn an_engine_with_no_claim_is_flagged_so_callers_can_refuse_a_blended_total() {
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b"), Some("en")),
+            clip_in("ru.wav", 1.0, Some("а б"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b".into(), "wrong".into()],
+            next: 0,
+            languages: &[],
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+        assert!(
+            !m.engine_claimed_languages,
+            "the CLI keys its 'no single figure' message off this"
+        );
+        assert_eq!(m.per_language.len(), 2);
+        assert!(m.per_language.iter().all(|l| l.claimed));
     }
 
     #[test]

@@ -130,10 +130,16 @@ pub const SENSE_VOICE: &[Language] = &[
 /// Paraformer (the upstream releases are Chinese, with some English).
 pub const PARAFORMER: &[Language] = &[Language("zh"), Language("en")];
 
+/// Used when a model's own files say nothing about its languages.
+///
+/// An empty list means "makes no claim", not "supports nothing" -- see [`languages_for`].
+pub const NO_CLAIM: &[Language] = &[];
+
 /// NVIDIA Parakeet TDT v3 / the multilingual NeMo transducer releases: 25 European languages.
 ///
-/// A monolingual transducer export (e.g. `parakeet-tdt-0.6b-v2`, English) supports fewer; sherpa
-/// does not expose the list, so this is the superset the family is trained on.
+/// The superset the *family* is trained on, for describing a family before a concrete model is
+/// in hand. It is deliberately **not** what [`languages_for`] returns for a detected transducer:
+/// a monolingual export shares the layout and would inherit a claim it cannot meet.
 pub const NEMO_TRANSDUCER: &[Language] = &[
     Language("bg"),
     Language("hr"),
@@ -175,7 +181,14 @@ pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
         // Upstream Moonshine releases (tiny/base, and the v2 exports on the sherpa-onnx model
         // page) are English-only.
         ModelFiles::MoonshineV1 { .. } | ModelFiles::MoonshineV2 { .. } => ENGLISH_ONLY,
-        ModelFiles::NemoTransducer { .. } => NEMO_TRANSDUCER,
+        // A transducer's `encoder/decoder/joiner` layout carries no language metadata, and the
+        // family spans everything from a 25-language NeMo release to a Russian-only Zipformer.
+        // Returning the family superset was actively harmful: `zipformer-ru` claimed 25
+        // languages, so benchmarking it against the multilingual fixtures scored it at WER 0.784
+        // when it is 0.000 on the Russian clips it actually handles. Claiming nothing is the
+        // truth here -- callers that need the list should take it from the model catalog, which
+        // states it per entry.
+        ModelFiles::NemoTransducer { .. } => NO_CLAIM,
         ModelFiles::SenseVoice { .. } => SENSE_VOICE,
         ModelFiles::Paraformer { .. } => PARAFORMER,
     }
