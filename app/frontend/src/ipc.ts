@@ -305,6 +305,15 @@ export interface ModelEntry {
   name: string;
   description: string;
   engine: string;
+  /**
+   * Who made the model ("NVIDIA", "OpenAI", …), for grouping the list by maker.
+   *
+   * Null when the catalog does not record one; such entries belong under a trailing "Other"
+   * group rather than being hidden. Deliberately not derived from `engine`: an engine is a
+   * decoder architecture, and Whisper and Distil-Whisper share one while coming from different
+   * organisations.
+   */
+  vendor: string | null;
   licence: string;
   upstream_url: string | null;
   languages: string[];
@@ -391,7 +400,17 @@ export interface BenchClip {
   duration_s: number;
   ms: number;
   rtf: number;
+  /** WER against the reference, when the clip had one. Computed even when it was not scored. */
   wer: number | null;
+  /** The clip's language tag (`"en"`, `"ru"`, …), when the fixture set names one. */
+  language: string | null;
+  /**
+   * Whether this clip's WER counted towards `BenchReport.wer`.
+   *
+   * False when the model does not claim the clip's language: it was still transcribed and timed,
+   * so it contributes to RTF, but scoring it would measure the question rather than the model.
+   */
+  scored: boolean;
 }
 
 /** Every number here is MEASURED on this machine by this run. */

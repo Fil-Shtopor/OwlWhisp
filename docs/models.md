@@ -69,8 +69,6 @@ came from an upstream claim.
 | `whisper-turbo` | 989 MiB | **0.042** | 0.469 | 12 clips, en/es/ru/uk |
 | `parakeet-tdt-0.6b-v3` | 640 MiB | **0.054** | 0.032 | 12 clips, en/es/ru/uk |
 | `whisper-medium` | 902 MiB | **0.054** | 1.250 | 12 clips, en/es/ru/uk |
-| `zipformer-ru` | 70 MiB | **0.000** | 0.0089 | 3 clips, ru |
-| `giga-am-v2-ru` | 230 MiB | **0.000** | 0.043 | 3 clips, ru |
 | `whisper-distil-small-en` | 285 MiB | **0.062** | 0.075 | 3 clips, en |
 | `parakeet-tdt-ctc-110m-en` | 455 MiB | **0.062** | 0.014 | 3 clips, en |
 | `paraformer-en` | 219 MiB | **0.077** | 0.011 | 3 clips, en |
@@ -80,7 +78,7 @@ came from an upstream claim.
 
 > **Read the "scored over" column before you compare two rows.** A 3-clip English figure and a
 > 12-clip four-language figure are not the same measurement. Twelve clips are indicative, three are
-> barely that: `zipformer-ru`'s and `giga-am-v2-ru`'s zeros mean "no word errors on 20 seconds of
+> barely that: a zero means "no word errors on 20 seconds of
 > clean read speech after normalisation", not "these models do not make mistakes", and the fixtures
 > cannot tell them apart. Each entry's `measurements[].source` spells this out; `lw models info <id>`
 > prints it.
@@ -95,9 +93,10 @@ at all.
 `lw bench` scores WER only on clips in languages the engine claims, so an English-only model is not
 punished for the Russian clips. That protection is family-wide, though: `lw-engine-sherpa` reports
 the whole 25-language NeMo list for *any* offline transducer, so a monolingual transducer export
-would be scored against languages it cannot speak. Run against the full 12 clips, `zipformer-ru`
+would be scored against languages it cannot speak. Run against the full 12 clips, a Russian-only
+transducer
 scores 0.784; against the three Russian ones, 0.000. The three monolingual transducer entries
-(`zipformer-ru`, `giga-am-v2-ru`, `parakeet-tdt-ctc-110m-en`) were therefore measured on a
+(`parakeet-tdt-ctc-110m-en`) were therefore measured on a
 language-subset copy of the fixture directory, and each says so in its `source`.
 
 ### 3.2 Picking one
@@ -108,8 +107,6 @@ language-subset copy of the fixture directory, and each says so in its `source`.
 | the classic large Whisper | `whisper-medium` | 902 MiB | WER 0.054 — but RTF 1.250, i.e. slower than real time |
 | a language Parakeet does not cover, cheaply | `whisper-base` (99 languages) | 153 MiB | broad coverage, modest accuracy |
 | more accuracy than `base`, same coverage | `whisper-small` | 358 MiB | ~3× the compute of `base` |
-| **Russian dictation** | `zipformer-ru` | 70 MiB | smallest strong Russian model here; RTF 0.009 |
-| Russian, with more model behind it | `giga-am-v2-ru` | 230 MiB | Sber's GigaAM v2; same zero on the fixtures, 3× the size |
 | fast English, distilled | `whisper-distil-small-en` | 285 MiB | 2 decoder layers instead of 12; ~10× quicker than `whisper-small` |
 | English with punctuation and casing, small | `parakeet-tdt-ctc-110m-en` | 455 MiB | NVIDIA's 110M Parakeet; full precision, no int8 published |
 | the smallest English-only footprint | `whisper-tiny-en` | 99 MiB | the classic tiny baseline |
@@ -282,7 +279,8 @@ see [benchmarks.md §6](benchmarks.md#6-estimates-vs-measurements-lw-models--lw-
    skips clips in languages the model does not claim — but `lw-engine-sherpa` answers with a
    *family* list, so any offline transducer claims all 25 European languages of the multilingual
    NeMo releases. A monolingual transducer export therefore gets scored against languages it
-   cannot speak (`zipformer-ru`: 0.784 over all 12 clips, 0.000 over the Russian three). When the
+   cannot speak (a Russian-only transducer measured 0.784 over all 12 clips and 0.000 over the
+   Russian three). When the
    printed language list is wider than the model, run against a language-subset copy of
    `tests/fixtures/audio` and say so in `source`. Conversely, when the fixtures cannot reach a
    model's real language at all — Chinese, Cantonese, Japanese — do not let the number stand

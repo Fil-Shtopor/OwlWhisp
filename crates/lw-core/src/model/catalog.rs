@@ -293,6 +293,14 @@ pub struct CatalogEntry {
     /// Licence string for the model weights.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub license: String,
+    /// Who made the model, for grouping the catalog by maker (`"NVIDIA"`, `"OpenAI"`, …).
+    ///
+    /// Deliberately a field rather than something derived from [`CatalogEntry::engine`]: an
+    /// engine is a decoder architecture, not a vendor. Whisper and Distil-Whisper share an engine
+    /// and come from different organisations, and several vendors ship transducers. Empty means
+    /// the maker is not recorded, and such entries group under "Other".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vendor: String,
     /// Honest free-text note: what is verified, what is estimated, what is missing.
     pub notes: String,
 }
@@ -759,6 +767,7 @@ mod tests {
             manifest: Some(format!("{id}.json")),
             source_url: None,
             license: "CC-BY-4.0".into(),
+            vendor: "Test Vendor".into(),
             notes: "synthetic test entry; nothing here is measured".into(),
         }
     }
@@ -833,6 +842,38 @@ mod tests {
         e.download_bytes = Some(1000);
         e.disk_bytes = Some(999);
         assert!(catalog(vec![e]).validate().is_err());
+    }
+
+    #[test]
+    fn every_builtin_entry_names_its_maker() {
+        // The UI groups the catalog by maker, so a missing vendor silently drops an entry into
+        // "Other" -- which looks like a mistake rather than a fact about the model.
+        let catalog = Catalog::builtin().unwrap();
+        for e in catalog.iter() {
+            assert!(
+                !e.vendor.trim().is_empty(),
+                "{} has no vendor; it would group under Other",
+                e.id
+            );
+        }
+    }
+
+    #[test]
+    fn vendor_is_not_derivable_from_engine() {
+        // Guards the reason vendor is its own field: Whisper and Distil-Whisper share an engine
+        // and come from different organisations. If that ever stops being true, the field is
+        // still right, but this test is the reminder of why it exists.
+        let catalog = Catalog::builtin().unwrap();
+        let whisper: Vec<_> = catalog
+            .iter()
+            .filter(|e| e.engine == EngineKind::Whisper)
+            .map(|e| e.vendor.as_str())
+            .collect();
+        let distinct: std::collections::BTreeSet<_> = whisper.iter().collect();
+        assert!(
+            distinct.len() > 1,
+            "expected more than one maker among the whisper-engine entries, got {distinct:?}"
+        );
     }
 
     #[test]

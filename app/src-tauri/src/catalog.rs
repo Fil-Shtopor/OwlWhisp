@@ -183,6 +183,7 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
                 "name": e.name,
                 "description": e.description,
                 "engine": e.engine.as_str(),
+                "vendor": (!e.vendor.is_empty()).then(|| e.vendor.clone()),
                 "licence": e.license,
                 "upstream_url": e.source_url,
                 "languages": e.languages,
