@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "whisper-turbo",
+  "name": "Whisper large-v3-turbo (sherpa-onnx export)",
+  "version": "csukuangfj-2ca6ff69",
+  "license": "MIT",
+  "attribution": "OpenAI Whisper large-v3-turbo (MIT, Copyright (c) 2022 OpenAI); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "whisper-turbo",
+  "languages": ["en","zh","de","es","ru","ko","fr","ja","pt","tr","pl","ca","nl","ar","sv","it","id","hi","fi","vi","he","uk","el","ms","cs","ro","da","hu","ta","no","th","ur","hr","bg","lt","la","mi","ml","cy","sk","te","fa","lv","bn","sr","az","sl","kn","et","mk","br","eu","is","hy","ne","mn","bs","kk","sq","sw","gl","mr","pa","si","km","sn","yo","so","af","oc","ka","be","tg","sd","gu","am","yi","lo","uz","fo","ht","ps","tk","nn","mt","sa","lb","my","bo","tl","mg","as","tt","haw","ln","ha","ba","jw","su","yue"],
+  "common": [
+    {"path":"turbo-tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-tokens.txt","bytes":816730,"sha256":"b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"turbo-encoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-encoder.int8.onnx","bytes":674716297,"sha256":"b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b"},
+        {"path":"turbo-decoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-decoder.int8.onnx","bytes":361080764,"sha256":"20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547"}
+      ]
+    }
+  ]
+}

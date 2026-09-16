@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "whisper-distil-small-en",
+  "name": "Distil-Whisper small.en (sherpa-onnx export)",
+  "version": "csukuangfj-0492324b",
+  "license": "MIT",
+  "attribution": "Distil-Whisper distil-small.en by Hugging Face (MIT), distilled from OpenAI Whisper small.en (MIT, Copyright (c) 2022 OpenAI); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "whisper-distil-small-en",
+  "languages": ["en"],
+  "common": [
+    {"path":"distil-small.en-tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-distil-small.en/resolve/0492324bca9e12a6fca0089bb846f2dd723b50d8/distil-small.en-tokens.txt","bytes":835554,"sha256":"306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"distil-small.en-encoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-distil-small.en/resolve/0492324bca9e12a6fca0089bb846f2dd723b50d8/distil-small.en-encoder.int8.onnx","bytes":102961431,"sha256":"397a76d2308c2c1ec91a4ecc12f20fede69bb17be41a1cef050993520328beca"},
+        {"path":"distil-small.en-decoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-distil-small.en/resolve/0492324bca9e12a6fca0089bb846f2dd723b50d8/distil-small.en-decoder.int8.onnx","bytes":195079097,"sha256":"3074092bca078786ecda9c9e88449f14e9ebde1d60be4d41de8cacda55e065e0"}
+      ]
+    }
+  ]
+}

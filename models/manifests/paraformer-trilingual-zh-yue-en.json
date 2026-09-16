@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "paraformer-trilingual-zh-yue-en",
+  "name": "SeACo-Paraformer trilingual zh/yue/en (int8, sherpa-onnx export)",
+  "version": "csukuangfj-8d901513",
+  "license": "Apache-2.0",
+  "attribution": "SeACo-Paraformer zh-cantonese-en by dengcunqin, built on Alibaba DAMO Academy FunASR (Apache-2.0 as declared on the ModelScope model page dengcunqin/speech_seaco_paraformer_large_asr_nat-zh-cantonese-en-16k-common-vocab11666-pytorch); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "paraformer-trilingual-zh-yue-en",
+  "languages": ["zh","yue","en"],
+  "common": [
+    {"path":"tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/8d90151338178bb433354c9fb677bd3acb8023cd/tokens.txt","bytes":118931,"sha256":"8e4593d7a2eb2404ff82976b5494265e9a06283ca4d5e8605bf7b4fed557a492"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"model.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/8d90151338178bb433354c9fb677bd3acb8023cd/model.int8.onnx","bytes":244684152,"sha256":"eb3cdd288f535cf73258f491cdd7d68ad5a00aee135c0bba4c0884ea8d926144"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "paraformer-zh",
+  "name": "Paraformer-large zh (int8, sherpa-onnx export)",
+  "version": "csukuangfj-906992d3",
+  "license": "Apache-2.0",
+  "attribution": "Paraformer-large by the Speech Lab of DAMO Academy, Alibaba Group (Apache-2.0 as declared on the ModelScope model page iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "paraformer-zh",
+  "languages": ["zh","en"],
+  "common": [
+    {"path":"tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/resolve/906992d326ebf0c5171cde675aa0902be9e5bc6c/tokens.txt","bytes":75354,"sha256":"6c0e3b35cece259829e6cb5b8d90d13db88f61ea3a2953d11898e4b2bfd7a2e2"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"model.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/resolve/906992d326ebf0c5171cde675aa0902be9e5bc6c/model.int8.onnx","bytes":227330205,"sha256":"90bc03034ae1bef9575f8cc798cd1519c8be8aa9e8b458a033e32017ff4d584c"}
+      ]
+    }
+  ]
+}

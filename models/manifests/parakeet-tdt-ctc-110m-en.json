@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "parakeet-tdt-ctc-110m-en",
+  "name": "NVIDIA Parakeet TDT-CTC 110M en (transducer branch, sherpa-onnx export)",
+  "version": "csukuangfj-e9bea5a0",
+  "license": "CC-BY-4.0",
+  "attribution": "NVIDIA parakeet-tdt_ctc-110m (CC-BY-4.0); ONNX export of its transducer branch by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "parakeet-tdt-ctc-110m-en",
+  "languages": ["en"],
+  "common": [
+    {"path":"tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000/resolve/e9bea5a06247dc3f55319ff23d34b0328f2f5ddf/tokens.txt","bytes":9953,"sha256":"450e56bd2f036fe5b6aa821865838cc5aa9d8b0106134ce9a9ba0664abe6cd10"}
+  ],
+  "artifacts": [
+    {
+      "target": "any",
+      "files": [
+        {"path":"encoder.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000/resolve/e9bea5a06247dc3f55319ff23d34b0328f2f5ddf/encoder.onnx","bytes":456050698,"sha256":"db260f1073c654c37dd65006885d1ee98ff16c22463b1ef992bbcabc29780a3f"},
+        {"path":"decoder.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000/resolve/e9bea5a06247dc3f55319ff23d34b0328f2f5ddf/decoder.onnx","bytes":15753086,"sha256":"3da156bde41a04c94ef783e0bd92928e9974e08645b976a22d0c3e1063510249"},
+        {"path":"joiner.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000/resolve/e9bea5a06247dc3f55319ff23d34b0328f2f5ddf/joiner.onnx","bytes":5596854,"sha256":"b603765c0724a0768c378a23326dabbeb9cfea932d260e4fcc14384fa5fd5aff"}
+      ]
+    }
+  ]
+}
