@@ -75,7 +75,44 @@ it there with `LW_MODELS_ROOT` ([`models.md`](models.md)).
 
 ---
 
-## 4. Benchmarking your own machine
+## 4. Choosing where it runs
+
+Settings → **Backend** picks the accelerator. Four coarse choices plus one entry per execution
+provider:
+
+| Choice | Meaning |
+|---|---|
+| **Automatic** | Try every usable accelerator best-first (NPU → GPU → CPU) and fall back. The default. |
+| **Any NPU** | Only an NPU, whichever vendor this machine has. |
+| **Any GPU** | Only a GPU, whichever vendor this machine has. |
+| **CPU** | The CPU only. |
+| *a named provider* | Exactly that one — Qualcomm NPU, WebGPU, CUDA, TensorRT, DirectML, CoreML, OpenVINO or Vitis AI. |
+
+Everything except **Automatic** is strict: if the chosen backend cannot be used, the engine says
+so instead of quietly running somewhere else. That is deliberate — when you are comparing
+backends, a silent fallback would attribute the numbers to the wrong one.
+
+Providers this machine cannot use are listed with the reason. The three facts are kept apart
+because they routinely disagree:
+
+- **present** — the provider library is in the runtime directory;
+- **registered** — ONNX Runtime accepted it;
+- **devices** — it found hardware.
+
+Only the last one means acceleration. A vendor driver can be installed and still enumerate
+nothing. From a terminal the same table is `lw diagnose`.
+
+**What is actually running** is read back from the engine rather than from what was requested, so
+a run that asked for the NPU and fell back to the CPU reports the CPU — visible in Diagnostics and
+in the benchmark report, whose notes also say *why* it fell back.
+
+To add a provider this build does not bundle (CUDA, TensorRT, DirectML, OpenVINO, Vitis AI), drop
+its library into the runtime directory; it appears by itself. [`hardware.md`](hardware.md) §5 lists
+what each one needs.
+
+---
+
+## 5. Benchmarking your own machine
 
 The **Benchmark** tab measures the selected model here and now. It reports:
 
@@ -97,7 +134,7 @@ The equivalent from a terminal is `lw bench --quick`, which shares the same meas
 
 ---
 
-## 5. Diagnostics and logs
+## 6. Diagnostics and logs
 
 The **Diagnostics** tab reports the ONNX Runtime it found, whether the QNN provider DLL is present,
 whether an NPU device actually enumerated, and the app/OS versions. "Present" and "usable" are
@@ -112,7 +149,7 @@ written — the logs carry device, backend and version facts only.
 
 ---
 
-## 6. Where things live
+## 7. Where things live
 
 | What | Windows | macOS | Linux |
 |---|---|---|---|

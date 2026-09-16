@@ -84,6 +84,10 @@ workspace + Tauri 2 desktop shell:
   `lw bench` NPU path is **mean RTF 0.0145, WER 4.8 %**. The 1.2 GB context binary is cached and
   reloads in ~2 s. This is real NPU execution, reported honestly (`provider=QNN`,
   `acceleration=NPU`, device `Snapdragon Hexagon HTP (V81)`).
+- **Parakeet encoder on the GPU** — via ONNX Runtime's WebGPU plugin EP (Dawn → D3D12), measured
+  on the X2's integrated Adreno at **mean RTF 0.0609, WER 5.4 %**, correct transcripts in all four
+  languages. This path is vendor-neutral and needs no model artifact of its own, so the same code
+  serves NVIDIA, AMD, Intel and Apple GPUs — though only the Adreno has been run.
 - **Automatic backend selection with honest reporting** — `diagnose` enumerates the CPU + QNN NPU
   devices; `--backend auto` uses the NPU when present and falls back to CPU, never mislabeling CPU
   as NPU.
@@ -117,6 +121,10 @@ workspace + Tauri 2 desktop shell:
 | ORT dynamic load + QNN registration + device enum | run on X2 (`diagnose`) | pass |
 | **End-to-end CPU transcription** | `lw transcribe`/`bench` + integration test on X2 | pass, WER 5.4 % |
 | **End-to-end NPU (HTP V81) transcription** | `lw bench` on X2 | pass, WER 4.8 %, RTF 0.0145 |
+| **End-to-end GPU transcription** | `lw bench --backend webgpu` on X2 (Adreno) | pass, WER 5.4 %, RTF 0.0609 |
+| Accelerator vocabulary (ids, serde, ordering, artifact rule) | unit tests | pass |
+| Provider probe reports present / registered / devices separately | `lw diagnose` on X2 | pass |
+| Runtime staging into the installer bundle | `build.rs` on X2 (20 files staged) | pass |
 | Model catalog JSON shape + estimate/measurement separation | unit tests | pass |
 | Benchmark arithmetic (cold/warm split, word-weighted WER) | unit tests with a scripted mock engine | pass |
 | Install state detection against the app's real model directory | `LW_MODELS_ROOT=<app dir> lw models list` on X2 | pass (`INSTALLED: yes`) |
@@ -137,22 +145,48 @@ that verification needs a human at the machine. macOS/Linux were not executed (n
 
 ## 4. Exact supported platforms
 
-| Platform | State |
-|---|---|
-| Windows 11 ARM64 (Snapdragon X2) | **first-class, verified** (CPU + NPU) |
-| Windows 11 ARM64 (Snapdragon X Elite / V73) | expected to work on CPU; NPU needs a V73 context (untested here) |
-| Windows x64 | builds; CPU only |
-| macOS Apple Silicon | builds; CPU via ORT; ANE path designed but unverified |
-| Linux x64/ARM64 | builds; platform layer scaffolded; ORT CPU |
+| Platform | Installer | State |
+|---|---|---|
+| Windows 11 ARM64 (Snapdragon X2) | `.exe` (NSIS), `.msi` | **first-class, verified** — CPU + Qualcomm NPU + GPU |
+| Windows 11 ARM64 (Snapdragon X Elite / V73) | same | expected to work; the NPU needs a V73 context, untested here |
+| Windows x64 (Intel / AMD) | `.exe`, `.msi` | builds; CPU + GPU implemented, not executed |
+| macOS 11+ Apple Silicon | `.dmg`, `.app` | builds; CPU + GPU implemented, CoreML/ANE not implemented; not executed |
+| Linux x64 | `.deb`, `.rpm`, `.AppImage` | builds; CPU + GPU implemented; platform layer partial (hotkey/injection) |
+| Linux ARM64 | — | builds; CPU only (no ORT WebGPU build for that RID) |
+
+Packaging is configured for every row and the release workflow is a four-platform matrix, with a
+check that fails the build if the proprietary Qualcomm libraries reach a non-Snapdragon package.
+**Only the Windows ARM64 artifact has been built and run on real hardware.** Code signing
+(Windows) and signing + notarization (macOS) remain.
 
 ## 5. Exact backend matrix
 
-| Engine | Provider | Acceleration | Status |
-|---|---|---|---|
-| Parakeet TDT v3 | QNN | NPU (HTP V81) | **verified on X2** |
-| Parakeet TDT v3 | ONNX Runtime | CPU (int8) | **verified on X2** |
-| Parakeet TDT v3 | CoreML | ANE/GPU (macOS) | designed; unverified (no Mac) |
-| Whisper | ONNX Runtime | CPU | adapter present; backend not wired |
+Nine execution providers behind one vocabulary (`lw_core::capabilities::Accelerator`); settings,
+detection, the engine, the CLI and the UI all read it. Measured rows are 12 FLEURS clips on the
+X2 via `lw bench`.
+
+| Accelerator | Provider library | Bundled | Own model artifact | Status |
+|---|---|---|---|---|
+| CPU | built in | — | no | **verified** — RTF 0.0324, WER 5.4 % |
+| Qualcomm NPU | `onnxruntime_providers_qnn.dll` | ✅ win-arm64 | **yes** (HTP context per Hexagon gen) | **verified** — RTF 0.0160, WER 4.8 % |
+| GPU (WebGPU) | `onnxruntime_providers_webgpu.dll` | ✅ all 4 platforms | no | **verified on Adreno** — RTF 0.0609, WER 5.4 % |
+| NVIDIA CUDA | `onnxruntime_providers_cuda.dll` | ❌ | no | implemented; needs CUDA 12 + cuDNN 9 |
+| NVIDIA TensorRT | `onnxruntime_providers_tensorrt.dll` | ❌ | no | implemented; needs TensorRT 10 |
+| DirectML | `onnxruntime_providers_dml.dll` | ❌ | no | implemented; needs the DML redistributable |
+| Apple CoreML / ANE | `libonnxruntime_providers_coreml.dylib` | ❌ | effectively yes | implemented; needs a static fp16 export |
+| Intel OpenVINO | `onnxruntime_providers_openvino.dll` | ❌ | **yes** for the NPU | implemented; needs the OpenVINO runtime |
+| AMD Vitis AI | `onnxruntime_providers_vitisai.dll` | ❌ | **yes** | implemented; needs the Ryzen AI SDK |
+
+The unbundled providers are wired through selection, settings, diagnostics and the benchmark
+already: dropping the library into the runtime directory makes one appear as usable, with no code
+change. They are not shipped because each needs a vendor SDK and **none could be verified here**.
+An NPU additionally needs a quantized artifact compiled and validated on that silicon — that, not
+the code, is what gates a new NPU. See [`hardware.md`](hardware.md).
+
+| Engine | Provider | Status |
+|---|---|---|
+| Parakeet TDT v3 | QNN / ORT CPU / WebGPU | **verified on X2** |
+| Whisper, Moonshine, SenseVoice, NeMo transducer | sherpa-onnx (CPU) | behind the optional `sherpa` feature |
 
 ## 6. Exact X2 NPU status
 
