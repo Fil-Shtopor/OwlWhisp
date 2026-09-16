@@ -55,3 +55,4 @@ Thumbs.db
 
 # Runtime libraries staged into the Tauri bundle by build.rs (copies of /runtime/<platform>)
 /app/src-tauri/runtime/
+/third_party/

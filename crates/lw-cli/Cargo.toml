@@ -17,6 +17,7 @@ lw-core.workspace = true
 lw-ort.workspace = true
 lw-vad-silero.workspace = true
 lw-engine-parakeet.workspace = true
+lw-engine-sherpa.workspace = true
 lw-platform.workspace = true
 clap.workspace = true
 anyhow.workspace = true
@@ -30,3 +31,9 @@ indicatif.workspace = true
 
 [dev-dependencies]
 
+[features]
+default = []
+# The portable CPU engine (Whisper, Moonshine, SenseVoice, NeMo transducers). Off by default
+# because it links a large native archive, and because building it the obvious way links GPL-3.0
+# espeak-ng -- see docs/licenses.md and scripts/build/fetch-sherpa.ps1.
+sherpa = ["lw-engine-sherpa/sherpa"]

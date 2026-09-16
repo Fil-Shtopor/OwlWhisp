@@ -53,19 +53,41 @@ with measured numbers on real hardware (RTF 0.032 CPU / 0.0145 NPU, word-weighte
 [§5.1](benchmarks.md#51-measured-lw-bench-results-on-the-x2-2026-08-26-native-arm64-lwexe)). It
 covers 25 European languages with punctuation and casing. Cost: a 640 MiB download.
 
-The other entries are catalogued so you can see what a `sherpa`-backed build would offer, and are
-marked `requires_engine_feature: "sherpa"`:
+The other seven entries are hash-pinned and installable, but need a build with the `sherpa` engine
+feature; they are marked `requires_engine_feature: "sherpa"`:
 
-| If you need… | Look at | Why |
-|---|---|---|
-| a language Parakeet does not cover | `whisper-base` (99 languages) | broad coverage, modest accuracy |
-| more accuracy than `base`, same coverage | `whisper-small` | ~3× the compute of `base` |
-| the smallest English-only footprint | `whisper-tiny-en` or `moonshine-tiny-en` | ~110 MiB downloads |
-| short utterances / low latency, English | `moonshine-tiny-en` | no fixed 30 s padding, unlike Whisper |
+| If you need… | Look at | Download | Why |
+|---|---|---|---|
+| a language Parakeet does not cover | `whisper-base` (99 languages) | 153 MiB | broad coverage, modest accuracy |
+| more accuracy than `base`, same coverage | `whisper-small` | 358 MiB | ~3× the compute of `base` |
+| the smallest English-only footprint | `whisper-tiny-en` | 99 MiB | the classic tiny baseline |
+| short utterances / low latency, English | `moonshine-tiny-en` | 118 MiB | no fixed 30 s padding, unlike Whisper |
+| the same, with more accuracy | `moonshine-base-en` | 274 MiB | ~2.3× tiny, same variable-length design |
+| Chinese / Japanese / Korean / Cantonese | `sense-voice-small` | 228 MiB | one non-autoregressive pass, with punctuation |
+| the top English-only quality tier | `parakeet-tdt-0.6b-v2-en` | 631 MiB | same architecture as v3, English-only; the tier is editorial, nobody here has measured it |
+
+Every download figure above is the exact sum of the pinned file sizes in that entry's manifest, not
+a rounded upstream claim. All seven pin the **int8** exports only: for `whisper-small` that is the
+difference between a 358 MiB and a ~925 MiB install, for a quality difference nobody here has
+measured. If you want the fp32 graphs, they sit in the same upstream repository — add a second
+`artifacts` set with target `any` and the hashes you compute yourself.
 
 Rules of thumb the catalog encodes: **quality tier** is an editorial ranking of the model family,
 not a measurement; **speed tier** is the input to the RTF estimate; and neither tells you how the
 model does on *your* audio, accent, or vocabulary. The only way to know that is §5.
+
+> **`lw` cannot run these yet.** `lw-cli` depends on `lw-engine-parakeet` and has no dependency on
+> `lw-engine-sherpa`, and no `sherpa` cargo feature of its own — only `app/src-tauri` wires
+> `sherpa = ["lw-engine-sherpa/sherpa"]`. So `lw models install` will fetch and verify any of the
+> seven entries above, but `lw transcribe --model-dir` cannot then transcribe with one. Until the
+> feature is wired through the CLI, the way to run an installed sherpa model is the engine's own
+> integration test:
+>
+> ```sh
+> LW_SHERPA_MODEL_DIR=<models>/moonshine-tiny-en \
+>   cargo test --release -p lw-engine-sherpa --features sherpa \
+>   --test transcribe_fixture -- --ignored --nocapture
+> ```
 
 ## 4. Install
 
@@ -83,16 +105,36 @@ downloaded file is ever executed.
 If an entry has **no pinned manifest**, install refuses:
 
 ```
-error: `whisper-base` has no pinned manifest, so there is nothing safe to download.
-Its file set has not been hash-pinned yet (see `lw models info whisper-base`); LocalWisper refuses
+error: `<id>` has no pinned manifest, so there is nothing safe to download.
+Its file set has not been hash-pinned yet (see `lw models info <id>`); LocalWisper refuses
 to fetch unverified model files. A manifest is added once the files are downloaded, hashed and
 committed under models/manifests/.
 ```
 
-That is deliberate. The Whisper and Moonshine archives have verified sizes and URLs (read from the
-GitHub release API for `k2-fsa/sherpa-onnx` tag `asr-models`) but upstream publishes no SHA-256, so
-pinning them honestly requires downloading and hashing them first. Until then the CLI declines
-rather than fetching something it cannot verify.
+Every entry in the shipped catalog is pinned today, so nothing hits that path — but it is what
+guards the next entry somebody adds.
+
+### Why the sherpa models are pinned from Hugging Face, not from the GitHub release
+
+sherpa-onnx publishes its models on the `asr-models` release of `k2-fsa/sherpa-onnx`, where every
+asset is a **`.tar.bz2` archive**. `ModelDownloader` fetches files; it does not unpack archives (see
+"what pinning an archive would need" below). It also publishes no SHA-256 for any asset.
+
+The same files are published **loose** in the sherpa-onnx author's own Hugging Face repositories
+(`huggingface.co/csukuangfj/sherpa-onnx-*`), which is what the manifests pin — each URL carries a
+fixed commit revision, so the bytes behind it cannot change under us. Hugging Face publishes no
+checksum we trust either, so **every SHA-256 in `models/manifests/` was computed locally from the
+downloaded bytes**, never copied from upstream metadata.
+
+**What it would take to pin an archive instead.** `FileEntry` is `{path, url, bytes, sha256}` and
+`ModelDownloader::install` streams each URL to `staging_dir/path`, hashes it, and promotes the
+directory. Nothing in that path can expand anything. Supporting archives would need, at minimum:
+an explicit `archive` field on `FileEntry` naming the format (the schema must not sniff it from the
+URL), extraction into staging after the hash check and never before, a path-traversal guard on every
+entry inside the archive at least as strict as `FileEntry::path_is_safe`, a decompressed-size bound
+so a zip bomb cannot fill the disk, a second expected size for the free-space pre-check (which today
+sums `bytes`, the *compressed* total), and a rule for the single top-level directory these archives
+all carry. That is a real feature with a real attack surface; pinning loose files avoided needing it.
 
 ### Where models live, and keeping the app and the CLI in agreement
 
@@ -162,4 +204,10 @@ see [benchmarks.md §6](benchmarks.md#6-estimates-vs-measurements-lw-models--lw-
 3. Add a `measurements` entry only for a run you actually performed, and fill in `machine` and
    `source` — validation requires both.
 4. To make the entry installable, download the files, hash them, and commit a manifest under
-   `models/manifests/`, then point the entry's `manifest` field at it.
+   `models/manifests/`, then point the entry's `manifest` field at it. Compute the hashes from the
+   bytes you downloaded; never copy a checksum out of upstream metadata. Pin URLs that cannot move
+   under you — a Hugging Face `/resolve/<commit sha>/` path, not `/resolve/main/`.
+5. Two tests in `lw-core` hold you to it: `builtin_manifest_references_resolve_to_a_valid_pinned_file`
+   checks that every `manifest` names a file that exists, parses, validates and carries the same
+   `id`; `builtin_pinned_sizes_match_the_manifest_they_name` checks that `download_bytes` is the
+   real sum of the pinned file sizes, so the number in the catalog cannot drift from the manifest.

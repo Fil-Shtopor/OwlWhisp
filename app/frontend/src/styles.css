@@ -351,7 +351,7 @@ input[type="checkbox"] {
   color: #22c55e;
 }
 
-.badge:not(.yes):not(.no):not(.warn):not(.rec):not(.sel):not(.measured-badge) {
+.badge:not(.yes):not(.no):not(.warn):not(.rec):not(.sel):not(.measured-badge):not(.fastest):not(.accurate) {
   background: rgba(154, 160, 176, 0.15);
   color: var(--text-dim);
 }
@@ -863,4 +863,143 @@ input[type="radio"] {
   gap: 8px;
   margin: 0;
   text-align: center;
+}
+
+/* ---------- Sound cues & start at login ---------- */
+
+.sound-section,
+.autostart-field {
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+
+/* A sound row is a choice and a way to hear it, so the button sits with its own theme. */
+.sound-option {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sound-section .sound-option-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.sound-option.unavailable .sound-option-label {
+  cursor: default;
+}
+
+.sound-option .btn {
+  flex: none;
+  align-self: center;
+}
+
+.sound-preview-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.autostart-field .status-err {
+  margin: 4px 0 0;
+}
+
+/* ---------- Benchmark: comparing every backend ---------- */
+
+.bench-actions {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.bench-timing {
+  margin: 0;
+  max-width: 760px;
+}
+
+.compare-table td {
+  vertical-align: middle;
+}
+
+.compare-marks .badge + .badge {
+  margin-left: 6px;
+}
+
+/* Two different marks for two different measurements: green for the warm-RTF winner, blue for the
+   WER one. They are routinely different rows, so they must never look like one badge. */
+.badge.fastest {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.badge.accurate {
+  background: rgba(137, 180, 250, 0.18);
+  color: var(--accent);
+}
+
+/* A bar on the row's leading edge, not on every cell: one mark per row. */
+.compare-row.fastest td:first-child {
+  box-shadow: inset 3px 0 0 0 #22c55e;
+}
+
+.compare-row.accurate td {
+  background: rgba(137, 180, 250, 0.06);
+}
+
+.bench-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bench-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bench-progress-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.bench-progress-row.running {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.08);
+}
+
+.bench-progress-index {
+  color: var(--text-dim);
+  flex: none;
+}
+
+.bench-progress-label {
+  font-weight: 600;
+}
+
+.bench-run-notes summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.bench-run-notes .bench-note-list {
+  padding-top: 6px;
 }

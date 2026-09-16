@@ -262,14 +262,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             let rt = init_runtime(&cli.runtime_dir)?;
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
             let mut engine = build_engine(rt, &model_dir, &cache, backend.into(), 0)?;
-            record_and_transcribe(&mut engine, seconds, device)
+            record_and_transcribe(engine.as_mut(), seconds, device)
         }
     }
 }
 
 /// Capture from the microphone for `seconds`, then transcribe — the live audio path.
 fn record_and_transcribe(
-    engine: &mut ParakeetEngine,
+    engine: &mut dyn SpeechEngine,
     seconds: f32,
     device: Option<String>,
 ) -> anyhow::Result<()> {
@@ -310,30 +310,49 @@ fn build_engine(
     cache_dir: &std::path::Path,
     backend: BackendKind,
     threads: usize,
-) -> anyhow::Result<ParakeetEngine> {
-    let config = ParakeetConfig::from_ctx(
-        &EngineInitContext {
-            model_dir: model_dir.to_path_buf(),
-            cache_dir: cache_dir.to_path_buf(),
-            cpu_threads: threads,
-        },
-        backend,
-    );
+) -> anyhow::Result<Box<dyn SpeechEngine>> {
+    let ctx = EngineInitContext {
+        model_dir: model_dir.to_path_buf(),
+        cache_dir: cache_dir.to_path_buf(),
+        cpu_threads: threads,
+    };
+
+    // Pick the engine from what is actually in the directory rather than from a flag: a user who
+    // points at a Whisper export should get Whisper, not an unhelpful error from the Parakeet
+    // loader about a missing vocab.txt.
+    if let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+        let kind = files.kind();
+        #[cfg(feature = "sherpa")]
+        {
+            let cfg = lw_engine_sherpa::SherpaConfig::new(model_dir).with_threads(threads);
+            let mut engine = lw_engine_sherpa::SherpaEngine::new(cfg);
+            engine
+                .initialize(&ctx)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            return Ok(Box::new(engine));
+        }
+        #[cfg(not(feature = "sherpa"))]
+        {
+            anyhow::bail!(
+                "{} holds a {kind} model, which needs a build with the `sherpa` engine feature.
+                 Build it with:
+                   $env:SHERPA_ONNX_LIB_DIR = (pwsh -File scripts/build/fetch-sherpa.ps1 -Quiet)
+                   cargo build --release -p lw-cli --features sherpa
+                 See docs/build.md -- the extra step keeps GPL-3.0 code out of the binary.",
+                model_dir.display()
+            );
+        }
+    }
+
+    let config = ParakeetConfig::from_ctx(&ctx, backend);
     // Take the Hexagon generation from the detected hardware: X Elite / X Plus are V73, X2 Elite
     // is V81, and a context binary prepared for one will not load on the other.
     let config = config.with_capabilities(&lw_platform::caps::detect());
     let mut engine = ParakeetEngine::new(rt, config);
     engine
-        .initialize(&EngineInitContext {
-            model_dir: model_dir.to_path_buf(),
-            cache_dir: cache_dir.to_path_buf(),
-            cpu_threads: threads,
-        })
+        .initialize(&ctx)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    for note in engine.notes() {
-        eprintln!("  [engine] {note}");
-    }
-    Ok(engine)
+    Ok(Box::new(engine))
 }
 
 fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {

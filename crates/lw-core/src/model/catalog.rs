@@ -912,18 +912,55 @@ mod tests {
     }
 
     #[test]
-    fn builtin_feature_gated_entries_have_no_pinned_manifest() {
-        // We never pinned SHA-256 hashes for the sherpa archives, so those entries must not claim
-        // a manifest — `lw models install` refuses them instead of fetching something unverified.
+    fn builtin_manifest_references_resolve_to_a_valid_pinned_file() {
+        // An entry that names a manifest promises `lw models install` something it can fetch and
+        // verify. Check the promise is real: the file exists, parses, validates, and describes the
+        // same model. (This replaced an older test asserting that feature-gated entries were
+        // *never* pinned — true only while the sherpa file sets had no hashes of their own.)
+        let manifests = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../models/manifests")
+            .canonicalize()
+            .expect("models/manifests");
+        let c = Catalog::builtin().unwrap();
+        let mut checked = 0;
+        for e in c.iter() {
+            let Some(name) = &e.manifest else { continue };
+            let path = manifests.join(name);
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("{}: {} -> {err}", e.id, path.display()));
+            let m: crate::model::ModelManifest = serde_json::from_str(&text)
+                .unwrap_or_else(|err| panic!("{}: {} -> {err}", e.id, path.display()));
+            m.validate()
+                .unwrap_or_else(|err| panic!("{}: {} -> {err}", e.id, path.display()));
+            assert_eq!(m.id, e.id, "{} is pinned by a manifest for {}", e.id, m.id);
+            checked += 1;
+        }
+        assert!(checked >= 2, "expected several pinned entries, got {checked}");
+    }
+
+    #[test]
+    fn builtin_pinned_sizes_match_the_manifest_they_name() {
+        // `download_bytes` is documented as a verified figure, so it must be the real sum of the
+        // pinned file sizes — common files plus the CPU artifact set the installer would pick.
+        let manifests = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../models/manifests")
+            .canonicalize()
+            .expect("models/manifests");
         let c = Catalog::builtin().unwrap();
         for e in c.iter() {
-            if e.requires_engine_feature.is_some() {
-                assert!(
-                    e.manifest.is_none(),
-                    "{} claims a manifest but is feature-gated and unpinned",
-                    e.id
-                );
-            }
+            let (Some(name), Some(want)) = (&e.manifest, e.download_bytes) else {
+                continue;
+            };
+            let text = std::fs::read_to_string(manifests.join(name)).unwrap();
+            let m: crate::model::ModelManifest = serde_json::from_str(&text).unwrap();
+            let (_, files) = m
+                .select_files(&[
+                    crate::model::ArtifactTarget::CpuInt8,
+                    crate::model::ArtifactTarget::Any,
+                ])
+                .unwrap_or_else(|| panic!("{}: manifest has no CPU artifact set", e.id));
+            let got: u64 = files.iter().map(|f| f.bytes).sum();
+            assert_eq!(got, want, "{}: download_bytes disagrees with {name}", e.id);
         }
     }
 

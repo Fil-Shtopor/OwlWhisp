@@ -146,7 +146,9 @@ pub async fn list_accelerators() -> Value {
 /// Engine features compiled into *this* build, which decide whether an entry is runnable here.
 fn engine_features() -> Vec<&'static str> {
     let mut f = vec!["parakeet"];
-    if cfg!(feature = "sherpa") {
+    // Ask the engine crate rather than testing a feature flag on this crate: it knows whether its
+    // native library is linked, and this keeps the app and the CLI from disagreeing.
+    if lw_engine_sherpa::is_available() {
         f.push("sherpa");
     }
     f

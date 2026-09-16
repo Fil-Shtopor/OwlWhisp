@@ -229,6 +229,19 @@ fn detect_caps(
 }
 
 /// The per-user models root (`%LOCALAPPDATA%/LocalWisper/models`, or the XDG equivalent).
+/// The optional engine features this binary was actually built with.
+///
+/// Read from the engine crate rather than from a `cfg!` here: `lw-engine-sherpa` knows whether its
+/// native library is linked, and asking it means the CLI and the desktop app cannot disagree about
+/// what this build can run.
+fn engine_features() -> Vec<&'static str> {
+    let mut f = vec!["parakeet"];
+    if lw_engine_sherpa::is_available() {
+        f.push("sherpa");
+    }
+    f
+}
+
 /// Load the catalog: an explicit file if given, otherwise the one compiled into this binary.
 fn load_catalog(explicit: Option<PathBuf>) -> anyhow::Result<Catalog> {
     match explicit {
@@ -277,7 +290,7 @@ fn list(
     let (caps, caps_note, _rt) = detect_caps(runtime_dir, Probe::Enumerate);
     let root = dest.unwrap_or_else(default_models_root);
     let mdir = manifests_dir(manifests_path);
-    let recs = catalog.recommend(&caps);
+    let recs = catalog.recommend_with(&caps, &engine_features());
 
     let paths: Vec<EntryPaths> = recs
         .iter()
@@ -401,7 +414,7 @@ fn info(
     let root = dest.unwrap_or_else(default_models_root);
     let mdir = manifests_dir(manifests_path);
 
-    let recs = catalog.recommend(&caps);
+    let recs = catalog.recommend_with(&caps, &engine_features());
     let rec = recs
         .iter()
         .find(|r| r.entry.id == id)
@@ -711,7 +724,7 @@ pub fn bench_quick(args: QuickArgs) -> anyhow::Result<()> {
         None => println!("{:<30} {:>10}   {}", "health probe", "failed", health.message),
     }
 
-    let m = measure(&mut engine, &clips, source, |c: &ClipResult| {
+    let m = measure(engine.as_mut(), &clips, source, |c: &ClipResult| {
         let w = c.wer.map(|w| format!("   WER {w:.2}")).unwrap_or_default();
         println!(
             "{:<30} {:>8.0} ms   RTF {:.4}{w}",
@@ -793,7 +806,7 @@ fn compare(args: CompareArgs) -> anyhow::Result<()> {
     let (caps, caps_note, runtime) = detect_caps(&args.runtime_dir, Probe::LibraryPresent);
     let root = args.dest.unwrap_or_else(default_models_root);
     let mdir = manifests_dir(args.manifests);
-    let recs = catalog.recommend(&caps);
+    let recs = catalog.recommend_with(&caps, &engine_features());
 
     let mut rows = Vec::new();
     for r in &recs {
@@ -969,7 +982,7 @@ struct MeasuredRun {
 }
 
 /// Map what the engine reports it is running on onto a catalog hardware target.
-fn hardware_of(engine: &lw_engine_parakeet::ParakeetEngine) -> Option<HardwareTarget> {
+fn hardware_of(engine: &dyn SpeechEngine) -> Option<HardwareTarget> {
     use lw_core::engine::Acceleration;
     match engine.acceleration() {
         Acceleration::Cpu => Some(HardwareTarget::Cpu),
@@ -994,10 +1007,10 @@ fn measure_installed(
     let cache = std::env::temp_dir().join("localwisper-cache");
     let mut engine = crate::build_engine(rt, model_dir, &cache, backend.into(), 0)?;
     let provider = format!("{}", engine.provider());
-    let hardware = hardware_of(&engine);
+    let hardware = hardware_of(engine.as_ref());
     let (clips, source) = quick_clips(fixtures, 3)?;
     let measurement =
-        measure(&mut engine, &clips, source, |_| {}).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        measure(engine.as_mut(), &clips, source, |_| {}).map_err(|e| anyhow::anyhow!(e.to_string()))?;
     Ok(MeasuredRun {
         measurement,
         hardware,

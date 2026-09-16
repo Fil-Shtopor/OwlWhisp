@@ -19,6 +19,23 @@ with it. Verified against source `LICENSE`/`METADATA` files and model cards on 2
 | **Silero VAD** (`silero_vad.onnx`) | **MIT** | Include the MIT notice. |
 | FLEURS test clips (test fixtures only, not shipped in installers) | **CC-BY-4.0** | Attribution in `tests/fixtures/audio/fixtures.json`. |
 
+### Models the user may choose to download
+
+The catalog also offers models LocalWisper does **not** redistribute: the user downloads them from
+the publisher, and the licence binds them, not us. Each entry states its licence before anything is
+fetched, and `lw models info <id>` prints it.
+
+| Model | Licence | Note |
+|---|---|---|
+| Whisper tiny.en / base / small (sherpa-onnx exports) | **MIT** | — |
+| Moonshine tiny / base en (int8) | **MIT** | — |
+| NVIDIA Parakeet TDT 0.6B v2 en (int8) | **CC-BY-4.0** | attribution as for v3 |
+| **SenseVoice Small** (int8) | **`LicenseRef-FunASR-Model-1.1`** — *not* SPDX, not OSI-approved | Alibaba's FunASR Model Open Source License Agreement v1.1. Permits use, copying, modification and sharing; requires attribution and retention of model names; disclaims all liability; and **terminates if you "denigrate" the software**. Materially more restrictive than everything else here. Read it before redistributing anything built with it. |
+
+SenseVoice is listed rather than hidden because a user is entitled to choose it with the terms in
+front of them — but it is the one entry whose licence would need a deliberate decision before this
+project shipped anything derived from it.
+
 Models are **not** committed to git and **not** bundled uncompressed in the installer beyond what is
 necessary; they are downloaded on first run from pinned, SHA-256-verified URLs.
 

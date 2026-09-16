@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   activeBackend,
   activeHotkey,
+  getAutostart,
   getSettings,
   listBackends,
+  listSoundThemes,
+  previewSound,
+  setAutostart,
   setSettings,
   type AcceleratorReport,
   type ActiveBackend,
@@ -12,6 +16,8 @@ import {
   type HotkeyConfig,
   type HotkeyMode,
   type Settings,
+  type SoundThemeId,
+  type SoundThemeOption,
 } from "../ipc";
 import {
   formatHotkey,
@@ -192,6 +198,354 @@ function BackendRow({
   );
 }
 
+/**
+ * "Start at login", read from the operating system rather than from the settings file.
+ *
+ * Two rules govern this control, and both exist because the OS can disagree with us:
+ *
+ * 1. The state on screen comes from `getAutostart()`, never from `settings.autostart` — that field
+ *    is only a mirror, and the registration can be removed in Task Manager, `launchctl` or a
+ *    desktop environment's startup list without this app ever hearing about it. Until the probe
+ *    answers, the box is indeterminate: an unverified state is not a boolean.
+ * 2. A toggle renders what `setAutostart()` *returns*, not what it was asked for. A managed machine
+ *    can refuse, and a checkbox that claimed an autostart that does not exist would be worse than
+ *    no checkbox at all.
+ *
+ * `onVerified` mirrors the confirmed value back into the edited settings, so the Save button
+ * cannot write a stale mirror over a value the OS has since corrected.
+ */
+function AutostartField({
+  mirror,
+  onVerified,
+}: {
+  /** `settings.autostart`, shown only while the probe is in flight — and never as a fact. */
+  mirror: boolean;
+  onVerified: (value: boolean) => void;
+}) {
+  const [known, setKnown] = useState<boolean | null>(null);
+  const [probeError, setProbeError] = useState<string | null>(null);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ requested: boolean; actual: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLInputElement | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void getAutostart()
+      .then((value) => {
+        if (disposed) return;
+        setKnown(value);
+        setProbeError(null);
+        onVerified(value);
+      })
+      .catch((e: unknown) => {
+        if (disposed) return;
+        setKnown(null);
+        setProbeError(String(e));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [onVerified]);
+
+  // Deliberately on every render: clicking the box clears `indeterminate` in the DOM, and after a
+  // change that could not be confirmed the state is still unknown and must look it.
+  useEffect(() => {
+    if (box.current !== null) box.current.indeterminate = known === null;
+  });
+
+  const toggle = async (requested: boolean) => {
+    setBusy(true);
+    setChangeError(null);
+    setRefused(null);
+    try {
+      const actual = await setAutostart(requested);
+      if (!alive.current) return;
+      setKnown(actual);
+      setProbeError(null);
+      onVerified(actual);
+      if (actual !== requested) setRefused({ requested, actual });
+    } catch (e: unknown) {
+      if (alive.current) setChangeError(String(e));
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  };
+
+  return (
+    <section className="field autostart-field">
+      <div className="field-row">
+        <label htmlFor="autostart">Start at login</label>
+        <input
+          id="autostart"
+          ref={box}
+          type="checkbox"
+          checked={known ?? mirror}
+          disabled={busy}
+          onChange={(e) => void toggle(e.currentTarget.checked)}
+        />
+      </div>
+      <span className="sub">
+        Launch LocalWisper when you sign in, so the hotkey is live without starting it by hand.
+        Windows, macOS and Linux each register this differently; the app asks the operating system
+        and reports what it says.
+      </span>
+      <span className="sub">
+        <strong>This applies immediately</strong> — it is not part of the Save button below.
+      </span>
+      {busy && <span className="sub">Asking the operating system…</span>}
+      {!busy && known === null && probeError === null && (
+        <span className="sub">Checking with the operating system…</span>
+      )}
+      {!busy && known !== null && (
+        <span className="sub">
+          The operating system reports start at login is{" "}
+          <strong>{known ? "on" : "off"}</strong>.
+        </span>
+      )}
+      {probeError !== null && (
+        <p className="status-err">
+          Could not read the autostart registration: {probeError}. The box above is shown
+          indeterminate because this app does not know the real state — toggling it will ask the
+          operating system and report what it answers.
+        </p>
+      )}
+      {refused !== null && (
+        <p className="status-err">
+          The operating system did not accept that. You asked to{" "}
+          {refused.requested ? "turn start at login on" : "turn start at login off"}, and it reports{" "}
+          <strong>{refused.actual ? "on" : "off"}</strong> afterwards. The box shows what it
+          reports, not what was asked. A managed or locked-down machine can refuse this.
+        </p>
+      )}
+      {changeError !== null && (
+        <p className="status-err">
+          Could not change start at login: {changeError}. Nothing on screen has been changed to
+          claim otherwise.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Clamp a stored volume into the range the slider and the backend accept. */
+function clampVolume(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * The cue sounds: on/off, which one, how loud, and — the point of the section — hearing one.
+ *
+ * A preview plays the controls *on this screen*, not the saved settings, so choosing a sound is a
+ * matter of clicking around until one sounds right rather than saving and dictating to find out.
+ */
+function SoundCues({
+  settings,
+  disabled,
+  onChange,
+}: {
+  settings: Settings;
+  /** A save is in flight, so nothing here should move. */
+  disabled: boolean;
+  onChange: (patch: Partial<Settings>) => void;
+}) {
+  const [themes, setThemes] = useState<SoundThemeOption[] | null>(null);
+  const [themesError, setThemesError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<{ theme: SoundThemeId; cue: "start" | "stop" } | null>(
+    null,
+  );
+  const [playError, setPlayError] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void listSoundThemes()
+      .then((list) => {
+        if (!disposed) {
+          setThemes(list);
+          setThemesError(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!disposed) {
+          setThemes(null);
+          setThemesError(String(e));
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const volume = clampVolume(settings.sound_volume);
+  const enabled = settings.sounds_enabled;
+  // The theme, volume and previews all depend on there being a sound to play at all.
+  const locked = disabled || !enabled;
+
+  const preview = async (theme: SoundThemeId, cue: "start" | "stop") => {
+    setPlaying({ theme, cue });
+    setPlayError(null);
+    try {
+      await previewSound(theme, volume, cue);
+    } catch (e: unknown) {
+      if (alive.current) setPlayError(String(e));
+    } finally {
+      if (alive.current) setPlaying(null);
+    }
+  };
+
+  const isPlaying = (theme: SoundThemeId, cue: "start" | "stop") =>
+    playing !== null && playing.theme === theme && playing.cue === cue;
+
+  const savedIsOffered =
+    themes === null || themes.some((theme) => theme.id === settings.sound_theme);
+
+  return (
+    <section className="field sound-section">
+      <div className="field-row">
+        <label htmlFor="sounds-enabled">Start/stop sounds</label>
+        <input
+          id="sounds-enabled"
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(e) => onChange({ sounds_enabled: e.currentTarget.checked })}
+        />
+      </div>
+      <span className="sub">
+        A short cue when recording starts and another when it stops, so you know the hotkey landed
+        without looking at the overlay.
+      </span>
+      {!enabled && (
+        <p className="sub">
+          Sounds are off, so the sound, volume and previews below are disabled — there would be
+          nothing to play. Tick the box above to choose one.
+        </p>
+      )}
+
+      {themes === null && themesError === null && <p className="hint">Loading sounds…</p>}
+      {themesError !== null && (
+        <p className="status-err">
+          Could not read the list of sounds: {themesError}. The saved sound{" "}
+          <span className="mono">{settings.sound_theme}</span> is still in force; it just cannot be
+          changed or previewed from here until the backend answers.
+        </p>
+      )}
+      {themes !== null && themes.length === 0 && (
+        <p className="hint">This build offers no cue sounds to choose from.</p>
+      )}
+
+      {themes !== null && themes.length > 0 && (
+        <div className="accel-group-block">
+          <span className="perf-label">Sound</span>
+          {!savedIsOffered && (
+            <p className="status-err">
+              The saved sound <span className="mono">{settings.sound_theme}</span> is not one this
+              build offers, so none is selected below. Pick one to replace it.
+            </p>
+          )}
+          {themes.map((theme) => {
+            const selected = settings.sound_theme === theme.id;
+            const classes = ["accel-option", "sound-option"];
+            if (selected) classes.push("selected");
+            if (locked) classes.push("unavailable");
+            return (
+              <div key={theme.id} className={classes.join(" ")}>
+                <label className="sound-option-label">
+                  <input
+                    type="radio"
+                    name="sound-theme"
+                    value={theme.id}
+                    checked={selected}
+                    disabled={locked}
+                    onChange={() => onChange({ sound_theme: theme.id })}
+                  />
+                  <span className="accel-option-body">
+                    <span className="accel-option-head">
+                      <span className="radio-label">{theme.label}</span>
+                    </span>
+                    <span className="sub">{theme.description}</span>
+                  </span>
+                </label>
+                <button
+                  className="btn secondary small"
+                  disabled={locked || playing !== null}
+                  onClick={() => void preview(theme.id, "start")}
+                  title={
+                    locked
+                      ? "Turn start/stop sounds on to hear this"
+                      : `Play the ${theme.label} start cue at the volume set below`
+                  }
+                >
+                  {isPlaying(theme.id, "start") ? "Playing…" : "Preview"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="subfield">
+        <label htmlFor="sound-volume" className="perf-label">
+          Volume — {Math.round(volume * 100)}%
+        </label>
+        <input
+          id="sound-volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={volume}
+          disabled={locked}
+          onChange={(e) => onChange({ sound_volume: clampVolume(Number(e.currentTarget.value)) })}
+        />
+        <div className="sound-preview-row">
+          <button
+            className="btn secondary small"
+            disabled={locked || playing !== null}
+            onClick={() => void preview(settings.sound_theme, "start")}
+          >
+            {isPlaying(settings.sound_theme, "start") ? "Playing…" : "Hear the start cue"}
+          </button>
+          <button
+            className="btn secondary small"
+            disabled={locked || playing !== null}
+            onClick={() => void preview(settings.sound_theme, "stop")}
+          >
+            {isPlaying(settings.sound_theme, "stop") ? "Playing…" : "Hear the stop cue"}
+          </button>
+        </div>
+        <span className="sub">
+          A preview plays the sound and volume selected <strong>here, now</strong> — not the last
+          saved ones — so you can hear a change before committing to it.
+        </span>
+        {playError !== null && <p className="status-err">Could not play that: {playError}</p>}
+      </div>
+
+      <span className="sub">
+        The sound and volume are part of the <strong>Save</strong> button below; previewing changes
+        nothing on disk.
+      </span>
+    </section>
+  );
+}
+
 export function SettingsPanel() {
   const [settings, setLocal] = useState<Settings | null>(null);
   // The preference as *saved*, which is what the running engine was built from. The edited copy
@@ -336,6 +690,20 @@ export function SettingsPanel() {
       window.removeEventListener("keydown", onKeyDown, true);
     };
   }, [capturing]);
+
+  /**
+   * Keep `settings.autostart` in step with what the OS confirmed.
+   *
+   * The field is a mirror, and the OS owns the truth; writing the confirmed value back means the
+   * Save button cannot later persist a stale mirror. It deliberately does not touch the save
+   * status: this is not an edit the user made, so it must not clear a "Settings saved" line or
+   * present itself as unsaved work.
+   */
+  const mirrorAutostart = useCallback((value: boolean) => {
+    setLocal((prev) =>
+      prev === null || prev.autostart === value ? prev : { ...prev, autostart: value },
+    );
+  }, []);
 
   if (loadError !== null) {
     return <p className="status-err">Failed to load settings: {loadError}</p>;
@@ -697,16 +1065,11 @@ export function SettingsPanel() {
             onChange={(e) => update({ overlay_enabled: e.currentTarget.checked })}
           />
         </div>
-        <div className="field-row">
-          <label htmlFor="sounds-enabled">Start/stop sounds</label>
-          <input
-            id="sounds-enabled"
-            type="checkbox"
-            checked={settings.sounds_enabled}
-            onChange={(e) => update({ sounds_enabled: e.currentTarget.checked })}
-          />
-        </div>
       </div>
+
+      <SoundCues settings={settings} disabled={saving} onChange={update} />
+
+      <AutostartField mirror={settings.autostart} onVerified={mirrorAutostart} />
 
       <button className="btn" onClick={() => void save()} disabled={saving || hotkeyErr !== null}>
         {saving ? "Saving…" : "Save"}

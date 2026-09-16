@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "whisper-tiny-en",
+  "name": "Whisper tiny.en (sherpa-onnx export)",
+  "version": "csukuangfj-d026532c",
+  "license": "MIT",
+  "attribution": "OpenAI Whisper tiny.en (MIT, Copyright (c) 2022 OpenAI); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "whisper-tiny-en",
+  "languages": ["en"],
+  "common": [
+    {"path":"tiny.en-tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-tokens.txt","bytes":835554,"sha256":"306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"tiny.en-encoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-encoder.int8.onnx","bytes":12937772,"sha256":"0ce578b827c94a961aacb8fa14b02f096504b337e5c94be37c36238cbe3e8bc6"},
+        {"path":"tiny.en-decoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/d026532c022fa99fd789d6b32446a1df7b6bfc43/tiny.en-decoder.int8.onnx","bytes":89853865,"sha256":"06c0e6ff6348d427e51839219d1c886c18cfdf411e629e33f5e1679bff9c1527"}
+      ]
+    }
+  ]
+}

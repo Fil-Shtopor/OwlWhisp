@@ -100,6 +100,16 @@ export interface Settings {
   vad: VadConfig;
   overlay_enabled: boolean;
   sounds_enabled: boolean;
+  /** Which cue sound plays. See `listSoundThemes()`. */
+  sound_theme: SoundThemeId;
+  /** Cue volume in [0, 1]. */
+  sound_volume: number;
+  /**
+   * Mirror of the OS autostart registration. The OS is the source of truth — read it with
+   * `getAutostart()` and change it with `setAutostart()`; this field only gives the UI something
+   * to render before that probe returns.
+   */
+  autostart: boolean;
   llm: LlmConfig;
   dictionary: JsonValue;
   profiles: JsonValue;
@@ -382,6 +392,8 @@ export interface BenchReport {
   machine: string;
   /** The backend that actually executed, e.g. "QNN on NPU" or "ONNX Runtime CPU on CPU". */
   backend: string;
+  /** That backend's stable accelerator id, for comparing runs without matching display prose. */
+  accelerator: string | null;
   model_id: string;
   model_dir: string;
   /** Where the audio came from, and whether WER was computable. */
@@ -409,4 +421,111 @@ export interface BenchReport {
  */
 export function runBenchmark(modelId?: string, backend?: BackendPreference): Promise<BenchReport> {
   return invoke<BenchReport>("run_benchmark", { modelId: modelId ?? null, backend: backend ?? null });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cue sounds
+// ---------------------------------------------------------------------------------------------
+
+export type SoundThemeId = "chime" | "blip" | "click" | "marimba";
+
+export interface SoundThemeOption {
+  id: SoundThemeId;
+  label: string;
+  description: string;
+}
+
+/** The cue sounds this build offers. */
+export function listSoundThemes(): Promise<SoundThemeOption[]> {
+  return invoke<SoundThemeOption[]>("list_sound_themes");
+}
+
+/**
+ * Play one cue so the user can hear a theme before committing to it.
+ *
+ * Takes the theme and volume explicitly rather than reading settings, so a preview follows the
+ * controls being moved right now instead of the last saved value.
+ */
+export function previewSound(
+  theme: SoundThemeId,
+  volume?: number,
+  cue?: "start" | "stop",
+): Promise<void> {
+  return invoke<void>("preview_sound", { theme, volume: volume ?? null, cue: cue ?? null });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Start at login
+// ---------------------------------------------------------------------------------------------
+
+/** Whether the OS is currently set to start LocalWisper at login. */
+export function getAutostart(): Promise<boolean> {
+  return invoke<boolean>("get_autostart");
+}
+
+/**
+ * Register or unregister start-at-login, and return **what the OS reports afterwards**.
+ *
+ * That is not always what was asked: a managed machine can refuse. Render the returned value, so
+ * the checkbox can never claim an autostart that does not exist.
+ */
+export function setAutostart(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>("set_autostart", { enabled });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Comparing every backend
+// ---------------------------------------------------------------------------------------------
+
+/** An accelerator that was offered but not measured, and why. */
+export interface BenchSkipped {
+  accelerator: string;
+  label: string;
+  reason: string;
+}
+
+/** Every usable accelerator measured on the same clips, so the numbers can honestly be compared. */
+export interface BenchSuite {
+  machine: string;
+  model_id: string;
+  /** One clip set for all runs — that is what makes this a comparison rather than a list. */
+  clip_source: string;
+  runs: BenchReport[];
+  skipped: BenchSkipped[];
+  /** Accelerator id of the fastest run by WARM RTF, or null if nothing ran. */
+  fastest: string | null;
+  /** Accelerator id of the most accurate run by WER, when WER was computable. */
+  most_accurate: string | null;
+}
+
+/**
+ * Measure the model on every usable accelerator, in one action.
+ *
+ * Long-running — minutes, since each backend loads its own engine and a first NPU run prepares a
+ * context binary. Subscribe with `onBenchmarkProgress` to show which one is running.
+ */
+export function runBenchmarkAll(modelId?: string): Promise<BenchSuite> {
+  return invoke<BenchSuite>("run_benchmark_all", { modelId: modelId ?? null });
+}
+
+/** Payload of `benchmark_progress`, emitted as each backend starts and finishes. */
+export interface BenchmarkProgress {
+  index: number;
+  total: number;
+  accelerator: string;
+  label: string;
+  stage: "running" | "done" | "failed";
+  /** Present on "done". */
+  warm_rtf?: number | null;
+  /** Present on "done". */
+  wer?: number | null;
+  /** Present on "failed". */
+  reason?: string;
+}
+
+/** Subscribe to per-backend progress during `runBenchmarkAll`. */
+export function onBenchmarkProgress(
+  handler: (p: BenchmarkProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<BenchmarkProgress>("benchmark_progress", (event) => handler(event.payload));
 }

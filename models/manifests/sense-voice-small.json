@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "sense-voice-small",
+  "name": "SenseVoice Small (int8, sherpa-onnx export)",
+  "version": "csukuangfj-2365baea",
+  "license": "LicenseRef-FunASR-Model-1.1",
+  "attribution": "SenseVoice Small by the FunAudioLLM team, Alibaba Group (FunASR Model Open Source License Agreement 1.1 - https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "sense-voice-small",
+  "languages": ["zh","en","ja","ko","yue"],
+  "common": [
+    {"path":"tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt","bytes":315894,"sha256":"f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"model.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx","bytes":239233841,"sha256":"c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"}
+      ]
+    }
+  ]
+}

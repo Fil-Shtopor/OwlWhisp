@@ -2846,6 +2846,7 @@ dependencies = [
  "indicatif",
  "lw-core",
  "lw-engine-parakeet",
+ "lw-engine-sherpa",
  "lw-ort",
  "lw-platform",
  "lw-vad-silero",
