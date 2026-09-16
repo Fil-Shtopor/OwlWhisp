@@ -252,6 +252,67 @@ impl std::fmt::Debug for Capture {
 
 #[cfg(test)]
 mod tests {
+    /// Open the default microphone and report the real level for two seconds.
+    ///
+    /// A **diagnostic**, not a pass/fail test, and deliberately so: what a microphone hears
+    /// depends on the room, the device's mute state and the operating system's per-application
+    /// microphone permission, none of which a test can assert. It asserts only what is true
+    /// regardless — the stream opens and the level stays in range — and prints the rest for a
+    /// human to read.
+    ///
+    /// Run it and speak: `cargo test -p lw-platform --lib -- --ignored --nocapture`.
+    ///
+    /// **Reading the result.** A peak near zero means no signal reached *this process*. That is
+    /// itself the useful answer: the device is muted, the OS denied this binary microphone
+    /// access, or the room is silent. It does not mean the meter is broken — the chain it
+    /// exercises (device -> callback -> RMS -> `level_handle`) is the same one the app's meter
+    /// uses, and the app has its own microphone permission.
+    ///
+    /// This exists because the level meter was fed a synthesized sine wave for a long time and
+    /// nobody noticed, precisely because nothing ever looked at the real thing.
+    #[test]
+    #[ignore = "diagnostic; needs a microphone and a human to read it"]
+    fn report_microphone_level() {
+        let mut cap = Capture::new(None, 16_000 * 4);
+        cap.start().expect("open the default input device");
+        let level = cap.level_handle();
+
+        // Make a noise, so the diagnostic is still informative with nobody in the room.
+        let mut samples = Vec::new();
+        for i in 0..40 {
+            if i == 5 || i == 15 || i == 25 {
+                crate::sound::play(
+                    lw_core::sound::SoundTheme::Marimba,
+                    lw_core::sound::Cue::Start,
+                    1.0,
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            samples.push(level.get());
+        }
+        let _ = cap.stop();
+
+        let peak = samples.iter().cloned().fold(0.0f32, f32::max);
+        let nonzero = samples.iter().filter(|s| **s > 0.0).count();
+        println!("device   : {:?}", list_input_devices().first());
+        println!("samples  : {} over 2 s", samples.len());
+        println!("non-zero : {nonzero}");
+        println!("peak RMS : {peak:.6}");
+        println!(
+            "verdict  : {}",
+            if peak > 0.005 {
+                "signal present - the meter will move"
+            } else if nonzero > 0 {
+                "barely any signal - a silent room, a quiet device, or a muted input"
+            } else {
+                "no signal reached this process - check the device's mute state and the OS                  microphone permission for this binary"
+            }
+        );
+
+        assert!(peak.is_finite(), "level must be a real number, got {peak}");
+        assert!((0.0..=1.0).contains(&peak), "RMS must stay in [0, 1], got {peak}");
+    }
+
     use super::*;
 
     #[test]
