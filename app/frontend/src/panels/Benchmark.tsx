@@ -3,24 +3,31 @@ import {
   listBackends,
   listModels,
   runBenchmark,
+  type AcceleratorReport,
+  type BackendOption,
   type BackendPreference,
   type BenchReport,
   type ModelEntry,
 } from "../ipc";
 import { formatMs, formatRtf, formatSeconds, formatWer } from "../format";
-
-const BACKEND_LABELS: Record<BackendPreference, string> = {
-  automatic: "Automatic",
-  force_npu: "NPU",
-  force_cpu: "CPU",
-};
+import { isCoarse, probeAccelerators, recordBenchRun, resolveOption } from "../backend";
 
 /** "" means "leave it to Settings" for both selectors. */
 type ModelChoice = string;
 type BackendChoice = "" | BackendPreference;
 
-function isBackendPreference(value: string): value is BackendPreference {
-  return value === "automatic" || value === "force_npu" || value === "force_cpu";
+/**
+ * The option label as offered in the dropdown, with the reason it cannot be measured appended.
+ *
+ * Both halves come from the backend: the name from `BackendOption.label`, the reason from the
+ * accelerator's own `detail`. Nothing here is spelled in the frontend, so a backend this build
+ * gains can never show up mislabelled.
+ */
+function optionText(option: BackendOption, report: AcceleratorReport | null): string {
+  const resolution = resolveOption(option, report);
+  if (isCoarse(option) || resolution.availability === "usable") return option.label;
+  if (resolution.availability === "unknown") return `${option.label} — availability unknown`;
+  return `${option.label} — unavailable: ${resolution.reason}`;
 }
 
 /**
@@ -35,11 +42,10 @@ function isFallbackNote(note: string): boolean {
 
 export function BenchmarkPanel() {
   const [models, setModels] = useState<ModelEntry[] | null>(null);
-  const [backends, setBackends] = useState<BackendPreference[]>([
-    "automatic",
-    "force_npu",
-    "force_cpu",
-  ]);
+  // Null until `list_backends` answers: the labels are the Rust side's to give.
+  const [backends, setBackends] = useState<BackendOption[] | null>(null);
+  const [backendsError, setBackendsError] = useState<string | null>(null);
+  const [accel, setAccel] = useState<AcceleratorReport | null>(null);
   const [modelChoice, setModelChoice] = useState<ModelChoice>("");
   const [backendChoice, setBackendChoice] = useState<BackendChoice>("");
   const [report, setReport] = useState<BenchReport | null>(null);
@@ -70,10 +76,20 @@ export function BenchmarkPanel() {
       });
     void listBackends()
       .then((b) => {
-        if (!disposed && b.length > 0) setBackends(b);
+        if (!disposed) setBackends(b);
+      })
+      .catch((e: unknown) => {
+        if (!disposed) setBackendsError(String(e));
+      });
+    // Used only to mark the ones this machine cannot measure — a run forced onto an unusable
+    // provider is a strict failure, not a slower number.
+    void probeAccelerators()
+      .then((report) => {
+        if (!disposed) setAccel(report);
       })
       .catch(() => {
-        // keep the static fallback list
+        // Without it every option stays selectable, which is the safe direction: an unprobed
+        // accelerator is unknown, not unavailable.
       });
     return () => {
       disposed = true;
@@ -101,12 +117,30 @@ export function BenchmarkPanel() {
         modelChoice === "" ? undefined : modelChoice,
         backendChoice === "" ? undefined : backendChoice,
       );
+      // File it for the Dictate panel: this run is the only proof of what actually executed.
+      recordBenchRun(result, backendChoice === "" ? null : backendChoice);
       if (alive.current) setReport(result);
     } catch (e: unknown) {
       if (alive.current) setError(String(e));
     } finally {
       if (alive.current) setRunning(false);
     }
+  };
+
+  const options = backends ?? [];
+  const coarseOptions = options.filter(isCoarse);
+  const exactOptions = options.filter((o) => !isCoarse(o));
+  const renderOption = (option: BackendOption) => {
+    const resolution = resolveOption(option, accel);
+    // Coarse choices stay selectable: "any NPU" is a legitimate thing to measure the failure of.
+    const blocked =
+      !isCoarse(option) &&
+      (resolution.availability === "unusable" || resolution.availability === "unsupported");
+    return (
+      <option key={option.value} value={option.value} disabled={blocked}>
+        {optionText(option, accel)}
+      </option>
+    );
   };
 
   return (
@@ -147,19 +181,33 @@ export function BenchmarkPanel() {
             id="bench-backend"
             value={backendChoice}
             onChange={(e) => {
-              const v = e.currentTarget.value;
-              setBackendChoice(v === "" ? "" : isBackendPreference(v) ? v : "");
+              const chosen = options.find((o) => o.value === e.currentTarget.value) ?? null;
+              setBackendChoice(chosen === null ? "" : chosen.value);
             }}
-            disabled={running}
+            disabled={running || backends === null}
           >
             <option value="">From Settings</option>
-            {backends.map((b) => (
-              <option key={b} value={b}>
-                {BACKEND_LABELS[b]}
-              </option>
-            ))}
+            {coarseOptions.length > 0 && (
+              <optgroup label="By kind of hardware">{coarseOptions.map(renderOption)}</optgroup>
+            )}
+            {exactOptions.length > 0 && (
+              <optgroup label="One exact provider">{exactOptions.map(renderOption)}</optgroup>
+            )}
           </select>
-          <span className="sub">Forcing a backend is how you confirm (or refute) an estimate.</span>
+          <span className="sub">
+            Forcing a backend is how you confirm (or refute) an estimate: run each one and compare
+            the measured RTF. Providers this machine cannot use are listed with the reason and
+            cannot be selected — a strict choice fails rather than producing a slower number.
+          </span>
+          {backends === null && backendsError === null && (
+            <span className="sub">Loading backends…</span>
+          )}
+          {backendsError !== null && (
+            <span className="status-err">
+              Could not read the list of backends: {backendsError}. Runs can still use the one in
+              Settings.
+            </span>
+          )}
         </div>
       </div>
 

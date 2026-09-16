@@ -4,7 +4,8 @@ import {
   getSettings,
   listBackends,
   setSettings,
-  type BackendPreference,
+  type AcceleratorReport,
+  type BackendOption,
   type HotkeyConfig,
   type HotkeyMode,
   type Settings,
@@ -16,12 +17,17 @@ import {
   triggerLabel,
   MODIFIER_OPTIONS,
 } from "../format";
-
-const BACKEND_LABELS: Record<BackendPreference, string> = {
-  automatic: "Automatic",
-  force_npu: "NPU",
-  force_cpu: "CPU",
-};
+import {
+  getLastRun,
+  isCoarse,
+  probeAccelerators,
+  resolveOption,
+  strictnessNote,
+  subscribeLastRun,
+  type BackendResolution,
+  type LastRun,
+} from "../backend";
+import { AcceleratorTable } from "../AcceleratorTable";
 
 const MODE_OPTIONS: ReadonlyArray<{ id: HotkeyMode; label: string; help: string }> = [
   {
@@ -122,13 +128,74 @@ function triggerFromCode(code: string): string | null {
 
 type SaveStatus = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: string };
 
+/** The badge that says how far a choice has been verified. `usable` is the only green one. */
+function AvailabilityBadge({ resolution }: { resolution: BackendResolution }) {
+  switch (resolution.availability) {
+    case "usable":
+      return <span className="badge yes">usable</span>;
+    case "unusable":
+      return <span className="badge no">unavailable</span>;
+    case "unsupported":
+      return <span className="badge no">not on this platform</span>;
+    case "unknown":
+      return <span className="badge warn">unknown</span>;
+  }
+}
+
+/**
+ * One selectable backend, with the reason it can or cannot be used.
+ *
+ * The reason is the backend's own `detail` string, shown verbatim: it already names the missing
+ * file or the missing device, which is the part that tells the user what to do about it.
+ */
+function BackendRow({
+  option,
+  resolution,
+  selected,
+  disabled,
+  onPick,
+}: {
+  option: BackendOption;
+  resolution: BackendResolution;
+  selected: boolean;
+  disabled: boolean;
+  onPick: () => void;
+}) {
+  const classes = ["accel-option"];
+  if (selected) classes.push("selected");
+  if (disabled) classes.push("unavailable");
+  return (
+    <label className={classes.join(" ")}>
+      <input
+        type="radio"
+        name="backend"
+        value={option.value}
+        checked={selected}
+        disabled={disabled}
+        onChange={onPick}
+      />
+      <span className="accel-option-body">
+        <span className="accel-option-head">
+          <span className="radio-label">{option.label}</span>
+          <AvailabilityBadge resolution={resolution} />
+        </span>
+        <span className="sub">{resolution.reason}</span>
+      </span>
+    </label>
+  );
+}
+
 export function SettingsPanel() {
   const [settings, setLocal] = useState<Settings | null>(null);
-  const [backends, setBackends] = useState<BackendPreference[]>([
-    "automatic",
-    "force_npu",
-    "force_cpu",
-  ]);
+  // Null until `list_backends` answers: the labels belong to the Rust side, so there is nothing
+  // honest to show before it does.
+  const [backends, setBackends] = useState<BackendOption[] | null>(null);
+  const [backendsError, setBackendsError] = useState<string | null>(null);
+  const [accel, setAccel] = useState<AcceleratorReport | null>(null);
+  const [accelError, setAccelError] = useState<string | null>(null);
+  const [accelLoading, setAccelLoading] = useState(true);
+  const [probeNonce, setProbeNonce] = useState(0);
+  const [lastRun, setLastRun] = useState<LastRun | null>(getLastRun);
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -149,10 +216,10 @@ export function SettingsPanel() {
       });
     void listBackends()
       .then((b) => {
-        if (!disposed && b.length > 0) setBackends(b);
+        if (!disposed) setBackends(b);
       })
-      .catch(() => {
-        // keep the static fallback list
+      .catch((e: unknown) => {
+        if (!disposed) setBackendsError(String(e));
       });
     void activeHotkey()
       .then((a) => {
@@ -169,6 +236,35 @@ export function SettingsPanel() {
       disposed = true;
     };
   }, []);
+
+  // Probing loads provider libraries, so it is a real call — the shared result is reused, and
+  // only "Re-probe" forces a fresh one.
+  useEffect(() => {
+    let disposed = false;
+    setAccelLoading(true);
+    void probeAccelerators(probeNonce > 0)
+      .then((report) => {
+        if (!disposed) {
+          setAccel(report);
+          setAccelError(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!disposed) {
+          setAccel(null);
+          setAccelError(String(e));
+        }
+      })
+      .finally(() => {
+        if (!disposed) setAccelLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [probeNonce]);
+
+  // A benchmark run in another tab is the only thing that says what *did* run; keep it in view.
+  useEffect(() => subscribeLastRun(setLastRun), []);
 
   // "Capture keystroke": one keydown fills both modifiers and trigger. Esc on its own cancels.
   useEffect(() => {
@@ -247,6 +343,32 @@ export function SettingsPanel() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const options = backends ?? [];
+  const coarseOptions = options.filter(isCoarse);
+  const exactOptions = options.filter((o) => !isCoarse(o));
+  const selectedOption = options.find((o) => o.value === settings.backend) ?? null;
+  const selectedResolution =
+    selectedOption === null ? null : resolveOption(selectedOption, accel);
+
+  const renderRow = (option: BackendOption) => {
+    const resolution = resolveOption(option, accel);
+    // Only exact providers are locked out: a coarse choice stays selectable so the user can say
+    // "any NPU" on a machine where none is usable *yet*, and read the warning about it.
+    const blocked =
+      !isCoarse(option) &&
+      (resolution.availability === "unusable" || resolution.availability === "unsupported");
+    return (
+      <BackendRow
+        key={option.value}
+        option={option}
+        resolution={resolution}
+        selected={settings.backend === option.value}
+        disabled={saving || blocked}
+        onPick={() => update({ backend: option.value })}
+      />
+    );
   };
 
   return (
@@ -358,26 +480,102 @@ export function SettingsPanel() {
         </div>
       </section>
 
-      <div className="field">
-        <label htmlFor="backend">Backend</label>
-        <select
-          id="backend"
-          value={settings.backend}
-          onChange={(e) => {
-            const v = e.currentTarget.value;
-            if (v === "automatic" || v === "force_npu" || v === "force_cpu") {
-              update({ backend: v });
-            }
-          }}
-        >
-          {backends.map((b) => (
-            <option key={b} value={b}>
-              {BACKEND_LABELS[b]}
-            </option>
-          ))}
-        </select>
-        <span className="sub">Automatic prefers the NPU and falls back to CPU.</span>
-      </div>
+      <section className="field accel-picker">
+        <label>Accelerator</label>
+        <span className="sub">
+          Which hardware transcription runs on. <strong>Automatic</strong> picks the best usable
+          accelerator and falls back to the CPU; every other choice is strict, so if it cannot be
+          honoured the run fails instead of quietly running somewhere else.
+        </span>
+
+        {backendsError !== null && (
+          <p className="status-err">
+            Could not read the list of backends: {backendsError}. The saved preference is{" "}
+            <span className="mono">{settings.backend}</span>; it is still in force, but it cannot be
+            changed from here until the backend answers.
+          </p>
+        )}
+        {backends === null && backendsError === null && (
+          <p className="hint">Loading backends…</p>
+        )}
+        {backends !== null && options.length === 0 && (
+          <p className="hint">The backend offered no choices at all.</p>
+        )}
+
+        {coarseOptions.length > 0 && (
+          <div className="accel-group-block">
+            <span className="perf-label">By kind of hardware</span>
+            {coarseOptions.map(renderRow)}
+          </div>
+        )}
+        {exactOptions.length > 0 && (
+          <div className="accel-group-block">
+            <span className="perf-label">One exact provider</span>
+            {exactOptions.map(renderRow)}
+          </div>
+        )}
+        {backends !== null && selectedOption === null && (
+          <p className="status-err">
+            The saved preference <span className="mono">{settings.backend}</span> is not one this
+            build offers. Pick one above to replace it.
+          </p>
+        )}
+
+        {selectedOption !== null && selectedResolution !== null && (
+          <div className="accel-selected">
+            <span className="perf-label">In force</span>
+            <span>
+              {selectedOption.label}
+              {selectedResolution.accelerator !== null &&
+                selectedResolution.accelerator.label !== selectedOption.label && (
+                  <> → {selectedResolution.accelerator.label}</>
+                )}
+            </span>
+            <span className="sub">{strictnessNote(selectedOption)}</span>
+            {(selectedResolution.availability === "unusable" ||
+              selectedResolution.availability === "unsupported") && (
+              <p className="status-err">
+                This machine cannot serve it: {selectedResolution.reason}
+                {selectedOption.strict
+                  ? " Because this choice is strict, transcription will fail rather than run somewhere else."
+                  : ""}
+              </p>
+            )}
+            {selectedResolution.availability === "unknown" && (
+              <p className="sub">
+                Availability could not be established: {selectedResolution.reason}
+              </p>
+            )}
+            {lastRun !== null && (
+              <span className="sub">
+                Last benchmark in this session ran on{" "}
+                <strong>{lastRun.backend}</strong>
+                {lastRun.requested === null
+                  ? " (with the preference from Settings)."
+                  : ` (asked for ${lastRun.requested}).`}
+              </span>
+            )}
+            <span className="sub">
+              Saving applies it to the next transcription. Only a benchmark measures what actually
+              executed.
+            </span>
+          </div>
+        )}
+      </section>
+
+      <section className="field accel-section">
+        <div className="field-row">
+          <label>This machine</label>
+          <button
+            className="btn secondary small"
+            onClick={() => setProbeNonce((n) => n + 1)}
+            disabled={accelLoading}
+          >
+            {accelLoading ? "Probing…" : "Re-probe"}
+          </button>
+        </div>
+        <AcceleratorTable report={accel} loadError={accelError} loading={accelLoading} />
+      </section>
 
       <div className="field">
         <label htmlFor="vad-threshold">VAD threshold: {settings.vad.threshold.toFixed(2)}</label>

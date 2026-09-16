@@ -24,7 +24,8 @@ pub enum RuntimeError {
     #[error("qnn registration failed: {0}")]
     Qnn(String),
     /// An accelerator was asked for that this machine or this install cannot provide.
-    #[error("accelerator unavailable: {0}")]
+    /// The message already names the accelerator and the reason, so it carries no prefix.
+    #[error("{0}")]
     Unsupported(String),
     /// A generic error.
     #[error("{0}")]

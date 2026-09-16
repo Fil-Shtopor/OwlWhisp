@@ -3,13 +3,25 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   activeHotkey,
   getSettings,
+  listBackends,
   onHotkeyChanged,
   setRecordingState,
   subscribeMicLevel,
+  type AcceleratorReport,
+  type BackendOption,
+  type BackendPreference,
   type HotkeyConfig,
   type RecordingState,
 } from "../ipc";
 import { hotkeyParts, hotkeyTrigger } from "../format";
+import {
+  getLastRun,
+  probeAccelerators,
+  runningBackendLine,
+  subscribeLastRun,
+  type BackendLine,
+  type LastRun,
+} from "../backend";
 import { STATE_VISUALS, type UiState } from "../stateVisuals";
 
 const SIMULATED: readonly RecordingState[] = ["idle", "listening", "processing", "done", "error"];
@@ -80,11 +92,34 @@ function HotkeyHint({
   );
 }
 
+/**
+ * Which backend dictation is on, in one line.
+ *
+ * A benchmark run in this session is the only thing that proves what executed, so it wins and is
+ * labelled "measured". Otherwise the line reports the saved preference and the live probe of the
+ * accelerator that would serve it, and says plainly that it has not been measured.
+ */
+function BackendHint({ line }: { line: BackendLine }) {
+  const className = line.tone === "warning" ? "status-err backend-line" : "hint backend-line";
+  return (
+    <p className={className} title={line.detail}>
+      {line.tone === "measured" && <span className="badge measured-badge">measured</span>}
+      {line.tone === "probed" && <span className="badge">probed</span>}
+      {line.tone === "measured" || line.tone === "probed" ? " " : null}
+      {line.text}
+    </p>
+  );
+}
+
 export function DictatePanel({ state }: { state: UiState }) {
   const [micLevel, setMicLevel] = useState(0);
   const [hotkey, setHotkey] = useState<HotkeyConfig | null>(null);
-  const [hotkeyFailed, setHotkeyFailed] = useState(false);
+  const [settingsFailed, setSettingsFailed] = useState(false);
   const [registration, setRegistration] = useState<Registration>("unknown");
+  const [preference, setPreference] = useState<BackendPreference | null>(null);
+  const [backendOptions, setBackendOptions] = useState<readonly BackendOption[]>([]);
+  const [accel, setAccel] = useState<AcceleratorReport | null>(null);
+  const [lastRun, setLastRun] = useState<LastRun | null>(getLastRun);
   const visual = STATE_VISUALS[state];
 
   useEffect(() => {
@@ -103,10 +138,13 @@ export function DictatePanel({ state }: { state: UiState }) {
     let disposed = false;
     void getSettings()
       .then((s) => {
-        if (!disposed) setHotkey(s.hotkey);
+        if (!disposed) {
+          setHotkey(s.hotkey);
+          setPreference(s.backend);
+        }
       })
       .catch(() => {
-        if (!disposed) setHotkeyFailed(true);
+        if (!disposed) setSettingsFailed(true);
       });
     // Settings say what should be bound; this says what the OS actually holds. A null answer means
     // registration failed, so the hint warns instead of promising a key that does nothing.
@@ -134,6 +172,40 @@ export function DictatePanel({ state }: { state: UiState }) {
     };
   }, []);
 
+  // The backend labels and the live accelerator probe, for the "what is running" line. Both are
+  // best-effort: a failure leaves the line saying it does not know, never claiming acceleration.
+  useEffect(() => {
+    let disposed = false;
+    void listBackends()
+      .then((options) => {
+        if (!disposed) setBackendOptions(options);
+      })
+      .catch(() => {
+        // The raw preference name is still shown; only the pretty label is lost.
+      });
+    void probeAccelerators()
+      .then((report) => {
+        if (!disposed) setAccel(report);
+      })
+      .catch(() => {
+        // Leaves availability "not established", which is the honest state.
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  // A benchmark finished in the Benchmark tab is what turns this line from a probe into a fact.
+  useEffect(() => subscribeLastRun(setLastRun), []);
+
+  const backendLine: BackendLine = settingsFailed
+    ? {
+        tone: "warning",
+        text: "Backend: unknown — settings could not be read.",
+        detail: "Open Settings to check the accelerator preference.",
+      }
+    : runningBackendLine(preference, backendOptions, accel, lastRun);
+
   return (
     <div className="dictate">
       <div
@@ -144,7 +216,8 @@ export function DictatePanel({ state }: { state: UiState }) {
         }}
       />
       <div className="state-label">{visual.label}</div>
-      <HotkeyHint hotkey={hotkey} failed={hotkeyFailed} registration={registration} />
+      <HotkeyHint hotkey={hotkey} failed={settingsFailed} registration={registration} />
+      <BackendHint line={backendLine} />
       <div className="meter" title="Microphone level (synthetic until audio capture is wired)">
         <div className="meter-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
       </div>

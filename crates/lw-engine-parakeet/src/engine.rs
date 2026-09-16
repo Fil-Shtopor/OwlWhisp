@@ -435,9 +435,11 @@ impl SpeechEngine for ParakeetEngine {
                     // A forced backend must fail loudly: silently answering with a different one
                     // would make every number reported against it a lie.
                     if strict {
-                        return Err(
-                            Error::Ort(format!("{} required but unavailable: {e}", accel.label())).into(),
-                        );
+                        return Err(Error::Other(format!(
+                            "{} was requested but cannot be used: {e}",
+                            accel.label()
+                        ))
+                        .into());
                     }
                     self.notes.push(format!("{} unavailable ({e})", accel.label()));
                 }
@@ -543,4 +545,51 @@ pub fn model_files_present(dir: &Path) -> Vec<String> {
         .filter(|n| dir.join(n).exists())
         .map(|s| s.to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lw_core::capabilities::AcceleratorKind;
+    use lw_core::engine::BackendPreference as P;
+
+    #[test]
+    fn every_preference_maps_to_a_plan() {
+        assert_eq!(BackendKind::from(P::Automatic), BackendKind::Auto);
+        assert_eq!(BackendKind::from(P::ForceCpu), BackendKind::ForceCpu);
+        assert_eq!(BackendKind::from(P::ForceNpu), BackendKind::ForceNpu);
+        assert_eq!(BackendKind::from(P::ForceGpu), BackendKind::ForceGpu);
+        for a in ALL_ACCELERATORS {
+            let kind = BackendKind::from(P::for_accelerator(a));
+            if a == Accelerator::Cpu {
+                // The CPU has two spellings that mean the same plan; both are CPU-only.
+                assert_eq!(kind, BackendKind::ForceCpu);
+            } else {
+                assert_eq!(kind, BackendKind::Exact(a), "{a:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_auto_is_allowed_to_fall_back() {
+        // `strict` in `initialize` is derived from this, and it is what stops a forced run
+        // quietly reporting a different backend's numbers.
+        for p in P::all() {
+            let strict = !matches!(BackendKind::from(p), BackendKind::Auto);
+            assert_eq!(strict, p.is_strict(), "{p:?}");
+        }
+    }
+
+    #[test]
+    fn a_gpu_preference_never_maps_to_an_npu_plan() {
+        for a in ALL_ACCELERATORS
+            .iter()
+            .filter(|a| a.kind() == AcceleratorKind::Gpu)
+        {
+            match BackendKind::from(P::for_accelerator(*a)) {
+                BackendKind::Exact(got) => assert_eq!(got.kind(), AcceleratorKind::Gpu),
+                other => panic!("{a:?} mapped to {other:?}"),
+            }
+        }
+    }
 }

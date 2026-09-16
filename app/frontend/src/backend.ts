@@ -9,13 +9,40 @@
 // Labels are never spelled here. They come from `BackendOption.label` and `AcceleratorStatus.label`,
 // i.e. from the Rust side, so a backend this build gains cannot arrive unnamed or misnamed.
 
-import type {
-  AcceleratorReport,
-  AcceleratorStatus,
-  BackendOption,
-  BackendPreference,
-  BenchReport,
+import {
+  listAccelerators,
+  type AcceleratorReport,
+  type AcceleratorStatus,
+  type BackendOption,
+  type BackendPreference,
+  type BenchReport,
 } from "./ipc";
+
+// ---------------------------------------------------------------------------------------------
+// Probing
+// ---------------------------------------------------------------------------------------------
+
+let pendingProbe: Promise<AcceleratorReport> | null = null;
+
+/**
+ * `list_accelerators`, shared across panels for the life of the session.
+ *
+ * The probe loads provider libraries and enumerates devices, so four panels each re-running it on
+ * every tab switch is real work for an answer that does not change on its own. `force` is for the
+ * one case where it does: the user installed a provider and asked to look again.
+ *
+ * A rejected probe is never cached — the next caller retries rather than inheriting the failure.
+ */
+export function probeAccelerators(force = false): Promise<AcceleratorReport> {
+  if (force || pendingProbe === null) {
+    const probe: Promise<AcceleratorReport> = listAccelerators().catch((e: unknown) => {
+      if (pendingProbe === probe) pendingProbe = null;
+      throw e;
+    });
+    pendingProbe = probe;
+  }
+  return pendingProbe;
+}
 
 /**
  * The preferences that name a *kind* of hardware rather than one exact provider.

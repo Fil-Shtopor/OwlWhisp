@@ -161,7 +161,8 @@ body {
 /* ---------- Forms (Settings) ---------- */
 
 .form {
-  max-width: 560px;
+  /* Wide enough for the accelerator table, which needs its four facts side by side. */
+  max-width: 760px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -704,4 +705,162 @@ input[type="radio"] {
   font-size: 20px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Accelerators ---------- */
+
+.accel-picker,
+.accel-section {
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+
+.accel-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accel-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.accel-option:hover {
+  border-color: var(--border);
+}
+
+.accel-option.selected {
+  border-color: var(--accent);
+  background: rgba(137, 180, 250, 0.08);
+}
+
+/* Unavailable stays legible: the reason next to it is the useful part. */
+.accel-option.unavailable {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.accel-option input[type="radio"] {
+  margin-top: 4px;
+  flex: none;
+}
+
+.accel-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accel-option-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.accel-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-inset);
+}
+
+.accel-selected .status-err {
+  margin: 4px 0 0;
+}
+
+.accel-table-wrap {
+  overflow-x: auto;
+}
+
+.accel-table {
+  max-width: none;
+}
+
+.accel-table th {
+  width: auto;
+  white-space: nowrap;
+}
+
+.accel-table thead th {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.accel-table td {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.accel-table .accel-devices {
+  font-variant-numeric: tabular-nums;
+}
+
+.accel-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.accel-label {
+  font-weight: 600;
+}
+
+.accel-library {
+  font-family: Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+/* The verdict line sits under its row, so the columns above stay narrow. */
+.accel-group tr:first-child td {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+.accel-detail td {
+  padding-top: 0;
+}
+
+.accel-legend {
+  margin: 8px 0 0;
+  max-width: 760px;
+}
+
+/* ---------- Diagnostics sections ---------- */
+
+.diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.diag-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- Dictate: which backend is running ---------- */
+
+.backend-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  text-align: center;
 }

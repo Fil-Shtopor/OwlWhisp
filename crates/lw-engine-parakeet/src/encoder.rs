@@ -182,8 +182,12 @@ impl StaticWindowEncoder {
             intra_threads: threads,
             optimize: true,
         };
-        let session =
-            lw_ort::build_accel_session(runtime, accel, path, cfg).map_err(|e| Error::Ort(e.to_string()))?;
+        let session = lw_ort::build_accel_session(runtime, accel, path, cfg).map_err(|e| match e {
+            // "unavailable" already reads as a plain sentence naming the provider and the
+            // reason; tagging it as an onnxruntime error only adds noise for the reader.
+            lw_ort::RuntimeError::Unsupported(msg) => Error::Other(msg),
+            other => Error::Ort(other.to_string()),
+        })?;
         Ok(Self {
             session,
             window_frames,

@@ -201,6 +201,93 @@ impl EngineRegistry {
 
 #[cfg(test)]
 mod tests {
+    use crate::capabilities::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
+
+    #[test]
+    fn every_accelerator_has_a_preference_that_pins_it() {
+        for a in ALL_ACCELERATORS {
+            let p = BackendPreference::for_accelerator(a);
+            assert_eq!(p.accelerator(), Some(a), "{a:?} does not round-trip");
+            assert!(p.is_strict(), "pinning {a:?} must be strict");
+        }
+    }
+
+    #[test]
+    fn only_automatic_is_lenient() {
+        // Everything else failing loudly is what keeps a measurement attributable.
+        assert!(!BackendPreference::Automatic.is_strict());
+        for p in BackendPreference::all() {
+            assert_eq!(p.is_strict(), p != BackendPreference::Automatic, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn coarse_preferences_pin_nothing() {
+        for p in [
+            BackendPreference::Automatic,
+            BackendPreference::ForceNpu,
+            BackendPreference::ForceGpu,
+        ] {
+            assert_eq!(p.accelerator(), None, "{p:?}");
+        }
+        assert_eq!(BackendPreference::ForceCpu.accelerator(), Some(Accelerator::Cpu));
+    }
+
+    #[test]
+    fn the_settings_list_offers_every_accelerator_exactly_once() {
+        let all = BackendPreference::all();
+        let pinned: Vec<_> = all.iter().filter_map(|p| p.accelerator()).collect();
+        for a in ALL_ACCELERATORS {
+            assert_eq!(
+                pinned.iter().filter(|x| **x == a).count(),
+                1,
+                "{a:?} should appear exactly once in the picker"
+            );
+        }
+        assert!(all.iter().all(|p| !p.label().is_empty()));
+    }
+
+    #[test]
+    fn old_settings_files_still_parse() {
+        // These three names predate the accelerator work and must keep working.
+        for (json, want) in [
+            ("\"automatic\"", BackendPreference::Automatic),
+            ("\"force_npu\"", BackendPreference::ForceNpu),
+            ("\"force_cpu\"", BackendPreference::ForceCpu),
+        ] {
+            let got: BackendPreference = serde_json::from_str(json).unwrap();
+            assert_eq!(got, want);
+        }
+    }
+
+    #[test]
+    fn a_class_preference_accepts_only_that_class() {
+        // Guards the mapping the selection registry uses.
+        for a in ALL_ACCELERATORS {
+            let p = BackendPreference::for_accelerator(a);
+            let expected = match a.kind() {
+                AcceleratorKind::Npu => Acceleration::Npu,
+                AcceleratorKind::Gpu => Acceleration::Gpu,
+                AcceleratorKind::Cpu => Acceleration::Cpu,
+            };
+            let outcome = EngineRegistry::select(
+                p,
+                vec![BackendCandidate {
+                    id: "probe",
+                    acceleration: expected,
+                    provider: Provider::OnnxCpu,
+                    probe: Box::new(|| HealthReport {
+                        ok: true,
+                        provider: Provider::OnnxCpu,
+                        probe_latency_ms: None,
+                        message: String::new(),
+                    }),
+                }],
+            );
+            assert_eq!(outcome.chosen.as_deref(), Some("probe"), "{a:?}");
+        }
+    }
+
     use super::*;
 
     fn ok_report(p: Provider) -> HealthReport {
