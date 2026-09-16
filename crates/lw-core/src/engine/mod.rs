@@ -23,6 +23,16 @@ pub enum Provider {
     CoreMl,
     /// ONNX Runtime DirectML execution provider.
     DirectMl,
+    /// ONNX Runtime WebGPU execution provider (vendor-neutral: D3D12 / Vulkan / Metal).
+    Gpu,
+    /// ONNX Runtime CUDA execution provider (NVIDIA).
+    Cuda,
+    /// ONNX Runtime TensorRT execution provider (NVIDIA).
+    TensorRt,
+    /// ONNX Runtime OpenVINO execution provider (Intel CPU / GPU / NPU).
+    OpenVino,
+    /// ONNX Runtime Vitis AI execution provider (AMD XDNA NPU).
+    VitisAi,
     /// A non-ORT engine (e.g. sherpa-onnx) on CPU.
     NativeCpu,
 }
@@ -34,6 +44,11 @@ impl fmt::Display for Provider {
             Provider::QnnHtp => "QNN",
             Provider::CoreMl => "CoreML",
             Provider::DirectMl => "DirectML",
+            Provider::Gpu => "WebGPU",
+            Provider::Cuda => "CUDA",
+            Provider::TensorRt => "TensorRT",
+            Provider::OpenVino => "OpenVINO",
+            Provider::VitisAi => "Vitis AI",
             Provider::NativeCpu => "Native CPU",
         };
         f.write_str(s)

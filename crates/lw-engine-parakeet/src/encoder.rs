@@ -128,19 +128,24 @@ impl EncoderBackend for CpuEncoder {
     }
 }
 
-/// QNN/HTP encoder (static window).
-pub struct QnnHtpEncoder {
+/// An encoder that runs a **static-shape** graph over a fixed mel window.
+///
+/// Both accelerated paths use it, for different reasons that happen to want the same shape:
+/// the Hexagon HTP requires static shapes to compile a context at all, and a GPU avoids a
+/// re-plan per input length. The only difference between them is how the session was built, so
+/// the windowing, padding and trimming live here once.
+pub struct StaticWindowEncoder {
     session: Session,
     window_frames: usize,
     label: String,
 }
 
-impl QnnHtpEncoder {
+impl StaticWindowEncoder {
     /// Build/load an HTP encoder for a static `window_frames`-length mel window.
     ///
     /// On first use this prepares and caches the QNN context (minutes); afterwards it loads the
-    /// cached context (~seconds). Errors bubble up so the engine can fall back to CPU.
-    pub fn load(
+    /// cached context (~seconds). Errors bubble up so the engine can fall back.
+    pub fn qnn(
         runtime: &OrtRuntime,
         path: &Path,
         window_frames: usize,
@@ -158,13 +163,41 @@ impl QnnHtpEncoder {
         })
     }
 
+    /// Load the same static graph onto any other accelerator's execution provider.
+    ///
+    /// Unlike the QNN path this compiles nothing ahead of time and caches nothing: a GPU provider
+    /// consumes the ordinary graph, which is exactly why one artifact serves every GPU vendor.
+    pub fn on_accelerator(
+        runtime: &OrtRuntime,
+        accel: lw_core::capabilities::Accelerator,
+        path: &Path,
+        window_frames: usize,
+        threads: usize,
+        device_label: impl Into<String>,
+    ) -> Result<Self> {
+        if !path.exists() {
+            return Err(Error::MissingFile(path.display().to_string()));
+        }
+        let cfg = CpuSessionConfig {
+            intra_threads: threads,
+            optimize: true,
+        };
+        let session =
+            lw_ort::build_accel_session(runtime, accel, path, cfg).map_err(|e| Error::Ort(e.to_string()))?;
+        Ok(Self {
+            session,
+            window_frames,
+            label: device_label.into(),
+        })
+    }
+
     /// The static window length in mel frames.
     pub fn window_frames(&self) -> usize {
         self.window_frames
     }
 }
 
-impl EncoderBackend for QnnHtpEncoder {
+impl EncoderBackend for StaticWindowEncoder {
     fn run(&mut self, feats: &[f32], n_frames: usize) -> Result<(Vec<f32>, usize)> {
         if n_frames == 0 {
             return Ok((Vec::new(), 0));

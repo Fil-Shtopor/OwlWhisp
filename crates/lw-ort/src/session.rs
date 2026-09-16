@@ -1,4 +1,4 @@
-//! CPU session construction helpers.
+//! Session construction: the CPU EP, and any plugin execution provider by accelerator.
 
 use std::path::Path;
 
@@ -6,6 +6,8 @@ use ort::environment::Environment;
 use ort::memory::DeviceType;
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
+
+use lw_core::capabilities::Accelerator;
 
 use crate::runtime::{OrtRuntime, RuntimeError};
 
@@ -71,6 +73,69 @@ pub fn build_cpu_session(
             .with_intra_threads(cfg.intra_threads)
             .map_err(|e| RuntimeError::Other(e.to_string()))?;
     }
+    builder
+        .commit_from_file(model_path)
+        .map_err(|e| RuntimeError::Other(format!("commit_from_file {}: {e}", model_path.display())))
+}
+
+/// Build a session pinned to `accel`'s devices, registering its plugin EP first.
+///
+/// Pinning to devices rather than appending a provider matters for the same reason it matters on
+/// the CPU path: once several providers are registered, ONNX Runtime will happily place a graph
+/// somewhere the caller did not ask for. Selecting the devices explicitly is what makes the
+/// reported backend and the executing backend the same thing.
+///
+/// Returns [`RuntimeError::Unsupported`] when the provider is not installed or enumerates no
+/// device, so callers can fall back deliberately instead of discovering it mid-inference.
+pub fn build_accel_session(
+    runtime: &OrtRuntime,
+    accel: Accelerator,
+    model_path: &Path,
+    cfg: CpuSessionConfig,
+) -> Result<Session, RuntimeError> {
+    if accel == Accelerator::Cpu {
+        return build_cpu_session(runtime, model_path, cfg);
+    }
+    if !model_path.exists() {
+        return Err(RuntimeError::NotFound(model_path.display().to_string()));
+    }
+    if runtime.device_count(accel) == 0 {
+        return Err(RuntimeError::Unsupported(format!(
+            "{}: {}",
+            accel.label(),
+            runtime
+                .probe_accelerators()
+                .into_iter()
+                .find(|s| s.accel == accel)
+                .map(|s| s.explain())
+                .unwrap_or_else(|| "unavailable".to_string())
+        )));
+    }
+    let name = accel
+        .ep_name()
+        .ok_or_else(|| RuntimeError::Unsupported(format!("{} has no provider", accel.label())))?;
+    let env = Environment::current().map_err(|e| RuntimeError::Other(e.to_string()))?;
+    let devices: Vec<_> = env
+        .devices()
+        .filter(|d| d.ep().map(|n| n == name).unwrap_or(false))
+        .collect();
+    if devices.is_empty() {
+        return Err(RuntimeError::Unsupported(format!(
+            "{} enumerated no device",
+            accel.label()
+        )));
+    }
+    let mut builder = Session::builder().map_err(|e| RuntimeError::Other(e.to_string()))?;
+    builder = builder
+        .with_devices(devices, None)
+        .map_err(|e| RuntimeError::Other(format!("pin {} device: {e}", accel.label())))?;
+    builder = builder
+        .with_optimization_level(if cfg.optimize {
+            GraphOptimizationLevel::Level3
+        } else {
+            GraphOptimizationLevel::Disable
+        })
+        .map_err(|e| RuntimeError::Other(e.to_string()))?;
     builder
         .commit_from_file(model_path)
         .map_err(|e| RuntimeError::Other(format!("commit_from_file {}: {e}", model_path.display())))

@@ -52,3 +52,6 @@ Thumbs.db
 /runtime/win-arm64/*.so
 /runtime/win-arm64/*.cat
 /runtime/win-arm64/*.pdf
+
+# Runtime libraries staged into the Tauri bundle by build.rs (copies of /runtime/<platform>)
+/app/src-tauri/runtime/

@@ -41,17 +41,40 @@ struct Cli {
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum BackendArg {
+    /// Best usable accelerator, falling back to the CPU.
     Auto,
     Cpu,
+    /// Any NPU on this machine (Qualcomm, Intel, AMD).
     Npu,
+    /// Any GPU on this machine (WebGPU, CUDA, TensorRT, DirectML, CoreML).
+    Gpu,
+    /// One exact provider, so a measurement cannot be misattributed.
+    Qnn,
+    Webgpu,
+    Cuda,
+    Tensorrt,
+    Directml,
+    Coreml,
+    Openvino,
+    Vitisai,
 }
 
 impl From<BackendArg> for BackendKind {
     fn from(b: BackendArg) -> Self {
+        use lw_core::capabilities::Accelerator as A;
         match b {
             BackendArg::Auto => BackendKind::Auto,
             BackendArg::Cpu => BackendKind::ForceCpu,
             BackendArg::Npu => BackendKind::ForceNpu,
+            BackendArg::Gpu => BackendKind::ForceGpu,
+            BackendArg::Qnn => BackendKind::Exact(A::QnnNpu),
+            BackendArg::Webgpu => BackendKind::Exact(A::WebGpu),
+            BackendArg::Cuda => BackendKind::Exact(A::Cuda),
+            BackendArg::Tensorrt => BackendKind::Exact(A::TensorRt),
+            BackendArg::Directml => BackendKind::Exact(A::DirectMl),
+            BackendArg::Coreml => BackendKind::Exact(A::CoreMl),
+            BackendArg::Openvino => BackendKind::Exact(A::OpenVino),
+            BackendArg::Vitisai => BackendKind::Exact(A::VitisAi),
         }
     }
 }
@@ -313,6 +336,7 @@ fn build_engine(
 
 fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
     let mut report = serde_json::Map::new();
+    let mut accelerators: Vec<lw_ort::AcceleratorStatus> = Vec::new();
     report.insert("app_version".into(), env!("CARGO_PKG_VERSION").into());
     report.insert("os".into(), std::env::consts::OS.into());
     report.insert("arch".into(), std::env::consts::ARCH.into());
@@ -331,9 +355,21 @@ fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
                 "devices".into(),
                 serde_json::Value::Array(rt.device_summary().into_iter().map(Into::into).collect()),
             );
+            let usable = rt.usable_accelerators();
+            accelerators = rt.probe_accelerators();
+            report.insert(
+                "accelerators".into(),
+                serde_json::to_value(&accelerators).unwrap_or_default(),
+            );
+            // The recommendation is the first usable accelerator in preference order, which is
+            // exactly what `--backend auto` will choose -- not a guess from DLL presence.
             report.insert(
                 "recommended_backend".into(),
-                if rt.qnn_available() { "npu" } else { "cpu" }.into(),
+                usable
+                    .first()
+                    .map(|a| a.id().to_string())
+                    .unwrap_or_else(|| "cpu".to_string())
+                    .into(),
             );
         }
         Err(e) => {
@@ -345,6 +381,34 @@ fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!("LocalWisper diagnostics");
+        // The accelerator table is the useful part; print it separately rather than as raw JSON.
+        report.remove("accelerators");
+        if !accelerators.is_empty() {
+            println!(
+                "
+  accelerators on this machine"
+            );
+            println!(
+                "    {:<30} {:<4} {:<8} {:<11} {:>7}  STATUS",
+                "PROVIDER", "KIND", "PRESENT", "REGISTERED", "DEVICES"
+            );
+            for st in &accelerators {
+                println!(
+                    "    {:<30} {:<4} {:<8} {:<11} {:>7}  {}",
+                    st.accel.label(),
+                    st.accel.kind().label(),
+                    st.present,
+                    st.registered,
+                    st.devices,
+                    st.explain()
+                );
+            }
+            println!(
+                "
+  `usable` means a device enumerated -- present and registered do not.
+"
+            );
+        }
         for (k, v) in &report {
             println!("  {k:20}: {v}");
         }

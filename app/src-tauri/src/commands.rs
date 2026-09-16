@@ -43,23 +43,23 @@ pub fn active_hotkey(state: State<'_, AppState>) -> Option<String> {
     state.shortcut().map(|s| s.into_string())
 }
 
-/// The backend preferences the UI can offer (serde names of `lw_core`'s `BackendPreference`).
+/// The backend preferences the UI can offer, with labels and the accelerator each pins.
 #[tauri::command]
-pub fn list_backends() -> Vec<String> {
+pub fn list_backends() -> Vec<Value> {
     use lw_core::engine::BackendPreference;
-    [
-        BackendPreference::Automatic,
-        BackendPreference::ForceNpu,
-        BackendPreference::ForceCpu,
-    ]
-    .iter()
-    .map(|p| {
-        serde_json::to_value(p)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default()
-    })
-    .collect()
+    BackendPreference::all()
+        .into_iter()
+        .map(|p| {
+            json!({
+                "value": p,
+                "label": p.label(),
+                // The accelerator this pins, so the UI can cross-reference `list_accelerators`
+                // and grey out the ones this machine cannot use. Null for the coarse choices.
+                "accelerator": p.accelerator().map(|a| a.id()),
+                "strict": p.is_strict(),
+            })
+        })
+        .collect()
 }
 
 /// Current recording state (lowercase string).
@@ -116,6 +116,9 @@ fn collect_diagnostics() -> Value {
             m.insert("qnn_registered".into(), json!(rt.qnn_registered()));
             m.insert("qnn_npu_count".into(), json!(rt.qnn_npu_count()));
             m.insert("devices".into(), json!(rt.device_summary()));
+            // The per-accelerator table is the answer to "what can this machine actually use",
+            // which the raw device list only hints at.
+            m.insert("accelerators".into(), crate::catalog::accelerators_json());
         }
         Err(e) => {
             m.insert("runtime_error".into(), json!(e.to_string()));

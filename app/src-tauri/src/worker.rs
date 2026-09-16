@@ -166,11 +166,7 @@ fn build_engine_for(
 
     let rt_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found (set LW_RUNTIME_DIR)".to_string())?;
     let runtime = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
-    let backend = match settings.backend {
-        BackendPreference::Automatic => BackendKind::Auto,
-        BackendPreference::ForceNpu => BackendKind::ForceNpu,
-        BackendPreference::ForceCpu => BackendKind::ForceCpu,
-    };
+    let backend = BackendKind::from(settings.backend);
     // Hexagon generation comes from the detected NPU (V73 on X Elite / X Plus, V81 on X2 Elite),
     // never from a hard-coded assumption about one SoC.
     let config =

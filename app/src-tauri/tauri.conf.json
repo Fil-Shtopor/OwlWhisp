@@ -35,11 +35,35 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "runtime/*": "runtime/"
+    },
+    "category": "Productivity",
+    "shortDescription": "Local speech-to-text dictation",
+    "longDescription": "Offline dictation. Runs speech recognition entirely on your machine, using the NPU or GPU when one is available and the CPU otherwise. No cloud, no telemetry.",
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": null
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2",
+          "libwebkit2gtk-4.1-0",
+          "libxdo3"
+        ]
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
   }
 }

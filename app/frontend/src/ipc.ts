@@ -18,8 +18,36 @@ export interface StatePayload {
   readonly state: RecordingState;
 }
 
-/** serde names of lw-core's BackendPreference. */
-export type BackendPreference = "automatic" | "force_npu" | "force_cpu";
+/**
+ * serde names of lw-core's BackendPreference.
+ *
+ * The first four are coarse — say what *kind* of hardware to use and let the machine pick the
+ * vendor. The rest pin one exact execution provider, which is what you want when comparing them:
+ * a run that silently fell back would attribute its numbers to the wrong backend.
+ */
+export type BackendPreference =
+  | "automatic"
+  | "force_npu"
+  | "force_gpu"
+  | "force_cpu"
+  | "qnn"
+  | "web_gpu"
+  | "cuda"
+  | "tensor_rt"
+  | "direct_ml"
+  | "core_ml"
+  | "open_vino"
+  | "vitis_ai";
+
+/** One selectable entry for the backend picker. */
+export interface BackendOption {
+  value: BackendPreference;
+  label: string;
+  /** The accelerator id this pins (matches `AcceleratorStatus.id`), or null for a coarse choice. */
+  accelerator: string | null;
+  /** True when failing to honour it is an error rather than a fallback. */
+  strict: boolean;
+}
 
 /** serde names of lw-core's HotkeyMode. */
 export type HotkeyMode = "push_to_talk" | "toggle" | "hands_free";
@@ -89,8 +117,49 @@ export function setSettings(settings: Settings): Promise<Settings> {
   return invoke<Settings>("set_settings", { settings });
 }
 
-export function listBackends(): Promise<BackendPreference[]> {
-  return invoke<BackendPreference[]>("list_backends");
+export function listBackends(): Promise<BackendOption[]> {
+  return invoke<BackendOption[]>("list_backends");
+}
+
+/** Broad class of compute an accelerator provides. */
+export type AcceleratorKind = "cpu" | "gpu" | "npu";
+
+/**
+ * One accelerator as it stands on this machine.
+ *
+ * `present`, `registered` and `devices` answer different questions and routinely disagree: a
+ * vendor driver can be installed while its provider fails to load, or load and find no device.
+ * **`usable` is the only one that means acceleration** — gate the UI on that.
+ */
+export interface AcceleratorStatus {
+  id: string;
+  label: string;
+  kind: AcceleratorKind;
+  kind_label: string;
+  vendor: string | null;
+  /** Provider library filename, or null when it is built in / unavailable on this OS. */
+  library: string | null;
+  /** True when this accelerator needs a model artifact compiled for it (NPUs do, GPUs do not). */
+  needs_dedicated_artifact: boolean;
+  present: boolean;
+  registered: boolean;
+  devices: number;
+  usable: boolean;
+  /** One line explaining the verdict, suitable to show verbatim. */
+  detail: string;
+  /** The preference value to save in order to pin this accelerator exactly. */
+  preference: BackendPreference;
+}
+
+export interface AcceleratorReport {
+  /** Non-null when availability could not be determined at all (e.g. no ONNX Runtime found). */
+  error: string | null;
+  items: AcceleratorStatus[];
+}
+
+/** What this machine can actually accelerate with, probed live. */
+export function listAccelerators(): Promise<AcceleratorReport> {
+  return invoke<AcceleratorReport>("list_accelerators");
 }
 
 export function getDiagnostics(): Promise<Diagnostics> {

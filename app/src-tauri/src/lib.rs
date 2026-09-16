@@ -160,6 +160,7 @@ pub fn run() {
             commands::subscribe_mic_level,
             commands::active_hotkey,
             catalog::get_capabilities,
+            catalog::list_accelerators,
             catalog::list_models,
             catalog::install_model,
             catalog::cancel_install,

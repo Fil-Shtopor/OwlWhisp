@@ -96,6 +96,53 @@ fn capabilities_json(caps: &Capabilities) -> Value {
     })
 }
 
+/// Every accelerator this build knows about, with what it actually looks like here.
+///
+/// `present`, `registered` and `devices` are kept apart on purpose: they answer different
+/// questions and routinely disagree. `usable` is the only one that means acceleration, and it is
+/// the one the settings UI must gate on.
+pub fn accelerators_json() -> Value {
+    let Ok(rt) = lw_ort::OrtRuntime::auto() else {
+        // Without a runtime we know nothing about providers -- say so rather than reporting
+        // everything as unavailable, which would look like a hardware verdict.
+        return json!({
+            "error": "ONNX Runtime not found; accelerator availability is unknown",
+            "items": [],
+        });
+    };
+    let items: Vec<Value> = rt
+        .probe_accelerators()
+        .into_iter()
+        .map(|st| {
+            json!({
+                "id": st.accel.id(),
+                "label": st.accel.label(),
+                "kind": st.accel.kind(),
+                "kind_label": st.accel.kind().label(),
+                "vendor": st.accel.vendor(),
+                "library": st.accel.library_file(),
+                "needs_dedicated_artifact": st.accel.needs_dedicated_artifact(),
+                "present": st.present,
+                "registered": st.registered,
+                "devices": st.devices,
+                "usable": st.usable(),
+                "detail": st.explain(),
+                // The preference value the settings UI should save to pin this one exactly.
+                "preference": lw_core::engine::BackendPreference::for_accelerator(st.accel),
+            })
+        })
+        .collect();
+    json!({ "error": Value::Null, "items": items })
+}
+
+/// The accelerators on this machine, for the settings UI and diagnostics.
+#[tauri::command]
+pub async fn list_accelerators() -> Value {
+    tauri::async_runtime::spawn_blocking(accelerators_json)
+        .await
+        .unwrap_or_else(|e| json!({ "error": format!("accelerator probe failed: {e}"), "items": [] }))
+}
+
 /// Engine features compiled into *this* build, which decide whether an entry is runnable here.
 fn engine_features() -> Vec<&'static str> {
     let mut f = vec!["parakeet"];

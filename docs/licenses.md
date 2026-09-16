@@ -28,6 +28,8 @@ necessary; they are downloaded on first run from pinned, SHA-256-verified URLs.
 |---|---|---|
 | **ONNX Runtime** (`onnxruntime.dll` and friends) | **MIT** (Microsoft) | Ship `ThirdPartyNotices.txt` + `LICENSE`. |
 | **`onnxruntime-qnn`** EP (`onnxruntime_providers_qnn.dll`) | **MIT** (Qualcomm Technologies, Inc.) | Ship its `LICENSE`. |
+| **WebGPU plugin EP** (`onnxruntime_providers_webgpu.dll`, `dxcompiler.dll`, `dxil.dll`) | **MIT** (Microsoft) — bundles Dawn (BSD-3-Clause) and DirectXShaderCompiler (LLVM/NCSA + MIT) | Ship its `LICENSE` and `ThirdPartyNotices`. Portable GPU support on win-x64, win-arm64, osx-arm64 and linux-x64; no vendor SDK and no proprietary component. |
+| Vendor EPs **not** shipped: CUDA, TensorRT, DirectML, OpenVINO, Vitis AI | MIT (the EP) over vendor redistributables with their own terms | Not bundled. Each needs a vendor SDK on the machine, and none could be verified here — see [`hardware.md`](hardware.md) §5. A user who installs one gets it detected automatically. |
 | **Qualcomm QNN/QAIRT runtime** DLLs (`QnnHtp.dll`, `QnnSystem.dll`, `QnnHtpPrepare.dll`, `QnnHtpV81Stub.dll`, `libQnnHtpV81Skel.so`, `libqnnhtpv81.cat`, and the V73 set) | **Qualcomm "AI Stack License"** (proprietary; no SPDX id → declare as `LicenseRef-Qualcomm-AI-Stack-License`) | **Object code only, and only "as incorporated in Your software application"** — never as a standalone download. No reverse engineering. No removal of notices. Ship `Qualcomm_LICENSE.pdf` verbatim beside the DLLs. Excluded from the x64/non-Snapdragon packages by a forbidden-files check. |
 
 The Qualcomm AI Stack License also lists prohibited use cases (predictive policing, social scoring,

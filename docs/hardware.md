@@ -1,160 +1,180 @@
-# LocalWisper — Hardware support
+# LocalWisper — Platforms and accelerators
 
-_What runs where today, what is verified on real hardware, and exactly what each missing path would
-take. Updated 2026-08-27._
+_What runs where, what is verified on real hardware, and exactly what each remaining path would
+take. Updated 2026-09-16._
 
 The rule this project follows: **a backend is only claimed once it has been observed executing.**
 Everything below is labelled accordingly.
 
 | Legend | Meaning |
 |---|---|
-| ✅ **verified** | Executed and measured on that hardware |
-| ⚙️ **implemented, untested** | Code path exists and compiles; nobody has run it on that chip yet |
-| 🧩 **needs work** | Not implemented; the section says what it would take |
+| ✅ **verified** | Executed and measured on that hardware, producing correct transcripts |
+| ⚙️ **implemented, untested** | The code path exists and compiles; nobody has run it on that chip |
+| 📦 **needs a redistributable** | Implemented; needs a provider library we do not ship (vendor SDK) |
+| 🧩 **needs work** | Not implemented |
 
 ---
 
-## 1. Support matrix
+## 1. How acceleration works here
 
-| Hardware | CPU inference | Accelerator | Status |
-|---|---|---|---|
-| **Snapdragon X2 Elite** (SC8480XP, Hexagon **V81**) | ✅ RTF 0.032 | ✅ **NPU** via QNN/HTP, RTF 0.0145 | **verified** — see [`benchmarks.md`](benchmarks.md) |
-| **Snapdragon X Elite / X Plus** (SC8380XP, Hexagon **V73**) | ⚙️ same code path | ⚙️ NPU via QNN/HTP | **implemented, untested** — see §2 |
-| Any **x86-64 CPU** (Intel / AMD), Windows | ⚙️ ORT CPU EP | — | **implemented, untested** — see §3 |
-| **Intel Core Ultra** NPU (Meteor/Lunar/Arrow Lake) | ⚙️ CPU works | 🧩 NPU | needs the OpenVINO EP — see §4 |
-| **AMD Ryzen AI** NPU (XDNA) | ⚙️ CPU works | 🧩 NPU | needs the Vitis AI EP — see §4 |
-| **Apple Silicon** (M-series) | ⚙️ ORT CPU EP | 🧩 ANE / GPU | needs a CoreML encoder backend — see §5 |
-| Intel Mac | ⚙️ ORT CPU EP | — | ORT dropped macOS x86-64 after 1.24 |
-| **Linux** x86-64 / ARM64 | ⚙️ ORT CPU EP | 🧩 CUDA / others | platform layer is scaffolding — see §6 |
+Every accelerator except the CPU reaches ONNX Runtime through its **plugin execution-provider**
+mechanism: a vendor ships a provider library, LocalWisper registers it by name at runtime
+(`RegisterExecutionProviderLibrary`), asks it for devices, and pins the session to those devices.
+That is the same mechanism the verified Qualcomm NPU path uses — so adding a vendor is *adding a
+library to the runtime directory*, not rebuilding ONNX Runtime.
 
-Nothing here is architecture-locked: the engine picks an [`EncoderBackend`](architecture.md) at
-runtime and reports the real one in Diagnostics, so adding a chip means adding a backend, not
-touching the UI, the audio pipeline or the text pipeline.
+One distinction governs everything below:
 
----
+- **A GPU consumes the ordinary ONNX graph.** One artifact serves NVIDIA, AMD, Intel, Apple and
+  Qualcomm GPUs. This is why GPU coverage generalizes.
+- **An NPU wants the graph quantized and compiled for that specific silicon.** That artifact has to
+  be produced *and validated* on that hardware. This is why NPU coverage does not generalize, and
+  why "we support every NPU" is not something this project can honestly claim by writing code.
 
-## 2. Snapdragon X Elite / X Plus (Hexagon V73)
-
-**This is the closest to working.** The Hexagon generation differs per SoC — X Elite/X Plus are
-**V73**, X2 Elite is **V81** — and a QNN context binary is valid only for the generation it was
-prepared for. Everything needed is already in place:
-
-- `lw-platform`'s capability detector reads the generation from the installed NPU driver package
-  (`libQnnHtpV<NN>Skel*.so` in the DriverStore) and maps it to the QNN `soc_model`
-  (V73 → 60, V81 → 88). Both mappings are unit-tested.
-- The engine now takes that value from detection instead of assuming one SoC
-  (`ParakeetConfig::with_capabilities`), so an X Elite selects `htp_arch=73`.
-- The context-binary cache key includes the architecture, so a V73 and a V81 context can never be
-  confused for one another.
-- The runtime we ship includes the **V73** stub/skel/cat files alongside V81.
-
-**What is unverified:** nobody has run it on an X Elite. On first use the app would prepare a V73
-context on-device (a few minutes, once) exactly as it does for V81. If it fails, the engine falls
-back to CPU and says so. Testing on an X Elite is the single highest-value next step for hardware
-coverage.
+`Accelerator::needs_dedicated_artifact` encodes exactly that line.
 
 ---
 
-## 3. Ordinary Intel / AMD CPUs
+## 2. Measured on the target machine
 
-The CPU path has no Qualcomm dependency at all: it is ONNX Runtime's CPU execution provider running
-the same Parakeet ONNX model. To build for x86-64 Windows:
+Snapdragon X2 Elite Extreme (X2E94100), Windows 11 ARM64, 12 FLEURS clips (en/ru/es/uk), via
+`lw bench tests/fixtures/audio --backend <x>`:
 
-```powershell
-pwsh -File scripts\runtime\fetch-runtime.ps1     # stage the runtime (see note below)
-cargo build --release -p lw-cli --target x86_64-pc-windows-msvc
-```
+| Backend | Provider | mean RTF | word-weighted WER | Status |
+|---|---|---:|---:|---|
+| **NPU** | QNN / Hexagon HTP V81, fp16 | **0.0160** | 4.8 % | ✅ verified |
+| **CPU** | ONNX Runtime CPU EP, int8 | 0.0324 | 5.4 % | ✅ verified |
+| **GPU** | WebGPU (Dawn → D3D12) on Adreno | 0.0609 | 5.4 % | ✅ verified |
 
-Two caveats:
-
-1. The staging script currently fetches the **ARM64** ONNX Runtime and the Qualcomm QNN DLLs. For an
-   x64 build you want `onnxruntime-win-x64-<version>.zip` and **no** QNN DLLs — the release manifest
-   already treats the Qualcomm binaries as forbidden in non-Snapdragon packages (a licence
-   requirement, see [`licenses.md`](licenses.md)). The runtime loader looks in `runtime/win-x64/`.
-2. Expected speed: Parakeet's encoder is ~600 M parameters, so an int8 CPU run is roughly
-   "a few × faster than real time" on a modern desktop core — usable for dictation, far slower than
-   the NPU. Measure it with `lw bench` rather than trusting an estimate.
-
-**Status: implemented, untested** — no x64 machine was available here.
+All three produce correct sentences in all four languages. The ordering is specific to this
+machine: an 18-core Oryon CPU is genuinely faster than its integrated mobile GPU for this model.
+On a desktop with a discrete GPU the GPU row is expected to move well above the CPU — but that is
+an expectation, not a measurement, and no such machine was available.
 
 ---
 
-## 4. Intel and AMD NPUs
+## 3. Platform support
 
-Both are reachable through ONNX Runtime execution providers we do not currently ship:
+| Platform | Installer | CPU | Accelerators | Status |
+|---|---|---|---|---|
+| **Windows 11 ARM64** (Snapdragon X / X2) | `.exe` (NSIS), `.msi` | ✅ | ✅ Qualcomm NPU, ✅ GPU (WebGPU) | **verified end to end** |
+| **Windows 11/10 x64** (Intel / AMD) | `.exe` (NSIS), `.msi` | ⚙️ | ⚙️ GPU (WebGPU), 📦 CUDA, 📦 TensorRT, 📦 DirectML, 📦 OpenVINO, 📦 Vitis AI | builds; not executed |
+| **macOS 11+ Apple Silicon** | `.dmg`, `.app` | ⚙️ | ⚙️ GPU (WebGPU → Metal), 📦 CoreML / ANE | builds; not executed |
+| **macOS Intel** | `.dmg`, `.app` | 🧩 | — | ONNX Runtime dropped macOS x86-64 after 1.24 |
+| **Linux x64** | `.deb`, `.rpm`, `.AppImage` | ⚙️ | ⚙️ GPU (WebGPU → Vulkan), 📦 CUDA, 📦 TensorRT, 📦 OpenVINO | builds; platform layer is partial (§7) |
+| **Linux ARM64** | — | ⚙️ | ⚙️ CPU only | no ORT WebGPU build for this RID |
 
-| Vendor | EP | What it needs |
+Packaging is configured for all of these (`bundle.targets: "all"`, one release job per platform),
+and the staged execution-provider libraries are bundled with the app so an installed build has a
+runtime. **Only the Windows ARM64 artifact has been built and run on real hardware.** The others
+are produced by the same configuration and have not been installed or launched by anyone.
+
+Not yet done for public distribution: Windows code signing (unsigned installers trigger
+SmartScreen) and macOS signing + notarization (unsigned `.app` is blocked by Gatekeeper).
+
+---
+
+## 4. Accelerator status
+
+`lw diagnose` prints this table for the machine it runs on, and the app shows the same in
+Settings and Diagnostics. Present / registered / device-count are reported separately on purpose:
+a driver package can be installed while the provider fails to load, and a provider can load while
+finding no device. **Only a device count above zero means acceleration.**
+
+| Accelerator | Provider library | Ships with LocalWisper | Needs its own model artifact | Status |
+|---|---|---|---|---|
+| CPU | built in | — | no | ✅ verified |
+| **Qualcomm NPU** | `onnxruntime_providers_qnn.dll` | ✅ (win-arm64 only) | **yes** — HTP context per Hexagon generation | ✅ verified on V81; ⚙️ V73 (X Elite / X Plus) |
+| **GPU, portable** | `onnxruntime_providers_webgpu.dll` | ✅ (win-x64, win-arm64, osx-arm64, linux-x64) | no | ✅ verified on Adreno; ⚙️ elsewhere |
+| **NVIDIA CUDA** | `onnxruntime_providers_cuda.dll` | ❌ | no | 📦 §5 |
+| **NVIDIA TensorRT** | `onnxruntime_providers_tensorrt.dll` | ❌ | no (builds an engine cache on first run) | 📦 §5 |
+| **DirectML** | `onnxruntime_providers_dml.dll` | ❌ | no | 📦 §5 |
+| **Apple CoreML / ANE** | `libonnxruntime_providers_coreml.dylib` | ❌ | effectively yes (static fp16 export) | 📦 §6 |
+| **Intel OpenVINO** (CPU/GPU/NPU) | `onnxruntime_providers_openvino.dll` | ❌ | **yes** for the NPU | 📦 §5 |
+| **AMD Vitis AI** (Ryzen AI NPU) | `onnxruntime_providers_vitisai.dll` | ❌ | **yes** | 📦 §5 |
+
+Everything marked 📦 is **implemented in the selection, settings, diagnostics and benchmark paths
+already** — drop the provider library into the runtime directory and it appears as usable, with no
+code change. What is missing is the library itself, because each is tied to a vendor SDK we cannot
+redistribute and could not test.
+
+---
+
+## 5. Getting the vendor providers
+
+The runtime directory is `runtime/<platform>/` in the repo, and `runtime/` beside the executable in
+an installed build (`LW_RUNTIME_DIR` overrides both). `scripts/runtime/fetch-runtime.ps1` stages
+ONNX Runtime, WebGPU and — on win-arm64 — Qualcomm QNN. For the rest:
+
+| Provider | What to install | Then |
 |---|---|---|
-| Intel (Core Ultra NPU) | **OpenVINO EP** | Ship `onnxruntime_providers_openvino.dll` + the OpenVINO runtime; register it the same way `lw-ort` registers QNN; a static-shape, quantized encoder export |
-| AMD (Ryzen AI / XDNA) | **Vitis AI EP** | Ryzen AI software stack + a quantized model compiled for XDNA |
+| **CUDA** | NVIDIA CUDA 12 + cuDNN 9, plus the `Microsoft.ML.OnnxRuntime.Gpu` native binaries | copy `onnxruntime_providers_cuda.dll` (+ `onnxruntime_providers_shared.dll`) into the runtime directory |
+| **TensorRT** | the above plus TensorRT 10 | copy `onnxruntime_providers_tensorrt.dll` |
+| **DirectML** | Windows 10 1903+ with a D3D12 GPU | copy `onnxruntime_providers_dml.dll` + `DirectML.dll` |
+| **OpenVINO** | Intel OpenVINO runtime + `Intel.ML.OnnxRuntime.EP.OpenVINO` | copy `onnxruntime_providers_openvino.dll` |
+| **Vitis AI** | AMD Ryzen AI SDK | copy `onnxruntime_providers_vitisai.dll` |
 
-The integration point is small and already abstracted: `lw-ort` registers a plugin execution
-provider and enumerates its devices; `lw-engine-parakeet` picks an `EncoderBackend`. Adding Intel
-would mean an `OpenVinoEncoder` alongside `QnnHtpEncoder`, plus a per-vendor model artifact.
+Then run `lw diagnose` — it will say `present / registered / devices` for each, and
+`lw bench --quick --backend cuda` (or `tensorrt`, `directml`, `openvino`, `vitisai`) measures it.
+A forced backend **fails loudly** if it is not usable rather than falling back, so a number can
+never be attributed to the wrong provider.
 
-The hard part is not the code — it is the **model artifact**. Each NPU wants its own quantized,
-static-shape encoder, and each needs to be produced and validated on that hardware. Promising
-support without a machine to verify it on would violate this project's first principle.
+Why these are not bundled: CUDA and TensorRT need multi-gigabyte NVIDIA redistributables with
+their own licence terms; OpenVINO and Vitis AI need vendor SDKs; and none could be verified here.
+Shipping an untested provider that silently degrades would be worse than not shipping it.
 
-There is also **Windows ML** (Windows App SDK), which distributes vendor EPs through an OS-managed
-catalog on Copilot+ PCs. That could eventually give Intel/AMD/Qualcomm NPUs behind one API. Today its
-published requirements list only Snapdragon X Elite/X Plus, and it lags Qualcomm's own QNN releases,
-so we bundle the QNN EP ourselves instead. Worth revisiting.
-
-**Status: not implemented.**
-
----
-
-## 5. Apple Silicon
-
-macOS builds compile: audio (cpal/CoreAudio), clipboard, settings, the model manager and the ORT CPU
-path are all cross-platform. What is missing is acceleration:
-
-- **ORT CoreML EP** — the cheapest option. Needs a static-shape fp16 encoder export and
-  `MLComputeUnits` configured; the `ort` crate already exposes the CoreML EP options. Reported to be
-  unstable with dynamic-shape Parakeet graphs, which is why static shapes matter.
-- **A CoreML bridge to FluidAudio's `.mlmodelc` bundles** — published measurements put the Parakeet
-  encoder at ~28 ms per 15 s window with 99 % of ops on the ANE. That is a separate, verified-by-
-  others artifact we could load through `objc2-core-ml`.
-
-Neither is implemented, and — important — **no Apple hardware was available**, so any ANE claim would
-be unverifiable. The macOS platform module also still needs its hotkey (CGEventTap), text injection
-(Cmd+V via CGEventPost with the pasteboard transaction) and non-activating NSPanel overlay.
-
-**Status: CPU path compiles; acceleration not implemented, nothing verified.**
+**Intel and AMD NPUs specifically.** The provider integration is done, but an NPU also needs a
+quantized, static-shape encoder compiled for that NPU, produced and validated on one. That is the
+real gate, and it is why the Qualcomm path took a static export, an on-device compile and a 1.2 GB
+cached context binary to reach 0.0160 RTF. The same work is needed per NPU vendor.
 
 ---
 
-## 6. Linux
+## 6. Apple Silicon
 
-The workspace builds and the ORT CPU path works. `lw-platform`'s Linux module is scaffolding:
-audio via cpal compiles, while global hotkeys, text injection and the overlay return
-`Unavailable`. Wayland in particular needs the `GlobalShortcuts` portal for hotkeys and the
+The macOS build compiles, bundles to `.dmg`, and the portable GPU path (WebGPU → Metal) is
+available in the same way as everywhere else. What is missing:
+
+- **CoreML EP / ANE** — the cheapest big win on a Mac. Needs a static-shape fp16 encoder export and
+  `MLComputeUnits` configured. Published measurements put the Parakeet encoder at ~28 ms per 15 s
+  window with 99 % of ops on the ANE, which would make it the fastest path on Apple hardware.
+- The macOS platform module still needs its hotkey (CGEventTap), text injection (Cmd+V via
+  CGEventPost) and non-activating NSPanel overlay.
+
+**No Apple hardware was available**, so none of this is verified and no ANE claim is made.
+
+---
+
+## 7. Linux
+
+The workspace builds, packages to `.deb` / `.rpm` / `.AppImage`, and the ORT CPU and WebGPU paths
+are available (WebGPU needs a system Vulkan loader, `libvulkan.so.1`). `lw-platform`'s Linux module
+is scaffolding: audio via cpal compiles, while global hotkeys, text injection and the overlay
+return `Unavailable`. Wayland needs the `GlobalShortcuts` portal for hotkeys and the
 `RemoteDesktop` portal (or uinput) for injection.
 
-**Status: scaffolding.**
+---
+
+## 8. Choosing and seeing the backend
+
+- **Settings → Backend** lists Automatic, Any NPU, Any GPU, CPU, and one entry per provider.
+  Providers this machine cannot use are shown with the reason.
+- **Automatic** tries every usable accelerator best-first (NPU → GPU → CPU) and falls back.
+  Every other choice is strict: it fails rather than silently running elsewhere.
+- The engine reports the provider that **actually executed**, not the one requested, and its
+  backend-selection notes say why it chose or fell back. Those appear in the benchmark report and
+  in Diagnostics.
+- From a terminal: `lw diagnose` for the table, `lw bench --quick --backend <x>` to measure one.
 
 ---
 
-## 7. Choosing a model for your hardware
+## 9. Adding a new accelerator
 
-Model choice and hardware interact: the NPU path needs a static-shape encoder prepared for that
-Hexagon generation, while CPU models run anywhere. The catalog records, per model, which hardware
-targets it supports, and `lw models list` marks the ones recommended for the machine it is run on.
-See [`models.md`](models.md) — and treat the pre-download numbers there as **estimates**, with
-`lw bench` as the way to get real ones on your own machine.
+1. Add a variant to `lw_core::capabilities::Accelerator` with its EP registration name and library
+   file name. Selection, settings, diagnostics, the CLI and the benchmark pick it up from there.
+2. Stage its provider library in `runtime/<platform>/`.
+3. If it is an NPU, produce and validate the quantized static-shape encoder artifact on that
+   hardware, and add it to the model manifest.
+4. Measure it with `lw bench` and record the numbers with the machine they came from.
 
----
-
-## 8. How to add a new accelerator
-
-1. Implement `EncoderBackend` (see `crates/lw-engine-parakeet/src/encoder.rs`) — one `run()` taking
-   mel features and returning encoder output.
-2. Register the EP in `lw-ort` (mirror `register_qnn`), keeping registration **lazy** so it is never
-   auto-applied to CPU sessions.
-3. Extend `lw_core::capabilities` + `lw-platform`'s detector so the device is discovered honestly.
-4. Add the model artifact to the catalog with its hardware target.
-5. Add it to `SpeechEngine::health_check` reporting so Diagnostics shows the truth.
-
-Steps 1–3 are each on the order of a hundred lines. Step 4 — producing and validating the quantized
-artifact on real silicon — is the work that actually gates a new chip.
+Steps 1–2 are an afternoon. Step 3 is the work that actually gates a new NPU.

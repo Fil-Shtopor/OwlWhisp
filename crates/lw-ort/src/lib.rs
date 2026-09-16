@@ -2,7 +2,8 @@
 //!
 //! The ONNX Runtime layer for LocalWisper. It:
 //! - dynamically loads a stock `onnxruntime.dll`/`.so`/`.dylib` (via `ort` `load-dynamic`),
-//! - registers Qualcomm's plugin QNN execution provider and enumerates the NPU device,
+//! - registers **plugin execution providers** (Qualcomm QNN, WebGPU, CUDA, DirectML,
+//!   OpenVINO, Vitis AI, CoreML) by the same mechanism, and enumerates their devices,
 //! - builds CPU and QNN/HTP sessions with the right options and EPContext caching,
 //! - verifies a pinned runtime manifest (per-file SHA-256) before use.
 //!
@@ -22,8 +23,8 @@ mod session;
 
 pub use manifest::{RuntimeFile, RuntimeManifest};
 pub use qnn::{HtpPerformanceMode, QnnSessionConfig, build_qnn_session};
-pub use runtime::{OrtRuntime, RuntimeError, locate_runtime_dir, onnxruntime_lib_name};
-pub use session::{CpuSessionConfig, build_cpu_session};
+pub use runtime::{AcceleratorStatus, OrtRuntime, RuntimeError, locate_runtime_dir, onnxruntime_lib_name};
+pub use session::{CpuSessionConfig, build_accel_session, build_cpu_session};
 
 /// Re-export of the underlying `ort` crate.
 pub use ort;

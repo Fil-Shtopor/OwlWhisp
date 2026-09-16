@@ -11,7 +11,9 @@ use lw_core::engine::{
 };
 use lw_ort::{CpuSessionConfig, OrtRuntime, QnnSessionConfig, build_cpu_session};
 
-use crate::encoder::{CpuEncoder, ENC_DIM, EncoderBackend, QnnHtpEncoder, SUBSAMPLING};
+use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
+
+use crate::encoder::{CpuEncoder, ENC_DIM, EncoderBackend, SUBSAMPLING, StaticWindowEncoder};
 use crate::mel::{MelFrontend, N_MELS, OnnxMel};
 use crate::tdt::TdtDecoder;
 use crate::vocab::Vocab;
@@ -49,12 +51,35 @@ pub const LANGUAGES: &[Language] = &[
 /// Which encoder backend the engine should try.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
-    /// Try NPU, fall back to CPU.
+    /// Try every usable accelerator best-first, falling back to the CPU.
     Auto,
-    /// NPU only.
+    /// An NPU only -- whichever vendor's this machine has. Fails rather than falling back.
     ForceNpu,
+    /// A GPU only -- whichever vendor's this machine has. Fails rather than falling back.
+    ForceGpu,
     /// CPU only.
     ForceCpu,
+    /// One exact execution provider. Fails rather than falling back, so that a measurement
+    /// attributed to it cannot silently have come from somewhere else.
+    Exact(lw_core::capabilities::Accelerator),
+}
+
+impl From<lw_core::engine::BackendPreference> for BackendKind {
+    /// The one place a user preference becomes an engine plan, so the app, the CLI and any future
+    /// front end cannot drift apart on what "Any GPU" means.
+    fn from(p: lw_core::engine::BackendPreference) -> Self {
+        use lw_core::engine::BackendPreference as P;
+        match p {
+            P::Automatic => BackendKind::Auto,
+            P::ForceNpu => BackendKind::ForceNpu,
+            P::ForceGpu => BackendKind::ForceGpu,
+            P::ForceCpu => BackendKind::ForceCpu,
+            other => match other.accelerator() {
+                Some(a) => BackendKind::Exact(a),
+                None => BackendKind::Auto,
+            },
+        }
+    }
 }
 
 /// Engine configuration.
@@ -120,6 +145,8 @@ pub struct ParakeetEngine {
     acceleration: Acceleration,
     device: DeviceInfo,
     notes: Vec<String>,
+    /// The accelerator the encoder actually ended up on.
+    selected: Option<Accelerator>,
 }
 
 impl ParakeetEngine {
@@ -136,6 +163,7 @@ impl ParakeetEngine {
             acceleration: Acceleration::Cpu,
             device: DeviceInfo::new("uninitialized"),
             notes: Vec::new(),
+            selected: None,
         }
     }
 
@@ -171,6 +199,39 @@ impl ParakeetEngine {
         )?))
     }
 
+    /// The accelerator the encoder ended up on, once [`SpeechEngine::initialize`] has run.
+    pub fn selected_accelerator(&self) -> Option<Accelerator> {
+        self.selected
+    }
+
+    /// The accelerators to try, in order, for the configured preference.
+    ///
+    /// Only accelerators this machine can actually use are included -- the probe registers each
+    /// provider and asks it for devices, so an installed driver with no working provider does not
+    /// get into the plan and cannot produce a confusing failure later. `Auto` always ends at the
+    /// CPU; a forced preference never does, because falling back would misattribute the result.
+    fn acceleration_plan(&self) -> Vec<Accelerator> {
+        let usable = self.runtime.usable_accelerators();
+        let keep = |a: &Accelerator| usable.contains(a);
+        match self.config.backend {
+            BackendKind::Auto => ALL_ACCELERATORS.iter().copied().filter(keep).collect(),
+            BackendKind::ForceCpu => vec![Accelerator::Cpu],
+            BackendKind::ForceNpu => ALL_ACCELERATORS
+                .iter()
+                .copied()
+                .filter(|a| a.kind() == AcceleratorKind::Npu)
+                .filter(keep)
+                .collect(),
+            BackendKind::ForceGpu => ALL_ACCELERATORS
+                .iter()
+                .copied()
+                .filter(|a| a.kind() == AcceleratorKind::Gpu)
+                .filter(keep)
+                .collect(),
+            BackendKind::Exact(a) => vec![a],
+        }
+    }
+
     fn try_build_npu_encoder(&self) -> Result<Box<dyn EncoderBackend>> {
         // A static-shape encoder ONNX for the configured window, or a prebuilt EPContext wrapper.
         let t = self.config.npu_window_frames;
@@ -192,12 +253,38 @@ impl ParakeetEngine {
                 .map(|a| format!(" (V{a})"))
                 .unwrap_or_default()
         );
-        Ok(Box::new(QnnHtpEncoder::load(
+        Ok(Box::new(StaticWindowEncoder::qnn(
             &self.runtime,
             &path,
             t,
             qnn,
             device,
+        )?))
+    }
+
+    /// Build the encoder on `accel` (a GPU provider), using the same static-shape graph the NPU
+    /// path uses.
+    ///
+    /// Nothing is compiled or cached: a GPU execution provider consumes the ordinary graph, so
+    /// the one artifact that already ships serves every GPU vendor. That is the whole reason GPU
+    /// coverage generalizes where NPU coverage does not.
+    fn try_build_gpu_encoder(
+        &self,
+        accel: lw_core::capabilities::Accelerator,
+    ) -> Result<Box<dyn EncoderBackend>> {
+        let t = self.config.npu_window_frames;
+        let path = self.model_file(&[
+            &format!("encoder-static-t{t}.onnx"),
+            "encoder-static.onnx",
+            "encoder-model.onnx",
+        ])?;
+        Ok(Box::new(StaticWindowEncoder::on_accelerator(
+            &self.runtime,
+            accel,
+            &path,
+            t,
+            self.config.cpu_threads,
+            accel.label(),
         )?))
     }
 
@@ -306,38 +393,68 @@ impl SpeechEngine for ParakeetEngine {
             .map_err(|e| Error::Ort(e.to_string()))?;
         self.decoder = Some(TdtDecoder::new(dec_session, self.vocab.as_ref().unwrap()));
 
-        // Encoder backend selection.
-        let want_npu = matches!(self.config.backend, BackendKind::Auto | BackendKind::ForceNpu)
-            && self.runtime.qnn_available();
-        if want_npu {
-            match self.try_build_npu_encoder() {
-                Ok(enc) => {
+        // Encoder backend selection: walk the plan best-first and take the first that builds.
+        let plan = self.acceleration_plan();
+        let strict = !matches!(self.config.backend, BackendKind::Auto);
+        for accel in plan {
+            let built = match accel {
+                Accelerator::Cpu => self
+                    .build_cpu_encoder()
+                    .map(|e| (e, Provider::OnnxCpu, Acceleration::Cpu)),
+                Accelerator::QnnNpu => self
+                    .try_build_npu_encoder()
+                    .map(|e| (e, Provider::QnnHtp, Acceleration::Npu)),
+                other => self.try_build_gpu_encoder(other).map(|e| {
+                    let provider = match other {
+                        Accelerator::CoreMl => Provider::CoreMl,
+                        Accelerator::DirectMl => Provider::DirectMl,
+                        _ => Provider::Gpu,
+                    };
+                    let acc = if other == Accelerator::CoreMl {
+                        Acceleration::Ane
+                    } else if other.kind() == lw_core::capabilities::AcceleratorKind::Npu {
+                        Acceleration::Npu
+                    } else {
+                        Acceleration::Gpu
+                    };
+                    (e, provider, acc)
+                }),
+            };
+            match built {
+                Ok((enc, provider, acceleration)) => {
                     let label = enc.label();
+                    self.notes.push(format!("encoder: {}", accel.label()));
                     self.encoder = Some(enc);
-                    self.provider = Provider::QnnHtp;
-                    self.acceleration = Acceleration::Npu;
-                    self.device = DeviceInfo::with_detail("NPU", label);
-                    self.notes.push("encoder: QNN HTP".into());
-                }
-                Err(e) if self.config.backend == BackendKind::ForceNpu => {
-                    return Err(Error::Ort(format!("NPU encoder required but unavailable: {e}")).into());
+                    self.provider = provider;
+                    self.acceleration = acceleration;
+                    self.device = DeviceInfo::with_detail(acceleration.to_string(), label);
+                    self.selected = Some(accel);
+                    break;
                 }
                 Err(e) => {
-                    self.notes.push(format!("NPU unavailable ({e}); using CPU"));
+                    // A forced backend must fail loudly: silently answering with a different one
+                    // would make every number reported against it a lie.
+                    if strict {
+                        return Err(
+                            Error::Ort(format!("{} required but unavailable: {e}", accel.label())).into(),
+                        );
+                    }
+                    self.notes.push(format!("{} unavailable ({e})", accel.label()));
                 }
             }
         }
         if self.encoder.is_none() {
-            if self.config.backend == BackendKind::ForceNpu {
-                return Err(Error::Ort("NPU required but no QNN NPU present".into()).into());
-            }
-            let enc = self.build_cpu_encoder()?;
-            let label = enc.label();
-            self.encoder = Some(enc);
-            self.provider = Provider::OnnxCpu;
-            self.acceleration = Acceleration::Cpu;
-            self.device = DeviceInfo::with_detail("CPU", label);
-            self.notes.push("encoder: ONNX Runtime CPU".into());
+            let usable = self.runtime.usable_accelerators();
+            return Err(Error::Ort(format!(
+                "no encoder backend matched {:?}; usable here: {}",
+                self.config.backend,
+                if usable.is_empty() {
+                    "none".to_string()
+                } else {
+                    usable.iter().map(|a| a.label()).collect::<Vec<_>>().join(", ")
+                }
+            ))
+            .into());
         }
         Ok(())
     }

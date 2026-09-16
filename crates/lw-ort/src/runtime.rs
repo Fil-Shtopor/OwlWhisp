@@ -1,8 +1,10 @@
 //! Runtime discovery + one-time ONNX Runtime initialization + QNN EP registration.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
 use ort::environment::Environment;
 use ort::ep::ExecutionProviderLibrary;
 use ort::memory::DeviceType;
@@ -21,6 +23,9 @@ pub enum RuntimeError {
     /// The QNN plugin EP could not be registered.
     #[error("qnn registration failed: {0}")]
     Qnn(String),
+    /// An accelerator was asked for that this machine or this install cannot provide.
+    #[error("accelerator unavailable: {0}")]
+    Unsupported(String),
     /// A generic error.
     #[error("{0}")]
     Other(String),
@@ -40,11 +45,6 @@ pub fn onnxruntime_lib_name() -> &'static str {
     {
         "libonnxruntime.so"
     }
-}
-
-/// The QNN plugin-EP library file name (Windows only in practice).
-pub fn qnn_provider_lib_name() -> &'static str {
-    "onnxruntime_providers_qnn.dll"
 }
 
 /// The per-platform runtime subdirectory name used by the repo layout and the installers
@@ -117,20 +117,23 @@ static INIT: OnceLock<Result<(), String>> = OnceLock::new();
 /// fall back to the CPU. One instance, one registration, one answer.
 static INSTANCE: OnceLock<Arc<OrtRuntime>> = OnceLock::new();
 
-struct QnnState {
-    registered: bool,
-    /// Kept alive so the EP stays registered for the process lifetime.
-    _lib: Option<ExecutionProviderLibrary>,
+/// One registered plugin execution provider. The handle is kept so the EP stays registered for
+/// the process lifetime; dropping it would unregister the library underneath live sessions.
+struct EpState {
+    _lib: ExecutionProviderLibrary,
 }
 
-/// The initialized runtime. The QNN plugin EP is registered **lazily** (only when an NPU session is
-/// actually requested), because registering it globally causes ONNX Runtime to auto-apply it to
-/// otherwise-CPU sessions — which then fail on ops the HTP can't take (e.g. the dynamic `/Expand`
-/// attention mask). CPU sessions are built before any QNN registration and pinned to the CPU EP.
+/// The initialized runtime.
+///
+/// Plugin EPs are registered **lazily** — only when a session that wants one is about to be built
+/// — because a registered EP is a candidate for every session ONNX Runtime creates afterwards. A
+/// globally registered QNN EP gets auto-applied to otherwise-CPU sessions and then fails on ops
+/// the HTP cannot take (the encoder's dynamic `/Expand` attention mask was the real case). CPU
+/// sessions are additionally pinned to the CPU device, so registration order stops mattering.
 pub struct OrtRuntime {
     runtime_dir: PathBuf,
-    qnn_dll: PathBuf,
-    qnn: Mutex<QnnState>,
+    /// Providers registered so far, keyed by accelerator. Absent = not registered.
+    eps: Mutex<HashMap<Accelerator, EpState>>,
 }
 
 impl OrtRuntime {
@@ -162,11 +165,7 @@ impl OrtRuntime {
         let instance = INSTANCE.get_or_init(|| {
             Arc::new(Self {
                 runtime_dir: dir.clone(),
-                qnn_dll: dir.join(qnn_provider_lib_name()),
-                qnn: Mutex::new(QnnState {
-                    registered: false,
-                    _lib: None,
-                }),
+                eps: Mutex::new(HashMap::new()),
             })
         });
         if instance.runtime_dir != dir {
@@ -179,36 +178,129 @@ impl OrtRuntime {
         Ok(Arc::clone(instance))
     }
 
-    /// Whether the QNN plugin-EP DLL is present (i.e. NPU support *could* be available).
-    pub fn qnn_available(&self) -> bool {
-        self.qnn_dll.exists()
+    /// Where an accelerator's provider library would live, if it can be a plugin at all.
+    pub fn library_path(&self, accel: Accelerator) -> Option<PathBuf> {
+        accel.library_file().map(|f| self.runtime_dir.join(f))
     }
 
-    /// Register the QNN plugin EP if not already registered. Idempotent.
+    /// Whether the provider library for `accel` is present in the runtime directory.
     ///
-    /// Call this only when about to build an NPU session — after all CPU sessions are built.
-    pub fn register_qnn(&self) -> bool {
-        let mut state = self.qnn.lock();
-        if state.registered {
+    /// Presence is not usability: the library can be here and still fail to register (wrong ORT
+    /// version) or register and enumerate no device (no such hardware). Use
+    /// [`OrtRuntime::device_count`] for the question that actually matters.
+    pub fn is_present(&self, accel: Accelerator) -> bool {
+        match accel {
+            Accelerator::Cpu => true,
+            _ => self.library_path(accel).is_some_and(|p| p.exists()),
+        }
+    }
+
+    /// Register `accel`'s plugin EP if it is not registered yet. Idempotent; returns whether the
+    /// provider is registered afterwards.
+    ///
+    /// Call this only when about to build a session that wants it: a registered EP becomes a
+    /// candidate for every later session.
+    pub fn register(&self, accel: Accelerator) -> bool {
+        if accel == Accelerator::Cpu {
+            return true; // built in, never registered
+        }
+        let mut eps = self.eps.lock();
+        if eps.contains_key(&accel) {
             return true;
         }
-        if !self.qnn_dll.exists() {
+        let (Some(name), Some(path)) = (accel.ep_name(), self.library_path(accel)) else {
+            return false;
+        };
+        if !path.exists() {
             return false;
         }
         match Environment::current() {
-            Ok(env) => match env.register_ep_library("QNNExecutionProvider", &self.qnn_dll) {
+            Ok(env) => match env.register_ep_library(name, &path) {
                 Ok(handle) => {
-                    state._lib = Some(handle);
-                    state.registered = true;
+                    tracing::info!("registered {name} from {}", path.display());
+                    eps.insert(accel, EpState { _lib: handle });
                     true
                 }
                 Err(e) => {
-                    tracing::warn!("QNN EP registration failed: {e}");
+                    tracing::warn!("{name} registration failed: {e}");
                     false
                 }
             },
             Err(_) => false,
         }
+    }
+
+    /// Whether `accel`'s provider is registered in this process.
+    pub fn registered(&self, accel: Accelerator) -> bool {
+        accel == Accelerator::Cpu || self.eps.lock().contains_key(&accel)
+    }
+
+    /// How many devices `accel` enumerates. Registers the provider first, lazily.
+    ///
+    /// This is the only honest answer to "can this machine use it": a driver package can be
+    /// installed, and the library can load, while no device of the expected class appears.
+    pub fn device_count(&self, accel: Accelerator) -> usize {
+        if accel == Accelerator::Cpu {
+            return 1;
+        }
+        if !self.register(accel) {
+            return 0;
+        }
+        let (Some(name), Ok(env)) = (accel.ep_name(), Environment::current()) else {
+            return 0;
+        };
+        let want = match accel.kind() {
+            AcceleratorKind::Npu => Some(DeviceType::NPU),
+            AcceleratorKind::Gpu => Some(DeviceType::GPU),
+            AcceleratorKind::Cpu => None,
+        };
+        env.devices()
+            .filter(|d| d.ep().map(|n| n == name).unwrap_or(false))
+            .filter(|d| want.is_none_or(|t| d.hardware_device().ty() == t))
+            .count()
+    }
+
+    /// Probe every accelerator this platform could have, without registering ones whose library
+    /// is absent. Returns them in the automatic policy's preference order.
+    pub fn probe_accelerators(&self) -> Vec<AcceleratorStatus> {
+        ALL_ACCELERATORS
+            .iter()
+            .copied()
+            .filter(|a| a.supported_on_this_platform())
+            .map(|accel| {
+                let present = self.is_present(accel);
+                // Only register providers whose library is actually here; registering is a DLL
+                // load, and a failed one logs noise on every probe.
+                let devices = if present { self.device_count(accel) } else { 0 };
+                AcceleratorStatus {
+                    accel,
+                    present,
+                    registered: self.registered(accel),
+                    devices,
+                }
+            })
+            .collect()
+    }
+
+    /// The accelerators that are actually usable here, best first.
+    pub fn usable_accelerators(&self) -> Vec<Accelerator> {
+        self.probe_accelerators()
+            .into_iter()
+            .filter(|s| s.usable())
+            .map(|s| s.accel)
+            .collect()
+    }
+
+    // ----- Back-compatible QNN helpers -------------------------------------------------------
+
+    /// Whether the QNN plugin-EP library is present (i.e. NPU support *could* be available).
+    pub fn qnn_available(&self) -> bool {
+        self.is_present(Accelerator::QnnNpu)
+    }
+
+    /// Register the QNN plugin EP if not already registered. Idempotent.
+    pub fn register_qnn(&self) -> bool {
+        self.register(Accelerator::QnnNpu)
     }
 
     /// Convenience: locate the runtime dir and initialize.
@@ -225,28 +317,17 @@ impl OrtRuntime {
 
     /// Whether the QNN plugin EP has been registered this process.
     pub fn qnn_registered(&self) -> bool {
-        self.qnn.lock().registered
+        self.registered(Accelerator::QnnNpu)
     }
 
     /// Whether an NPU device backed by the QNN EP is enumerable. Registers the QNN EP lazily.
     pub fn has_qnn_npu(&self) -> bool {
-        if !self.register_qnn() {
-            return false;
-        }
-        self.qnn_npu_count() > 0
+        self.device_count(Accelerator::QnnNpu) > 0
     }
 
     /// Number of QNN NPU devices enumerated.
     pub fn qnn_npu_count(&self) -> usize {
-        let Ok(env) = Environment::current() else {
-            return 0;
-        };
-        env.devices()
-            .filter(|d| {
-                d.ep().map(|n| n == "QNNExecutionProvider").unwrap_or(false)
-                    && d.hardware_device().ty() == DeviceType::NPU
-            })
-            .count()
+        self.device_count(Accelerator::QnnNpu)
     }
 
     /// A short description of every enumerated device (for diagnostics).
@@ -262,6 +343,51 @@ impl OrtRuntime {
                 format!("{ep}: {vendor} {:?} (id {})", hw.ty(), hw.id())
             })
             .collect()
+    }
+}
+
+/// What one accelerator looks like on this machine, right now.
+///
+/// The three fields are deliberately separate because they answer different questions and are
+/// routinely not the same: a vendor's driver package can be installed (`present`) and its
+/// provider still refuse to load (`registered == false`), or load and enumerate nothing
+/// (`devices == 0`). Only the last one means acceleration.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct AcceleratorStatus {
+    /// Which accelerator this describes.
+    pub accel: Accelerator,
+    /// Its provider library is in the runtime directory.
+    pub present: bool,
+    /// Its provider is registered with ONNX Runtime in this process.
+    pub registered: bool,
+    /// How many matching devices it enumerates.
+    pub devices: usize,
+}
+
+impl AcceleratorStatus {
+    /// Whether this accelerator can actually be used: a device of its class enumerated.
+    pub fn usable(&self) -> bool {
+        self.accel == Accelerator::Cpu || self.devices > 0
+    }
+
+    /// One line explaining the verdict, suitable for diagnostics and the settings UI.
+    pub fn explain(&self) -> String {
+        if self.accel == Accelerator::Cpu {
+            return "always available".to_string();
+        }
+        if !self.present {
+            return format!(
+                "not installed ({} is not in the runtime directory)",
+                self.accel.library_file().unwrap_or("its provider library")
+            );
+        }
+        if !self.registered {
+            return "provider library present but it failed to register with ONNX Runtime".to_string();
+        }
+        if self.devices == 0 {
+            return "provider loaded but no matching device was found on this machine".to_string();
+        }
+        format!("{} device(s) available", self.devices)
     }
 }
 
@@ -283,6 +409,35 @@ pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Print what every accelerator looks like on the machine running the test.
+    ///
+    /// Diagnostic rather than assertive: the point is to see the truth on real hardware, and the
+    /// truth differs per machine. The one thing it does assert is the invariant the automatic
+    /// policy depends on -- the CPU is always usable.
+    #[test]
+    #[ignore = "needs a staged ONNX Runtime; run explicitly"]
+    fn report_accelerators_on_this_machine() {
+        let dir = locate_runtime_dir().expect("a staged runtime directory");
+        let rt = OrtRuntime::init(&dir).expect("init");
+        println!("runtime: {}", dir.display());
+        for st in rt.probe_accelerators() {
+            println!(
+                "  {:<28} present={:<5} registered={:<5} devices={}  -- {}",
+                st.accel.label(),
+                st.present,
+                st.registered,
+                st.devices,
+                st.explain()
+            );
+        }
+        println!("usable, best first: {:?}", rt.usable_accelerators());
+        println!("all enumerated devices:");
+        for d in rt.device_summary() {
+            println!("  {d}");
+        }
+        assert!(rt.usable_accelerators().contains(&Accelerator::Cpu));
+    }
+
     /// A second `init` must hand back the *same* runtime, or the second caller's `register_qnn`
     /// would be refused by an environment that already holds the registration -- and the NPU
     /// would silently disappear. Needs a real runtime directory, so it is ignored by default:

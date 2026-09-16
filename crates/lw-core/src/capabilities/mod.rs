@@ -6,6 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod accel;
+pub use accel::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
+
 /// Hexagon HTP architecture generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HtpArch {

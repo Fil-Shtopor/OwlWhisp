@@ -112,6 +112,34 @@ RTF is wall-clock and varies run to run with scheduling and thermals: three cons
 runs of the table above gave mean RTF 0.0312 / 0.0324 / 0.0346, and the NPU path has been observed
 between 0.0145 and 0.0160. WER, by contrast, is deterministic for a given build and model set.
 
+**GPU** (`--backend webgpu`, WebGPU plugin EP → Dawn → D3D12 on the integrated Adreno):
+
+```
+file                    dur(s) time(ms)     RTF  WER
+fleurs_en_1.wav           6.00      871   0.145  0.20 [en]
+fleurs_en_2.wav           7.50      347   0.046  0.00 [en]
+fleurs_en_3.wav           7.92      365   0.046  0.09 [en]
+fleurs_ru_1.wav           5.64      350   0.062  0.00 [ru]
+fleurs_ru_2.wav           6.96      384   0.055  0.00 [ru]
+fleurs_ru_3.wav           7.50      360   0.048  0.00 [ru]
+fleurs_es_1.wav           7.26      345   0.048  0.00 [es]
+fleurs_es_2.wav           7.14      369   0.052  0.00 [es]
+fleurs_es_3.wav           7.74      355   0.046  0.00 [es]
+fleurs_uk_1.wav           5.28      346   0.065  0.12 [uk]
+fleurs_uk_2.wav           5.10      366   0.072  0.00 [uk]
+fleurs_uk_3.wav           7.80      359   0.046  0.17 [uk]
+---
+mean RTF: 0.0609   word-weighted WER: 0.054
+```
+
+The first clip carries the one-time shader compilation (871 ms vs ~360 ms steady state), which is
+why the cold/warm split matters more here than on the other two paths.
+
+Ordering on **this** machine is NPU (0.0160) → CPU (0.0324) → GPU (0.0609). That is not a general
+claim about GPUs: an 18-core Oryon competing against an integrated mobile Adreno is close to the
+worst case for the GPU row. A discrete GPU is expected to land well ahead of the CPU — expected,
+not measured, because no such machine was available.
+
 > **Correction (2026-08-27).** An earlier revision of this section recorded the CPU run as
 > **RTF 0.032 / WER 0.042**, with three of the twelve rows collapsed into a `fleurs_es_1/2/3` summary
 > line. The RTF reproduces; the **WER does not**. Re-running the same command against the same model

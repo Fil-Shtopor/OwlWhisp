@@ -3,34 +3,106 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
+# One job per shipped artifact. The matrix is deliberately explicit rather than clever: each
+# platform stages a different set of execution-provider libraries, and only win-arm64 may carry
+# the Qualcomm ones (their licence forbids shipping them outside an application that uses them —
+# see docs/licenses.md), so a forbidden-files check runs on every other target.
 jobs:
-  windows-arm64:
-    runs-on: windows-11-arm
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            platform: win-arm64
+            bundles: "*.exe,*.msi"
+          - name: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win-x64
+            bundles: "*.exe,*.msi"
+          - name: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            platform: osx-arm64
+            bundles: "*.dmg,*.app.tar.gz"
+          - name: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            bundles: "*.deb,*.rpm,*.AppImage"
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-pc-windows-msvc
+          targets: ${{ matrix.target }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Stage ONNX Runtime + QNN EP DLLs
-        run: pwsh -File scripts/runtime/fetch-runtime.ps1
-      - name: Build app (NSIS, native ARM64)
-        run: pwsh -File scripts/build/build-windows-arm64.ps1 -Release
-      - name: Checksums
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
         run: |
-          $out = "target/aarch64-pc-windows-msvc/release/bundle"
-          Get-ChildItem -Recurse $out -Include *.exe,*.msi | ForEach-Object {
-            (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name
-          } | Out-File SHA256SUMS.txt -Encoding utf8
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+                                  patchelf libasound2-dev libxdo-dev
+
+      - name: Stage ONNX Runtime + execution providers
+        shell: pwsh
+        run: pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform ${{ matrix.platform }}
+
+      - name: Frontend
+        working-directory: app/frontend
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Build bundles
+        run: cargo tauri build --target ${{ matrix.target }} --features custom-protocol
+        env:
+          TAURI_BUNDLE_TARGETS: all
+
+      # The Qualcomm QNN libraries are licensed for redistribution only as part of an application
+      # that uses them, and only on Snapdragon. Shipping them inside an x64 or macOS package would
+      # be a licence violation, so fail the release rather than publish one.
+      - name: Forbidden-file check (non-Snapdragon packages)
+        if: matrix.platform != 'win-arm64'
+        shell: pwsh
+        run: |
+          $hits = Get-ChildItem -Recurse "target/${{ matrix.target }}/release/bundle" -Include "Qnn*","libQnn*","*QnnHtp*" -ErrorAction SilentlyContinue
+          if ($hits) {
+            $hits | ForEach-Object { Write-Error "Qualcomm binary in a non-Snapdragon package: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host "ok: no Qualcomm binaries in the ${{ matrix.platform }} package"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $out = "target/${{ matrix.target }}/release/bundle"
+          $patterns = "${{ matrix.bundles }}".Split(",")
+          Get-ChildItem -Recurse $out -Include $patterns -ErrorAction SilentlyContinue |
+            ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name } |
+            Out-File "SHA256SUMS-${{ matrix.name }}.txt" -Encoding utf8
+          Get-Content "SHA256SUMS-${{ matrix.name }}.txt"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: localwisper-windows-arm64
+          name: localwisper-${{ matrix.name }}
           path: |
-            target/aarch64-pc-windows-msvc/release/bundle/**/*.exe
-            target/aarch64-pc-windows-msvc/release/bundle/**/*.msi
-            SHA256SUMS.txt
-      # NOTE: code-signing (Azure Trusted Signing) is a remaining item; unsigned builds trigger
-      # SmartScreen. Model files and the Qualcomm QNN DLLs are fetched at build time (not committed).
+            target/${{ matrix.target }}/release/bundle/**/*
+            SHA256SUMS-${{ matrix.name }}.txt
+
+# Remaining before these are distributable to the public:
+#   - Windows code signing (Azure Trusted Signing); unsigned builds trigger SmartScreen.
+#   - macOS signing + notarization; unsigned .app is blocked by Gatekeeper.
+#   - Only the windows-arm64 artifact has been built and run on real hardware. The others compile
+#     the same code but have not been executed — see docs/hardware.md.

@@ -18,11 +18,38 @@ jobs:
       - name: Format check
         run: cargo fmt --all --check
       - name: Clippy (core crates)
-        run: cargo clippy -p lw-core -p lw-ort -p lw-vad-silero -p lw-engine-parakeet -p lw-engine-whisper -p lw-platform -p lw-cli -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Unit tests
         run: cargo test --workspace --exclude localwisper
       # NPU/model integration tests are gated behind --ignored and need a self-hosted X2 runner
       # with the model + runtime present (set LW_MODEL_DIR / LW_RUNTIME_DIR there).
+
+  # Compile-check the other platforms so a change that only builds on Windows ARM64 cannot land.
+  # These runners have no NPU and no staged runtime; they check that the code builds, nothing more.
+  cross-compile:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, runner: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: macos-arm64, runner: macos-14, target: aarch64-apple-darwin }
+          - { name: linux-x64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev                                   patchelf libasound2-dev libxdo-dev
+      - name: Check workspace
+        run: cargo check --workspace --target ${{ matrix.target }}
+      - name: Unit tests (no hardware needed)
+        run: cargo test --workspace --exclude localwisper --target ${{ matrix.target }}
 
   build-frontend:
     runs-on: ubuntu-latest
