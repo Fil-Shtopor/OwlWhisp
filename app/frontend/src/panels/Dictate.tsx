@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
+  activeBackend,
   activeHotkey,
   getSettings,
   listBackends,
@@ -8,6 +9,7 @@ import {
   setRecordingState,
   subscribeMicLevel,
   type AcceleratorReport,
+  type ActiveBackend,
   type BackendOption,
   type BackendPreference,
   type HotkeyConfig,
@@ -95,17 +97,24 @@ function HotkeyHint({
 /**
  * Which backend dictation is on, in one line.
  *
- * A benchmark run in this session is the only thing that proves what executed, so it wins and is
- * labelled "measured". Otherwise the line reports the saved preference and the live probe of the
- * accelerator that would serve it, and says plainly that it has not been measured.
+ * The badge is the honesty marker: `running` is the loaded engine's own answer, `measured` is a
+ * benchmark from this session, and `predicted` is an inference from settings plus a probe — which
+ * is all there is before the first dictation, because the engine loads lazily.
  */
-function BackendHint({ line }: { line: BackendLine }) {
+function BackendHint({ line, detail }: { line: BackendLine; detail: string }) {
   const className = line.tone === "warning" ? "status-err backend-line" : "hint backend-line";
+  const badge =
+    line.tone === "running" ? (
+      <span className="badge yes">running</span>
+    ) : line.tone === "measured" ? (
+      <span className="badge measured-badge">measured</span>
+    ) : line.tone === "probed" ? (
+      <span className="badge">predicted</span>
+    ) : null;
   return (
-    <p className={className} title={line.detail}>
-      {line.tone === "measured" && <span className="badge measured-badge">measured</span>}
-      {line.tone === "probed" && <span className="badge">probed</span>}
-      {line.tone === "measured" || line.tone === "probed" ? " " : null}
+    <p className={className} title={detail}>
+      {badge}
+      {badge === null ? null : " "}
       {line.text}
     </p>
   );
@@ -120,6 +129,9 @@ export function DictatePanel({ state }: { state: UiState }) {
   const [backendOptions, setBackendOptions] = useState<readonly BackendOption[]>([]);
   const [accel, setAccel] = useState<AcceleratorReport | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(getLastRun);
+  const [active, setActive] = useState<ActiveBackend | null>(null);
+  const [activeError, setActiveError] = useState<string | null>(null);
+  const [activeNonce, setActiveNonce] = useState(0);
   const visual = STATE_VISUALS[state];
 
   useEffect(() => {
@@ -195,8 +207,44 @@ export function DictatePanel({ state }: { state: UiState }) {
     };
   }, []);
 
-  // A benchmark finished in the Benchmark tab is what turns this line from a probe into a fact.
-  useEffect(() => subscribeLastRun(setLastRun), []);
+  // What the worker's engine actually selected. Asked once on mount, and again whenever that
+  // answer can have changed — it is a message to the worker thread, not something to poll.
+  useEffect(() => {
+    let disposed = false;
+    void activeBackend()
+      .then((report) => {
+        if (!disposed) {
+          setActive(report);
+          setActiveError(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!disposed) {
+          setActive(null);
+          setActiveError(String(e));
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [activeNonce]);
+
+  // The engine loads lazily on the first dictation, so the first real answer only exists once one
+  // has finished (or failed). Both transitions are worth re-asking on.
+  useEffect(() => {
+    if (state === "done" || state === "error") setActiveNonce((n) => n + 1);
+  }, [state]);
+
+  // A benchmark drops the dictation engine and loads its own, so the previous answer is stale the
+  // moment one finishes: take the measurement and re-ask the worker.
+  useEffect(
+    () =>
+      subscribeLastRun((run) => {
+        setLastRun(run);
+        setActiveNonce((n) => n + 1);
+      }),
+    [],
+  );
 
   const backendLine: BackendLine = settingsFailed
     ? {
@@ -204,7 +252,13 @@ export function DictatePanel({ state }: { state: UiState }) {
         text: "Backend: unknown — settings could not be read.",
         detail: "Open Settings to check the accelerator preference.",
       }
-    : runningBackendLine(preference, backendOptions, accel, lastRun);
+    : runningBackendLine(preference, backendOptions, accel, lastRun, active);
+  // A failed `active_backend` never silences the line; it degrades it to the prediction below and
+  // says so in the tooltip, rather than claiming the engine reported anything.
+  const backendDetail =
+    activeError === null
+      ? backendLine.detail
+      : `${backendLine.detail} (The worker could not be asked what is running: ${activeError})`;
 
   return (
     <div className="dictate">
@@ -217,7 +271,7 @@ export function DictatePanel({ state }: { state: UiState }) {
       />
       <div className="state-label">{visual.label}</div>
       <HotkeyHint hotkey={hotkey} failed={settingsFailed} registration={registration} />
-      <BackendHint line={backendLine} />
+      <BackendHint line={backendLine} detail={backendDetail} />
       <div className="meter" title="Microphone level (synthetic until audio capture is wired)">
         <div className="meter-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
       </div>

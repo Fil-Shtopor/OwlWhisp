@@ -279,15 +279,46 @@ export interface BackendLine {
 /**
  * The single line that answers "what is dictation running on right now?".
  *
- * Order of authority: a measurement from this session, then a live probe of the preference, then
- * an admission that we do not know. Nothing here promises acceleration that was not probed.
+ * Order of authority, strongest first:
+ *
+ * 1. **The loaded engine itself** (`active_backend`), which is read back rather than predicted —
+ *    an engine that asked for the NPU and fell back reports the CPU here.
+ * 2. **A benchmark from this session**, which measured the same selection path but is not the
+ *    engine that is loaded now.
+ * 3. **A live probe of the preference**, which is a prediction and is labelled as one.
+ *
+ * The engine loads lazily on the first dictation, so tiers 2 and 3 describe what *should* happen
+ * next, never what is happening. Nothing here promises acceleration that was not probed.
  */
 export function runningBackendLine(
   preference: BackendPreference | null,
   options: readonly BackendOption[],
   report: AcceleratorReport | null,
   run: LastRun | null,
+  active: ActiveBackend | null,
 ): BackendLine {
+  // 1. The engine's own answer. It needs no preference and outranks everything below.
+  if (active !== null && active.loaded) {
+    const model = active.model_id === "" ? "" : `, model ${active.model_id}`;
+    const read = `Read back from the loaded engine${model}.`;
+    return {
+      tone: "running",
+      text: `Running on ${describeActive(active)}.`,
+      detail:
+        active.notes.length === 0
+          ? read
+          : `${read} Selection notes: ${active.notes.join(" · ")}`,
+    };
+  }
+  if (active !== null && active.error !== null) {
+    return {
+      tone: "warning",
+      text: `The dictation engine could not load: ${active.error}`,
+      detail:
+        "Nothing is running. Check in Models that the selected model is installed for this backend.",
+    };
+  }
+
   if (preference === null) {
     return {
       tone: "pending",
@@ -298,13 +329,15 @@ export function runningBackendLine(
 
   const label = preferenceLabel(options, preference);
 
+  // 2. A benchmark measured this machine, but the engine it used is no longer loaded: running a
+  // benchmark drops the dictation engine, so this says what ran, not what is running.
   if (run !== null && appliesTo(run, preference)) {
     return {
       tone: "measured",
-      text: `Running on ${run.backend} — measured by this session's benchmark.`,
+      text: `Nothing loaded — this session's benchmark ran on ${run.backend}.`,
       detail:
         run.notes.length === 0
-          ? `Selected backend: ${label}.`
+          ? `Selected backend: ${label}. The next dictation loads an engine again.`
           : `Selected backend: ${label}. Engine notes: ${run.notes.join(" · ")}`,
     };
   }
@@ -320,13 +353,16 @@ export function runningBackendLine(
       : resolveOption(option, report);
 
   switch (resolution.availability) {
+    // 3. A prediction. The wording says so: no engine is loaded, so nothing is running yet.
     case "usable": {
       const target = resolution.accelerator;
       const via = target === null || target.label === label ? label : `${label} → ${target.label}`;
       return {
         tone: "probed",
-        text: `Backend: ${via} — probed usable, not measured yet.`,
-        detail: `${resolution.reason} Run a benchmark to see what actually executes.`,
+        text: `Nothing loaded yet — the next dictation should use ${via}.`,
+        detail:
+          `Predicted from the saved preference and a live probe of this machine: ${resolution.reason} ` +
+          "The engine loads on the first dictation, and this line then reports what it chose.",
       };
     }
     case "unusable":

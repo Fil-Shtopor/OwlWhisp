@@ -43,10 +43,20 @@ function Row({ status }: { status: AcceleratorStatus }) {
       <tr className="accel-detail">
         <td colSpan={7}>
           <span className="sub">{status.detail}</span>
-          {status.needs_dedicated_artifact && (
+          {/*
+            The line between supporting a GPU and supporting an NPU, and it decides whether the
+            user has anything to download: an NPU wants a graph quantized and compiled for that
+            silicon, a GPU consumes the ordinary one.
+          */}
+          {status.needs_dedicated_artifact ? (
             <span className="sub">
               {" "}
               — needs a model artifact compiled for it, so a model without one cannot use it.
+            </span>
+          ) : status.kind === "cpu" ? null : (
+            <span className="sub">
+              {" "}
+              — runs the ordinary model graph, so a standard install needs no extra download.
             </span>
           )}
         </td>

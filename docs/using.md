@@ -82,11 +82,15 @@ provider:
 
 | Choice | Meaning |
 |---|---|
-| **Automatic** | Try every usable accelerator best-first (NPU → GPU → CPU) and fall back. The default. |
+| **Automatic** | Try every usable accelerator best-first — NPU → CPU → GPU — and fall back. The default. |
 | **Any NPU** | Only an NPU, whichever vendor this machine has. |
 | **Any GPU** | Only a GPU, whichever vendor this machine has. |
 | **CPU** | The CPU only. |
 | *a named provider* | Exactly that one — Qualcomm NPU, WebGPU, CUDA, TensorRT, DirectML, CoreML, OpenVINO or Vitis AI. |
+
+The CPU comes ahead of the GPU in **Automatic** on purpose: the only GPU measurement this project
+has shows an integrated GPU losing to a strong CPU. A discrete GPU very likely wins — measure it
+with the Benchmark tab and then pick **Any GPU** if it does.
 
 Everything except **Automatic** is strict: if the chosen backend cannot be used, the engine says
 so instead of quietly running somewhere else. That is deliberate — when you are comparing

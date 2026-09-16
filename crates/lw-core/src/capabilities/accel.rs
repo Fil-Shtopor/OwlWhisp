@@ -71,19 +71,31 @@ pub enum Accelerator {
 
 /// Every accelerator, in the order the automatic policy prefers them.
 ///
-/// NPUs first (lowest power for this workload and, on the verified Snapdragon path, the fastest),
-/// then GPUs, then CPU. Within GPUs, vendor-specific providers come before the portable one
-/// because they are generally faster when they are actually available.
+/// **NPUs, then the CPU, then GPUs** — and the CPU's position is deliberate.
+///
+/// An NPU is first because it is what this workload is shaped for: on the verified Snapdragon
+/// path it is both the fastest and the lowest-power option by a wide margin (RTF 0.0160 against
+/// 0.0324 on the CPU).
+///
+/// A GPU comes *after* the CPU because the only GPU measurement this project has shows a GPU
+/// losing: an integrated Adreno at RTF 0.0862 against 0.0324 for the same machine's 18-core CPU.
+/// A discrete desktop GPU would very likely win, but "very likely" is not a measurement, and
+/// silently choosing a path that is 2.7x slower on the one machine we can check is not a default
+/// worth shipping. A GPU is one click away in Settings, and the benchmark panel exists precisely
+/// so a user can find out which is faster on their machine rather than trusting an ordering.
+///
+/// Within GPUs, vendor-specific providers precede the portable one: when CUDA or CoreML is
+/// actually present it is the better-optimized path.
 pub const ALL_ACCELERATORS: [Accelerator; 9] = [
     Accelerator::QnnNpu,
     Accelerator::OpenVino,
     Accelerator::VitisAi,
+    Accelerator::Cpu,
     Accelerator::CoreMl,
     Accelerator::TensorRt,
     Accelerator::Cuda,
     Accelerator::DirectMl,
     Accelerator::WebGpu,
-    Accelerator::Cpu,
 ];
 
 impl Accelerator {
@@ -261,12 +273,20 @@ mod tests {
     }
 
     #[test]
-    fn automatic_order_puts_npus_first_and_cpu_last() {
+    fn automatic_order_is_npu_then_cpu_then_gpu() {
+        // The CPU's position is evidence-based, not an oversight: see the constant's docs.
         let kinds: Vec<_> = ALL_ACCELERATORS.iter().map(|a| a.kind()).collect();
-        let first_gpu = kinds.iter().position(|k| *k == AcceleratorKind::Gpu).unwrap();
         let last_npu = kinds.iter().rposition(|k| *k == AcceleratorKind::Npu).unwrap();
-        assert!(last_npu < first_gpu, "every NPU must precede every GPU");
-        assert_eq!(*ALL_ACCELERATORS.last().unwrap(), Accelerator::Cpu);
+        let cpu = kinds.iter().position(|k| *k == AcceleratorKind::Cpu).unwrap();
+        let first_gpu = kinds.iter().position(|k| *k == AcceleratorKind::Gpu).unwrap();
+        assert!(last_npu < cpu, "every NPU must precede the CPU");
+        assert!(cpu < first_gpu, "the CPU must precede every GPU");
+    }
+
+    #[test]
+    fn automatic_never_leaves_the_cpu_out() {
+        // Whatever the order, Auto must always have a fallback that works everywhere.
+        assert!(ALL_ACCELERATORS.contains(&Accelerator::Cpu));
     }
 
     #[test]

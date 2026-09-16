@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import {
+  activeBackend,
   activeHotkey,
   getSettings,
   listBackends,
   setSettings,
   type AcceleratorReport,
+  type ActiveBackend,
   type BackendOption,
   type HotkeyConfig,
   type HotkeyMode,
@@ -18,6 +20,7 @@ import {
   MODIFIER_OPTIONS,
 } from "../format";
 import {
+  describeActive,
   getLastRun,
   isCoarse,
   preferenceLabel,
@@ -197,6 +200,8 @@ export function SettingsPanel() {
   const [accelLoading, setAccelLoading] = useState(true);
   const [probeNonce, setProbeNonce] = useState(0);
   const [lastRun, setLastRun] = useState<LastRun | null>(getLastRun);
+  const [active, setActive] = useState<ActiveBackend | null>(null);
+  const [activeNonce, setActiveNonce] = useState(0);
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -264,8 +269,33 @@ export function SettingsPanel() {
     };
   }, [probeNonce]);
 
-  // A benchmark run in another tab is the only thing that says what *did* run; keep it in view.
-  useEffect(() => subscribeLastRun(setLastRun), []);
+  // What the dictation worker's engine actually selected — the answer that outranks every
+  // prediction on this screen. Null until it answers; a failure leaves it null and the screen
+  // simply says nothing about a running engine rather than guessing.
+  useEffect(() => {
+    let disposed = false;
+    void activeBackend()
+      .then((report) => {
+        if (!disposed) setActive(report);
+      })
+      .catch(() => {
+        if (!disposed) setActive(null);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [activeNonce]);
+
+  // A benchmark run in another tab both measures this machine and drops the dictation engine, so
+  // it is worth showing and it invalidates the answer above.
+  useEffect(
+    () =>
+      subscribeLastRun((run) => {
+        setLastRun(run);
+        setActiveNonce((n) => n + 1);
+      }),
+    [],
+  );
 
   // "Capture keystroke": one keydown fills both modifiers and trigger. Esc on its own cancels.
   useEffect(() => {
@@ -332,6 +362,9 @@ export function SettingsPanel() {
       const normalized = await setSettings(settings);
       setLocal(normalized);
       setStatus({ kind: "saved" });
+      // Saving makes the worker drop its engine and reload it on the next utterance, so whatever
+      // it reported a moment ago is stale: ask again rather than leave a dead engine on screen.
+      setActiveNonce((n) => n + 1);
       try {
         const accelerator = await activeHotkey();
         setRegistered(accelerator);
@@ -352,6 +385,21 @@ export function SettingsPanel() {
   const selectedOption = options.find((o) => o.value === settings.backend) ?? null;
   const selectedResolution =
     selectedOption === null ? null : resolveOption(selectedOption, accel);
+
+  /**
+   * The disagreement that matters: an engine that is loaded and running on the CPU while this
+   * selection resolves to something faster. Deliberately narrow — it compares the engine's own
+   * acceleration class against the resolved accelerator's kind, and only in the CPU direction,
+   * because a provider may legitimately report a class that is not its accelerator's kind (CoreML
+   * reports ANE while its accelerator is classed as a GPU). A warning has to be certain.
+   */
+  const cpuFallbackWarning: string | null = (() => {
+    if (active === null || !active.loaded || active.acceleration !== "CPU") return null;
+    const target = selectedResolution?.accelerator ?? null;
+    if (target === null || target.kind === "cpu") return null;
+    const why = active.notes.length === 0 ? "" : ` The engine's reasons: ${active.notes.join(" · ")}`;
+    return `The loaded engine is running on the CPU, although this selection resolves to ${target.label}.${why}`;
+  })();
 
   const renderRow = (option: BackendOption) => {
     const resolution = resolveOption(option, accel);
@@ -547,6 +595,23 @@ export function SettingsPanel() {
                 Availability could not be established: {selectedResolution.reason}
               </p>
             )}
+            {active !== null && active.loaded && (
+              <span className="sub">
+                Right now the engine is running on <strong>{describeActive(active)}</strong>
+                {active.model_id === "" ? "" : `, model ${active.model_id}`}. That is read back
+                from the engine, not predicted from this screen.
+              </span>
+            )}
+            {active !== null && !active.loaded && active.error !== null && (
+              <p className="status-err">The dictation engine could not load: {active.error}</p>
+            )}
+            {active !== null && !active.loaded && active.error === null && (
+              <span className="sub">
+                No engine is loaded yet — the first dictation loads one, and this line then reports
+                what it chose.
+              </span>
+            )}
+            {cpuFallbackWarning !== null && <p className="status-err">{cpuFallbackWarning}</p>}
             {lastRun !== null && (
               <span className="sub">
                 Last benchmark in this session ran on{" "}

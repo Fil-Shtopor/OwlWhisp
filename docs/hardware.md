@@ -167,7 +167,12 @@ return `Unavailable`. Wayland needs the `GlobalShortcuts` portal for hotkeys and
 
 - **Settings → Backend** lists Automatic, Any NPU, Any GPU, CPU, and one entry per provider.
   Providers this machine cannot use are shown with the reason.
-- **Automatic** tries every usable accelerator best-first (NPU → GPU → CPU) and falls back.
+- **Automatic** tries every usable accelerator best-first — **NPU → CPU → GPU** — and falls back.
+  The CPU sitting ahead of the GPU is deliberate: the only GPU measurement this project has shows
+  an integrated GPU losing to a strong CPU (0.0862 vs 0.0324 on the X2). A discrete GPU would very
+  likely win, but that is an expectation, and defaulting to a path 2.7× slower on the one machine
+  we can check is not worth shipping. Pick **Any GPU** (or a specific provider) to use it, and use
+  the benchmark to find out which is faster on your machine.
   Every other choice is strict: it fails rather than silently running elsewhere.
 - The engine reports the provider that **actually executed**, not the one requested, and its
   backend-selection notes say why it chose or fell back. Those appear in the benchmark report and
