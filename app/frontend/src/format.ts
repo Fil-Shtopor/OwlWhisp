@@ -35,6 +35,19 @@ export function formatEstimatedRtf(rtf: number | null): string {
   return `~${rtf.toFixed(4)} (estimated)`;
 }
 
+/**
+ * The same estimate, short enough for a table column: `~0.0145`.
+ *
+ * The leading `~` is the whole honesty marker here, so this form is **only** legal where the
+ * column header itself says the numbers are estimates and the full
+ * [`formatEstimatedRtf`] wording is still reachable (a `title`, or the expanded detail).
+ * Anywhere a number stands on its own, use `formatEstimatedRtf`.
+ */
+export function formatEstimatedRtfCompact(rtf: number | null): string {
+  if (rtf === null) return "—";
+  return `~${rtf.toFixed(4)}`;
+}
+
 /** WER arrives as a fraction (0.054 = 5.4%). */
 export function formatWer(wer: number | null): string {
   if (wer === null) return "—";

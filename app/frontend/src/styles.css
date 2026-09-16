@@ -426,18 +426,19 @@ input[type="radio"] {
 .models {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 860px;
+  gap: 12px;
+  /* Wider than the other panels: the comparison table is the point of this one. */
+  max-width: 1180px;
 }
 
 .machine-box {
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-raised);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .machine-line {
@@ -452,36 +453,329 @@ input[type="radio"] {
   border-radius: 0 6px 6px 0;
 }
 
-.model-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+/* Visually hidden, but still in the accessible name. The row toggle is one button whose label is
+   built from its cells, so each cell names its column for a screen reader. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
-.model-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
+/* ---------- Models: the comparison table ---------- */
+
+/*
+ * One row per model, one line tall, so the whole catalog can be scanned down a column. The header
+ * and every row share `--model-cols`, which is the only thing the breakpoints below change.
+ *
+ * Columns: arrow | model | family | download | languages | speed (est.) | accuracy | on disk
+ */
+.model-table {
+  --model-cols: 18px minmax(0, 1fr) 92px 72px 76px 108px 156px 92px;
+  --model-gap: 10px;
+  --model-pad: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-raised);
 }
 
-.model-card.recommended {
-  border-color: var(--accent);
+.model-thead,
+.mrow-main {
+  display: grid;
+  grid-template-columns: var(--model-cols);
+  column-gap: var(--model-gap);
+  align-items: center;
 }
 
-.model-head {
-  display: flex;
+.model-thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px var(--model-pad);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+
+.model-thead .mcell {
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 1px;
 }
 
-.model-name {
+.model-thead .mcell.num {
+  align-items: flex-end;
+}
+
+.th-sort {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.th-sort:hover {
+  color: var(--text);
+}
+
+.th-sort.active {
+  color: var(--accent);
+}
+
+.th-arrow {
+  font-size: 9px;
+}
+
+/* The column's honesty note: "estimated", "tier · measured WER". */
+.th-note {
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.model-rows {
+  list-style: none;
   margin: 0;
-  font-size: 16px;
+  padding: 0;
+}
+
+.mrow {
+  border-top: 1px solid var(--border);
+}
+
+.mrow:first-child {
+  border-top: 0;
+}
+
+.mrow.open {
+  background: rgba(137, 180, 250, 0.05);
+}
+
+.mrow-main {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  padding: 6px var(--model-pad);
+  cursor: pointer;
+}
+
+.mrow-main:hover {
+  background: rgba(229, 231, 238, 0.04);
+}
+
+.mrow-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The recommended entry keeps its marker at a glance, collapsed or not. */
+.mrow.recommended .mrow-main {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.mrow.blocked .mname {
+  color: var(--text-dim);
+}
+
+.mcell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mcell.num {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.mcell-arrow {
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.mcell-family,
+.mcell-langs {
+  color: var(--text-dim);
+}
+
+.mname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.mcell-name .badge {
+  margin-left: 0;
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+/* Stands in for the family column once it has been dropped for width. */
+.mname-family {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.mcell-state .badge {
+  font-size: 11px;
+  padding: 0 7px;
+  margin-left: 0;
+}
+
+/* The hardware the estimate assumes — "fast" means nothing without saying on what. */
+.hw-chip {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  background: rgba(154, 160, 176, 0.12);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+/*
+ * Accuracy holds two different kinds of fact and they must never look alike: the tier is an
+ * editorial ranking (a neutral outlined pill), the WER is a real measurement (green, monospace,
+ * the same green the `measured` badge uses everywhere else).
+ */
+.tier {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--text-dim);
+}
+
+.acc-wer {
+  flex: 0 0 auto;
+  color: #22c55e;
+  font-size: 12px;
+}
+
+/* A download in flight is never behind the arrow: this sits outside the toggle. */
+.mrow-live {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--model-pad) 10px calc(var(--model-pad) + 24px);
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress-head .progress-bar {
+  flex: 1 1 auto;
+}
+
+.mrow-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px var(--model-pad) 16px calc(var(--model-pad) + 24px);
+}
+
+.model-legend {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  line-height: 1.6;
+}
+
+.model-legend code {
+  font-family: Consolas, monospace;
+}
+
+/* Narrow: drop the languages column, which is the least load-bearing of the set. */
+@media (max-width: 1060px) {
+  .model-table {
+    --model-cols: 18px minmax(0, 1fr) 92px 72px 108px 156px 92px;
+  }
+
+  .mcell-langs {
+    display: none;
+  }
+
+}
+
+/*
+ * Narrower still: the family column folds into the model cell rather than disappearing, and the
+ * badges shrink to their glyphs — their words stay in the accessible name and in the tooltip.
+ */
+@media (max-width: 880px) {
+  .model-table {
+    --model-cols: 16px minmax(0, 1fr) 70px 68px 140px 76px;
+    --model-gap: 6px;
+    --model-pad: 8px;
+  }
+
+  /* Header labels have to fit columns this narrow without being clipped. */
+  .th-sort {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+
+  .mcell-family {
+    display: none;
+  }
+
+  .mname-family {
+    display: inline;
+  }
+
+  .hw-chip {
+    display: none;
+  }
+
+  .badge-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .model-desc {
@@ -533,6 +827,7 @@ input[type="radio"] {
 .measured {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
 }
 
