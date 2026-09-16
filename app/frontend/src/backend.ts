@@ -249,20 +249,46 @@ export function appliesTo(run: LastRun, preference: BackendPreference): boolean 
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The loaded engine's own answer, in the same shape as `BenchReport.backend` ("QNN on NPU"),
- * with the device appended when it named one.
+ * The accelerator the engine says it used, matched by stable id.
+ *
+ * `active.accelerator` is the same vocabulary as `AcceleratorStatus.id`, so this is an exact
+ * lookup — never a match on display text, which is reworded freely on the Rust side.
+ */
+export function activeAccelerator(
+  active: ActiveBackend,
+  report: AcceleratorReport | null,
+): AcceleratorStatus | null {
+  const id = active.accelerator;
+  if (id === null || report === null || report.error !== null) return null;
+  return findAccelerator(report, id);
+}
+
+/**
+ * The engine's own words for what it is on, in the same shape as `BenchReport.backend`
+ * ("QNN on NPU"). Display text: shown to the user, never matched on.
  *
  * Every part is optional in the contract, so each is checked rather than assumed: a `loaded`
- * engine that named nothing still gets a truthful line instead of "null on null".
+ * engine that named nothing still gets a truthful string instead of "null on null".
  */
-export function describeActive(active: ActiveBackend): string {
-  const { provider, acceleration, device } = active;
-  let head: string;
-  if (provider !== null && acceleration !== null) head = `${provider} on ${acceleration}`;
-  else if (provider !== null) head = provider;
-  else if (acceleration !== null) head = acceleration;
-  else head = "an engine that did not name its provider";
-  return device === null ? head : `${head} (${device})`;
+export function activeDisplayText(active: ActiveBackend): string {
+  const { provider, acceleration } = active;
+  if (provider !== null && acceleration !== null) return `${provider} on ${acceleration}`;
+  if (provider !== null) return provider;
+  if (acceleration !== null) return acceleration;
+  return "an engine that did not name its provider";
+}
+
+/**
+ * What the engine is on, for the visible line.
+ *
+ * The canonical label from the accelerator list wins when the stable id identifies one, so this
+ * screen names a provider exactly as the picker and the table name it. The engine's own display
+ * text is the fallback, for an id this build's probe does not list.
+ */
+export function describeActive(active: ActiveBackend, report: AcceleratorReport | null): string {
+  const known = activeAccelerator(active, report);
+  const head = known === null ? activeDisplayText(active) : known.label;
+  return active.device === null ? head : `${head} — ${active.device}`;
 }
 
 /** How far the line can be trusted, which also decides how it is styled. */
@@ -300,10 +326,12 @@ export function runningBackendLine(
   // 1. The engine's own answer. It needs no preference and outranks everything below.
   if (active !== null && active.loaded) {
     const model = active.model_id === "" ? "" : `, model ${active.model_id}`;
-    const read = `Read back from the loaded engine${model}.`;
+    // The engine's display text goes in the tooltip: the visible line is named from the stable
+    // id, so the label here and the label in the picker cannot drift apart.
+    const read = `The engine reports ${activeDisplayText(active)}${model}.`;
     return {
       tone: "running",
-      text: `Running on ${describeActive(active)}.`,
+      text: `Running on ${describeActive(active, report)}.`,
       detail:
         active.notes.length === 0
           ? read

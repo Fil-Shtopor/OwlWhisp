@@ -8,6 +8,7 @@ import {
   type AcceleratorReport,
   type ActiveBackend,
   type BackendOption,
+  type BackendPreference,
   type HotkeyConfig,
   type HotkeyMode,
   type Settings,
@@ -20,6 +21,8 @@ import {
   MODIFIER_OPTIONS,
 } from "../format";
 import {
+  activeAccelerator,
+  activeDisplayText,
   describeActive,
   getLastRun,
   isCoarse,
@@ -191,6 +194,10 @@ function BackendRow({
 
 export function SettingsPanel() {
   const [settings, setLocal] = useState<Settings | null>(null);
+  // The preference as *saved*, which is what the running engine was built from. The edited copy
+  // above can differ the moment a radio is clicked, and comparing the engine against an unsaved
+  // edit would accuse it of a fallback it never made.
+  const [savedBackend, setSavedBackend] = useState<BackendPreference | null>(null);
   // Null until `list_backends` answers: the labels belong to the Rust side, so there is nothing
   // honest to show before it does.
   const [backends, setBackends] = useState<BackendOption[] | null>(null);
@@ -215,7 +222,10 @@ export function SettingsPanel() {
     let disposed = false;
     void getSettings()
       .then((s) => {
-        if (!disposed) setLocal(s);
+        if (!disposed) {
+          setLocal(s);
+          setSavedBackend(s.backend);
+        }
       })
       .catch((e: unknown) => {
         if (!disposed) setLoadError(String(e));
@@ -361,6 +371,7 @@ export function SettingsPanel() {
     try {
       const normalized = await setSettings(settings);
       setLocal(normalized);
+      setSavedBackend(normalized.backend);
       setStatus({ kind: "saved" });
       // Saving makes the worker drop its engine and reload it on the next utterance, so whatever
       // it reported a moment ago is stale: ask again rather than leave a dead engine on screen.
@@ -386,19 +397,34 @@ export function SettingsPanel() {
   const selectedResolution =
     selectedOption === null ? null : resolveOption(selectedOption, accel);
 
+  // What the *saved* preference resolves to, which is what the loaded engine was built from.
+  const savedOption =
+    savedBackend === null ? null : (options.find((o) => o.value === savedBackend) ?? null);
+  const savedResolution = savedOption === null ? null : resolveOption(savedOption, accel);
+
   /**
-   * The disagreement that matters: an engine that is loaded and running on the CPU while this
-   * selection resolves to something faster. Deliberately narrow — it compares the engine's own
-   * acceleration class against the resolved accelerator's kind, and only in the CPU direction,
-   * because a provider may legitimately report a class that is not its accelerator's kind (CoreML
-   * reports ANE while its accelerator is classed as a GPU). A warning has to be certain.
+   * The engine ran somewhere other than where the saved preference points.
+   *
+   * Both sides are now stable ids — `active.accelerator_kind` against the resolved accelerator's
+   * `kind` — so this compares vocabulary, not wording, and cannot go quiet if a Display impl is
+   * reworded. That also retires the one-directional narrowing the old string test needed: the
+   * CoreML case is a non-issue here, because its accelerator is classed `gpu` on both sides. Any
+   * direction of mismatch is now reported, since an engine on the NPU while the setting says CPU
+   * is just as much a surprise as the reverse.
+   *
+   * It is compared against the *saved* preference on purpose. Clicking a radio changes the edited
+   * copy immediately, and an engine still faithfully running the saved choice must not be accused
+   * of a fallback because of an edit that has not been applied yet.
    */
-  const cpuFallbackWarning: string | null = (() => {
-    if (active === null || !active.loaded || active.acceleration !== "CPU") return null;
-    const target = selectedResolution?.accelerator ?? null;
-    if (target === null || target.kind === "cpu") return null;
+  const acceleratorMismatch: string | null = (() => {
+    if (active === null || !active.loaded) return null;
+    const runningKind = active.accelerator_kind;
+    const target = savedResolution?.accelerator ?? null;
+    // A null on either side is "cannot tell", which is not a disagreement.
+    if (runningKind === null || target === null || runningKind === target.kind) return null;
+    const runningLabel = activeAccelerator(active, accel)?.label ?? activeDisplayText(active);
     const why = active.notes.length === 0 ? "" : ` The engine's reasons: ${active.notes.join(" · ")}`;
-    return `The loaded engine is running on the CPU, although this selection resolves to ${target.label}.${why}`;
+    return `The loaded engine is running on ${runningLabel}, although the saved preference resolves to ${target.label}.${why}`;
   })();
 
   const renderRow = (option: BackendOption) => {
@@ -597,7 +623,7 @@ export function SettingsPanel() {
             )}
             {active !== null && active.loaded && (
               <span className="sub">
-                Right now the engine is running on <strong>{describeActive(active)}</strong>
+                Right now the engine is running on <strong>{describeActive(active, accel)}</strong>
                 {active.model_id === "" ? "" : `, model ${active.model_id}`}. That is read back
                 from the engine, not predicted from this screen.
               </span>
@@ -611,7 +637,9 @@ export function SettingsPanel() {
                 what it chose.
               </span>
             )}
-            {cpuFallbackWarning !== null && <p className="status-err">{cpuFallbackWarning}</p>}
+            {acceleratorMismatch !== null && (
+              <p className="status-err">{acceleratorMismatch}</p>
+            )}
             {lastRun !== null && (
               <span className="sub">
                 Last benchmark in this session ran on{" "}

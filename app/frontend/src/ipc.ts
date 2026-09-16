@@ -165,7 +165,12 @@ export interface ActiveBackend {
   /** False until the first dictation: the engine loads lazily, and before that nothing is running. */
   loaded: boolean;
   provider: string | null;
+  /** Display text for the acceleration class. Do not match on this — use `accelerator_kind`. */
   acceleration: string | null;
+  /** Stable accelerator id (`"qnn_npu"`, `"web_gpu"`, …), matching `AcceleratorStatus.id`. */
+  accelerator: string | null;
+  /** That accelerator's class as a stable id: `"cpu"` | `"gpu"` | `"npu"`. */
+  accelerator_kind: AcceleratorKind | null;
   device: string | null;
   notes: string[];
   model_id: string;

@@ -200,8 +200,13 @@ pub struct ActiveBackend {
     pub loaded: bool,
     /// The execution provider that actually ran, read back from the engine.
     pub provider: Option<String>,
-    /// Its acceleration class (CPU / GPU / NPU / ANE).
+    /// Its acceleration class (CPU / GPU / NPU / ANE), for display.
     pub acceleration: Option<String>,
+    /// The selected accelerator's stable id (`"qnn_npu"`, `"web_gpu"`, …). Compare against this,
+    /// never against the display strings above.
+    pub accelerator: Option<String>,
+    /// That accelerator's class as a stable id (`"cpu"` / `"gpu"` / `"npu"`).
+    pub accelerator_kind: Option<String>,
     /// Device description.
     pub device: Option<String>,
     /// Backend-selection notes, including the reason for any fallback.
@@ -334,6 +339,11 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                         loaded: true,
                         provider: Some(l.engine.provider().to_string()),
                         acceleration: Some(l.engine.acceleration().to_string()),
+                        accelerator: l.engine.accelerator().map(|a| a.id().to_string()),
+                        accelerator_kind: l
+                            .engine
+                            .accelerator()
+                            .map(|a| a.kind().label().to_ascii_lowercase()),
                         device: Some(l.engine.device().name.clone()),
                         notes: l.engine.notes().to_vec(),
                         model_id: l.settings.model_id.clone(),
@@ -343,6 +353,8 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                         loaded: false,
                         provider: None,
                         acceleration: None,
+                        accelerator: None,
+                        accelerator_kind: None,
                         device: None,
                         notes: Vec::new(),
                         model_id: String::new(),

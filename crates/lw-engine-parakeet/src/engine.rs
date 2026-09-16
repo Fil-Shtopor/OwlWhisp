@@ -482,6 +482,10 @@ impl SpeechEngine for ParakeetEngine {
         Ok(())
     }
 
+    fn accelerator(&self) -> Option<Accelerator> {
+        self.selected
+    }
+
     fn notes(&self) -> &[String] {
         &self.notes
     }

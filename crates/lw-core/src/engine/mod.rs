@@ -203,6 +203,15 @@ pub trait SpeechEngine: Send {
             "streaming not supported by this engine".into(),
         ))
     }
+    /// The accelerator the engine actually selected, once initialized.
+    ///
+    /// A stable id rather than a display string: a UI that needs to reason about *what* ran (say,
+    /// to warn that a GPU preference ended up on the CPU) must not do it by matching prose that
+    /// can be reworded. Engines that do not choose return `None`.
+    fn accelerator(&self) -> Option<crate::capabilities::Accelerator> {
+        None
+    }
+
     /// Notes recorded while selecting a backend, in order.
     ///
     /// This is how a fallback becomes visible instead of silent: when an engine asks for the NPU
