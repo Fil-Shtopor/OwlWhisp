@@ -227,6 +227,14 @@ pub struct ActiveBackend {
     pub error: Option<String>,
 }
 
+/// How many fixture clips a benchmark uses.
+///
+/// The whole committed set is twelve (three each in en/ru/es/uk). Taking all of them costs a few
+/// seconds per backend -- engine load dominates a run, not transcription -- and in exchange the
+/// WER covers four languages rather than only English. `measure` scores only the languages the
+/// model claims, so an English-only model is still judged on English alone.
+const BENCH_CLIPS: usize = 12;
+
 /// A benchmark report: every number in it was measured on this machine by this run.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct BenchReport {
@@ -312,7 +320,7 @@ fn run_benchmark_suite(
     }
 
     // Load once. Every backend must see identical audio or the comparison means nothing.
-    let clips = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+    let clips = lw_core::bench::quick_clips(None, BENCH_CLIPS).map_err(|e| e.to_string())?;
     let clip_source = clips.1.describe();
     let total = usable.len();
 
@@ -415,14 +423,17 @@ fn run_benchmark_job(
     engine.initialize(&ctx).map_err(|e| e.to_string())?;
     let engine_load_ms = t0.elapsed().as_secs_f32() * 1000.0;
 
-    // Three clips keeps a first NPU run tolerable; the CLI's `--quick` uses the same number.
+    // The whole fixture set. Transcription is not what makes a sweep slow -- loading an engine
+    // is, and a first NPU run additionally prepares a context binary. At the measured rates,
+    // twelve clips instead of three costs a few seconds per backend and buys a WER over four
+    // languages instead of three English clips.
     // Comparing backends is only meaningful on identical audio, so a suite loads the clips once
     // and hands the same set to every run.
     let owned;
     let (clips, source) = match clips {
         Some(c) => (&c.0, c.1.clone()),
         None => {
-            owned = lw_core::bench::quick_clips(None, 3).map_err(|e| e.to_string())?;
+            owned = lw_core::bench::quick_clips(None, BENCH_CLIPS).map_err(|e| e.to_string())?;
             (&owned.0, owned.1.clone())
         }
     };
@@ -661,9 +672,13 @@ mod tests {
 
     /// Run the full comparison the Benchmark tab's "compare all" offers, on real hardware.
     ///
-    /// Ignored by default: it needs an installed model and measures every usable accelerator, so
-    /// it takes minutes. Run with
-    /// `cargo test -p localwisper --lib -- --ignored --nocapture`.
+    /// Ignored by default: it needs an installed model and measures every usable accelerator. Run
+    /// with `cargo test -p localwisper --lib -- --ignored --nocapture`.
+    ///
+    /// Note: the test binary exits with STATUS_STACK_BUFFER_OVERRUN *after* reporting success,
+    /// because the WebGPU provider crashes on library detach and `cargo test` owns `main`, so it
+    /// cannot use `lw_ort::exit_without_teardown` the way the CLI and the app do. The test result
+    /// above that line is the real one.
     #[test]
     #[ignore = "needs an installed model; run explicitly"]
     fn benchmark_suite_compares_every_usable_backend() {
