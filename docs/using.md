@@ -116,7 +116,39 @@ what each one needs.
 
 ---
 
-## 5. Benchmarking your own machine
+## 5. Sounds and starting with the computer
+
+Both live in Settings.
+
+**Start at login.** One checkbox, working the same way on Windows, macOS and Linux. It applies
+immediately rather than waiting for Save, and it reports **what the operating system says
+afterwards** — a managed or locked-down machine can refuse the registration, and a checkbox that
+claimed otherwise would be lying. If you remove the entry outside the app (Task Manager,
+`launchctl`, your desktop's startup list), the app notices at next launch and follows the OS.
+
+**Cue sounds.** A short sound when recording starts and another when it stops. Four themes:
+
+| Theme | What it is |
+|---|---|
+| **Chime** | Two soft tones, rising to start and falling to stop. The default. |
+| **Blip** | A single short pip. The most discreet. |
+| **Click** | A percussive tick with almost no pitch. |
+| **Marimba** | A struck-bar tone with a fast decay. |
+
+Every theme's start and stop are mirror images — rising means "listening", falling means "done" —
+so that is the only thing to learn, and it survives changing the theme. There is a preview button:
+it plays whatever the controls on screen say right now, not the last thing you saved.
+
+The sounds are **synthesized, not shipped**: generated from a formula at your output device's own
+sample rate. Nothing to bundle, nothing to license, no resampling, and every cue is under 200 ms
+and fades in and out so it never clicks.
+
+Cues are deliberately limited to the two moments you can act on. Finishing and failing are silent:
+by then the text has appeared, or it has not, which is feedback enough.
+
+---
+
+## 6. Benchmarking your own machine
 
 The **Benchmark** tab measures the selected model here and now. It reports:
 
@@ -133,12 +165,31 @@ Benchmarks run on the dictation worker, so dictation pauses while one is in flig
 deliberate: two engines would mean two QNN sessions competing for one Hexagon context, and the
 failure would look like a benchmark result.
 
+### Comparing every backend at once
+
+**Compare all backends** measures every accelerator this machine can use, one after another, and
+puts them side by side — instead of running each one and writing the numbers down yourself.
+
+All runs use **one clip set, loaded once**. That is the point: numbers measured on different audio
+would not be comparable. The result marks two winners, and they are often not the same row:
+
+- **fastest** — lowest *warm* RTF, because the cold run carries one-time setup that says nothing
+  about steady-state dictation;
+- **most accurate** — lowest word error rate.
+
+On the X2, for example, the NPU is fastest while the CPU is the most accurate (its int8 encoder
+happens to win on these clips). Accelerators that could not run are listed with the reason rather
+than hidden.
+
+It takes **minutes**: each backend loads its own engine, and a first NPU run also prepares a
+context binary. Progress shows which one is being measured.
+
 The equivalent from a terminal is `lw bench --quick`, which shares the same measurement code — see
 [`benchmarks.md`](benchmarks.md).
 
 ---
 
-## 6. Diagnostics and logs
+## 7. Diagnostics and logs
 
 The **Diagnostics** tab reports the ONNX Runtime it found, whether the QNN provider DLL is present,
 whether an NPU device actually enumerated, and the app/OS versions. "Present" and "usable" are
@@ -153,7 +204,7 @@ written — the logs carry device, backend and version facts only.
 
 ---
 
-## 7. Where things live
+## 8. Where things live
 
 | What | Windows | macOS | Linux |
 |---|---|---|---|

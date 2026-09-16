@@ -51,8 +51,9 @@ are surfaced in `THIRD_PARTY_NOTICES`.
 | `reqwest` (native-tls), `tokio`, `futures`, `serde`, `serde_json`, `thiserror`, `anyhow`, `tracing`, `sha2`, `hex`, `directories`, `sysinfo`, `regex`, `unicode-normalization`, `zip`, `tar`, `bzip2`, `flate2`, `clap`, `indicatif`, `uuid`, `chrono`, `parking_lot`, `crossbeam-channel`, `tokio-util` | MIT / Apache-2.0 (permissive) |
 | `schannel` (Windows TLS, via native-tls) | MIT |
 
-No copyleft (GPL/AGPL/LGPL) code is linked **in the default build**. See §"Optional sherpa engine"
-below for the one build configuration where that is not automatically true. TLS uses the OS provider (SChannel/Secure Transport)
+No copyleft (GPL/AGPL/LGPL) code is linked in any shipped build. The one configuration where that
+could go wrong — the optional `sherpa` engine — is covered below, along with the build step that
+prevents it. TLS uses the OS provider (SChannel/Secure Transport)
 via `native-tls`, avoiding `aws-lc-rs`/`rustls` (also removes an ARM64 assembler build problem).
 
 ## Frontend dependencies
@@ -60,38 +61,50 @@ via `native-tls`, avoiding `aws-lc-rs`/`rustls` (also removes an ARM64 assembler
 React, Vite, TypeScript, `@tauri-apps/api` and the Tauri plugin JS packages — all MIT or
 Apache-2.0. Enumerated in `app/frontend/package.json`; a full SBOM is produced at release time.
 
-## Optional `sherpa` engine — a GPL trap to avoid
+## The `sherpa` engine — a GPL trap, and how this project avoids it
 
-`lw-engine-sherpa` (the portable CPU engine that provides Whisper, Moonshine, SenseVoice, …) is
-**off by default**: without `--features sherpa` the crate `sherpa-onnx` is not in the dependency
-graph at all, and the shipped binary contains none of the code below.
+`lw-engine-sherpa` provides Whisper, Moonshine, SenseVoice and NeMo/Zipformer models. Enabling it
+is a build-time decision (`--features sherpa`), and it comes with a licensing hazard that is worth
+stating precisely, because the obvious build is the wrong one.
 
-When the feature IS enabled, the `sherpa-onnx` crate downloads a prebuilt native archive, and the
-**default archive statically links `espeak-ng`, which is GPL-3.0-or-later** (it is there for
-sherpa-onnx's text-to-speech features, which LocalWisper never calls).
+**The hazard.** The `sherpa-onnx-sys` crate downloads a prebuilt native archive. The archive it
+chooses by default statically links **espeak-ng, GPL-3.0-or-later**, together with
+piper_phonemize and ucd. Those exist for sherpa-onnx's *text-to-speech* features, which LocalWisper
+never calls. But this application also ships the **Qualcomm QNN runtime under a proprietary
+licence**, and GPL-3.0 and that licence cannot both bind one work. A build that links espeak-ng
+*and* bundles the Qualcomm libraries must not be distributed.
 
-That matters because this app also ships the **Qualcomm QNN runtime under a proprietary licence**.
-GPL-3.0 and that proprietary licence cannot both bind one binary, so a build that links espeak-ng
-*and* bundles the Qualcomm DLLs must not be distributed.
+**The fix, and the wrinkle.** sherpa-onnx publishes `-no-tts` archives that omit all three. Every
+remaining component is permissive:
 
-**How to build the sherpa engine without GPL code:** sherpa-onnx publishes `-no-tts` archives that
-omit espeak-ng (and piper-phonemize). Point the build at one instead of letting it fetch the default:
+| Component | Licence |
+|---|---|
+| sherpa-onnx | Apache-2.0 |
+| ONNX Runtime (sherpa's own static copy) | MIT |
+| kaldi-native-fbank, kaldi-decoder, kaldifst, openfst derivatives | Apache-2.0 |
+| kissfft | BSD-3-Clause |
+| ssentencepiece | Apache-2.0 |
 
-```bash
-# download e.g. sherpa-onnx-v1.13.6-win-arm64-static-MT-Release-no-tts-lib.tar.bz2 into <dir>
-export SHERPA_ONNX_ARCHIVE_DIR=<dir>      # or SHERPA_ONNX_LIB_DIR for pre-extracted libs
+The wrinkle: `sherpa-onnx-sys` emits `-l static=espeak-ng`, `-l piper_phonemize` and `-l ucd`
+**unconditionally**, so linking against a no-tts archive fails with *"could not find native static
+library"*. There is no crate feature to turn that off, in any published version.
+
+`scripts/build/fetch-sherpa.ps1` resolves it: it fetches the no-tts archive and generates three
+**empty** static libraries under those names. Nothing references their symbols — the no-tts build
+of sherpa-onnx-core was compiled without TTS — so the link succeeds and no TTS code of any licence
+enters the binary. The stubs satisfy a spurious flag; they stand in for nothing. The script also
+refuses to run if a future archive starts shipping a real espeak-ng again.
+
+```powershell
+$env:SHERPA_ONNX_LIB_DIR = (pwsh -File scriptsuildetch-sherpa.ps1 -Quiet)
 cargo build --release -p lw-cli --features sherpa
 ```
 
-Before shipping any binary with `--features sherpa`, verify which archive was linked and update
-`THIRD_PARTY_NOTICES.md` accordingly. Components in the no-tts archive
-(sherpa-onnx Apache-2.0, ONNX Runtime MIT, kaldi-native-fbank Apache-2.0, kissfft BSD-3-Clause,
-kaldi-decoder/openfst derivatives Apache-2.0) are all permissive.
+**Verified** on Windows ARM64: the build links, all 44 `lw-engine-sherpa` tests pass, and the
+staged library directory contains no espeak-ng, piper_phonemize or ucd beyond the 1 KB stubs.
 
-Note also that `sherpa-onnx-sys`'s **build script** pulls `ureq → rustls → ring` to download that
-archive. Those are build-dependencies only — they are never linked into the shipped binary — but
-`ring` will not compile with MSVC on Windows ARM64, so that build additionally needs `clang` on
-`PATH` (see [`build.md`](build.md)).
+`sherpa-onnx-sys`'s **build script** additionally pulls `ureq → rustls → ring` to download the
+archive. Those are build-dependencies only and are never linked into the shipped binary.
 
 ## Explicitly excluded (copyleft or restrictive — used only as references, never linked)
 

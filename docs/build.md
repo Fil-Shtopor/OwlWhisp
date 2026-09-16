@@ -133,3 +133,40 @@ cargo test --workspace -- --ignored   # integration tests that need the model + 
   platform module. ANE acceleration is not verified on our hardware — see `x2-npu.md` §macOS.
 - **Linux**: `cargo build --release`; the platform layer is scaffolding (audio via cpal compiles;
   hotkeys/injection are stubs returning `Unavailable`). ORT CPU EP works.
+
+## Optional: the `sherpa` engine (Whisper, Moonshine, SenseVoice, …)
+
+Off by default because it links a ~130 MB native archive. Enabling it needs one extra step, and
+that step is **not optional** — building it the obvious way links GPL-3.0 espeak-ng, which cannot
+ship alongside the proprietary Qualcomm runtime. See [`licenses.md`](licenses.md) for the full
+reasoning.
+
+```powershell
+# Fetch the no-tts archive and generate the stub libraries the crate's link flags demand.
+$env:SHERPA_ONNX_LIB_DIR = (pwsh -File scripts\build\fetch-sherpa.ps1 -Quiet)
+cargo build --release -p lw-cli --features sherpa
+```
+
+Bash:
+
+```bash
+export SHERPA_ONNX_LIB_DIR="$(powershell -NoProfile -File scripts/build/fetch-sherpa.ps1 -Quiet)"
+cargo build --release -p lw-cli --features sherpa
+```
+
+The script is idempotent: it re-uses an already-staged archive and only downloads once. It also
+refuses to continue if the archive it fetched contains a real espeak-ng, so the licence guarantee
+cannot silently lapse when upstream changes.
+
+**Verified** on Windows ARM64 with sherpa-onnx 1.13.6: the build links and all 44
+`lw-engine-sherpa` tests pass.
+
+## Packaging
+
+`cargo tauri build` produces the native installers for the host platform (`bundle.targets` is
+`all`): `.exe`/`.msi` on Windows, `.dmg`/`.app` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux.
+`build.rs` copies `runtime/<platform>/` into the bundle first, so an installed application has its
+ONNX Runtime and execution providers beside it.
+
+Note that `targets: "all"` on Windows builds both NSIS and WiX/MSI, and the Tauri CLI downloads
+each toolchain on first use. To build just one: `cargo tauri build --bundles nsis`.

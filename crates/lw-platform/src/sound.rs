@@ -108,6 +108,33 @@ fn play_blocking(theme: SoundTheme, cue: Cue, volume: f32) -> Result<(), String>
 mod tests {
     use super::*;
 
+    /// Actually open the default output device and play every cue.
+    ///
+    /// Ignored by default because it needs a sound card and makes a noise; CI has neither. Run it
+    /// on a real machine with
+    /// `cargo test -p lw-platform --lib -- --ignored --nocapture` and listen.
+    #[test]
+    #[ignore = "needs an output device and makes a noise; run explicitly"]
+    fn plays_every_cue_on_the_real_device() {
+        for theme in lw_core::sound::ALL_SOUND_THEMES {
+            for cue in [Cue::Start, Cue::Stop] {
+                let started = std::time::Instant::now();
+                let result = play_blocking(theme, cue, 0.5);
+                println!(
+                    "{:<10} {:<6} {:>6} ms  {}",
+                    theme.label(),
+                    format!("{cue:?}"),
+                    started.elapsed().as_millis(),
+                    match &result {
+                        Ok(()) => "ok".to_string(),
+                        Err(e) => format!("FAILED: {e}"),
+                    }
+                );
+                result.unwrap_or_else(|e| panic!("{theme:?}/{cue:?}: {e}"));
+            }
+        }
+    }
+
     #[test]
     fn silent_volume_does_not_touch_the_audio_device() {
         // Also the CI guarantee: this must not need an output device to run.
