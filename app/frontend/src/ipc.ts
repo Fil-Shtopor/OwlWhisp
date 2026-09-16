@@ -574,6 +574,18 @@ export interface TranscriptPayload {
   provider: string;
 }
 
+/**
+ * Subscribe to dictation failures reported by the worker.
+ *
+ * These are the things that stop an utterance: the microphone refusing to open (including a
+ * configured device that is no longer present), the engine failing to load, capture failing
+ * mid-utterance. The state machine flashes through `error` back to `idle`, so without this the
+ * user sees a blink and no reason.
+ */
+export function onWorkerError(handler: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>("worker_error", (event) => handler(event.payload));
+}
+
 /** Subscribe to finished transcripts. Returns the unlisten function. */
 export function onTranscript(handler: (payload: TranscriptPayload) => void): Promise<UnlistenFn> {
   return listen<TranscriptPayload>("transcript", (event) => handler(event.payload));

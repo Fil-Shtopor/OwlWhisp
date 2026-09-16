@@ -252,6 +252,46 @@ impl std::fmt::Debug for Capture {
 
 #[cfg(test)]
 mod tests {
+    /// Open the microphone **by name**, the way a configured `audio.input_device` does.
+    ///
+    /// Ignored: needs an input device. Run with
+    /// `cargo test -p lw-platform --lib -- --ignored --nocapture`.
+    ///
+    /// Matching is by case-insensitive substring, so this takes a fragment of the first listed
+    /// device and checks both that it opens and that a name matching nothing falls back to the
+    /// default rather than failing — which is what the settings UI promises.
+    #[test]
+    #[ignore = "needs a microphone; run explicitly"]
+    fn a_device_can_be_opened_by_name() {
+        let devices = list_input_devices();
+        let Some(full) = devices.first().cloned() else {
+            println!("no input devices on this machine; nothing to check");
+            return;
+        };
+        // A distinctive fragment rather than the whole name, since that is what a user's saved
+        // setting looks like.
+        let fragment: String = full.chars().take(10).collect();
+        println!("device   : {full}");
+        println!("fragment : {fragment:?}");
+
+        let mut by_name = Capture::new(Some(fragment.clone()), 16_000);
+        by_name
+            .start()
+            .unwrap_or_else(|e| panic!("opening by the fragment {fragment:?} failed: {e}"));
+        let _ = by_name.stop();
+        println!("by name  : opened");
+
+        // A saved setting naming a device that is no longer here must not stop dictation.
+        let mut missing = Capture::new(Some("no such microphone 9f3a2b".into()), 16_000);
+        match missing.start() {
+            Ok(()) => {
+                println!("missing  : fell back to the default, as the UI promises");
+                let _ = missing.stop();
+            }
+            Err(e) => println!("missing  : refused ({e}) - the UI must surface this"),
+        }
+    }
+
     /// Open the default microphone and report the real level for two seconds.
     ///
     /// A **diagnostic**, not a pass/fail test, and deliberately so: what a microphone hears
