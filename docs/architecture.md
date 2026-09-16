@@ -13,9 +13,16 @@ platforms and models can change without touching the rest._
    detector; diagnostics always report the *actual* backend/provider/device. CPU fallback is never
    removed.
 3. **One inference runtime.** ONNX Runtime (via the `ort` crate, `load-dynamic`) is the single ML
-   runtime. The Qualcomm NPU is reached through ORT's plugin QNN EP; macOS acceleration through
-   ORT's CoreML EP (or a CoreML bridge). This keeps the mel front end and TDT decoder identical
+   runtime, and every accelerator reaches it the same way — as a **plugin execution provider**
+   registered by name (`lw_core::capabilities::Accelerator` is the vocabulary: CPU, Qualcomm NPU,
+   WebGPU, CUDA, TensorRT, DirectML, CoreML, OpenVINO, Vitis AI). Adding a vendor is a variant plus
+   a staged library, not a new runtime. This keeps the mel front end and TDT decoder identical
    across backends.
+
+   The one asymmetry worth knowing: a GPU consumes the ordinary graph, so one artifact serves every
+   GPU vendor, while an NPU wants a graph quantized and compiled for that silicon
+   (`Accelerator::needs_dedicated_artifact`). That is why GPU coverage generalizes and NPU coverage
+   has to be earned per vendor.
 4. **Native ARM64 first.** The app's own code is native `aarch64-pc-windows-msvc`; no x86 emulation
    for our binary. Dependencies are native ARM64 wherever a build exists.
 5. **No Python in the shipped runtime.** Python is used only for model conversion / QNN compilation /
@@ -36,7 +43,7 @@ crates/
     model/              #   model manifest, registry, downloader, SHA-256 verify, cache
     diagnostics/        #   capability report, latency metrics, redacted diag bundle
     capabilities/       #   OS/CPU/NPU detection data model
-  lw-ort/               # ONNX Runtime layer: dynamic load, plugin-EP (QNN) registration,
+  lw-ort/               # ONNX Runtime layer: dynamic load, plugin-EP registration (any vendor),
                         #   runtime-manifest verification, session helpers, EPContext cache
   lw-vad-silero/        # Silero VAD implementation of lw-core::vad::Vad on ort
   lw-engine-parakeet/   # Parakeet TDT engine: Rust mel front end + encoder backend + TDT greedy
@@ -84,10 +91,17 @@ engine that *wants* the NPU but had to fall back reports `Provider::OnnxCpu`, ne
   hop 160, 128 Slaney mel bins (fmin 0, fmax 8000, area-normalized), `ln(x + 2⁻²⁴)`, per-feature
   mean/unbiased-std normalization. Runs on CPU always (the ONNX STFT op is CPU-only on every EP).
 - **Encoder backend** (`EncoderBackend` trait): the only stage that moves between devices.
-  - `QnnHtpEncoder` — static-shape ONNX encoder on the Hexagon NPU via ORT QNN EP, fp16, with an
-    on-device-prepared EPContext binary cached per (model hash, QAIRT version, HTP arch).
-  - `OrtCpuEncoder` — dynamic-shape int8 ONNX encoder on the ORT CPU EP (universal fallback).
-  - `CoreMlEncoder` — (macOS) static-shape encoder on the ORT CoreML EP; ANE/GPU compute units.
+  - `StaticWindowEncoder` — a static-shape graph over a fixed mel window. Built either by
+    `build_qnn_session` (Hexagon NPU, fp16, with an on-device-prepared EPContext binary cached per
+    model hash / QAIRT version / HTP arch) or by `build_accel_session` on any other provider.
+  - `CpuEncoder` — a dynamic-shape graph, on the CPU EP (the universal fallback) or on any other
+    provider via `build_accel_session`. Static shapes were only ever the HTP's requirement, so a
+    GPU takes this path and processes a clip in one pass.
+
+  Which one runs is decided by `ParakeetEngine::acceleration_plan()` from the user's
+  `BackendPreference` intersected with the accelerators ONNX Runtime actually enumerates. The
+  chosen accelerator is reported back through `SpeechEngine::accelerator()` as a stable id, and
+  the reasons — including any fallback — through `SpeechEngine::notes()`.
 - **TDT greedy decoder** (`lw-engine-parakeet::tdt`): Rust port of NeMo `GreedyTDTInfer`. Runs the
   fused `decoder_joint` ONNX on CPU; splits joint logits into 8193 token + 5 duration outputs,
   argmaxes both, advances the LSTM state only on non-blank, skips `duration` encoder frames, caps at
