@@ -478,6 +478,24 @@ fn bench(
 
     let mut engine = build_engine(rt, model_dir, cache_dir, backend, threads)?;
     println!("backend: {} on {}", engine.provider(), engine.device().name);
+
+    // Which of the fixture languages this model actually claims. Scoring an English-only model
+    // against Russian clips produces a WER near (or above) 1.0 and reads as "this model is bad",
+    // when it was simply asked to do a job it never advertised. Measured here: Moonshine tiny en
+    // scores 0.09 over the English clips and 0.85 over all twelve. The second number describes
+    // nothing anyone would want to know, so it is not the headline.
+    let claimed: Vec<String> = engine
+        .supported_languages()
+        .iter()
+        .map(|l| l.0.to_ascii_lowercase())
+        .collect();
+    let speaks = |lang: &str| -> bool {
+        // An engine that declares no languages is making no claim, so score it on everything.
+        claimed.is_empty() || claimed.iter().any(|c| c == &lang.to_ascii_lowercase())
+    };
+    let scored: Vec<&Fixture> = items.iter().filter(|it| speaks(&it.language)).collect();
+    let unscored: Vec<&Fixture> = items.iter().filter(|it| !speaks(&it.language)).collect();
+
     println!(
         "{:<22} {:>7} {:>8} {:>7}  WER",
         "file", "dur(s)", "time(ms)", "RTF"
@@ -485,6 +503,7 @@ fn bench(
     let mut total_err = 0.0f64;
     let mut total_words = 0usize;
     let mut total_rtf = 0.0f64;
+    let mut scored_rtf = 0.0f64;
     for it in &items {
         let audio = load_wav(&fixtures.join(&it.file))?;
         let t0 = Instant::now();
@@ -494,12 +513,22 @@ fn bench(
         let ms = t0.elapsed().as_secs_f32() * 1000.0;
         let rtf = (ms / 1000.0) / it.duration_s.max(1e-6);
         let (wer, nwords) = word_error_rate(&it.transcript, &transcript.text);
-        total_err += wer as f64 * nwords as f64;
-        total_words += nwords;
         total_rtf += rtf as f64;
+        let counts = speaks(&it.language);
+        if counts {
+            total_err += wer as f64 * nwords as f64;
+            total_words += nwords;
+            scored_rtf += rtf as f64;
+        }
         println!(
-            "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]",
-            it.file, it.duration_s, ms, rtf, wer, it.language
+            "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]{}",
+            it.file,
+            it.duration_s,
+            ms,
+            rtf,
+            wer,
+            it.language,
+            if counts { "" } else { " (not scored)" }
         );
     }
     let avg_wer = if total_words > 0 {
@@ -508,10 +537,39 @@ fn bench(
         0.0
     };
     println!("---");
+    let langs: Vec<&str> = {
+        let mut v: Vec<&str> = scored.iter().map(|it| it.language.as_str()).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
     println!(
-        "mean RTF: {:.4}   word-weighted WER: {:.3}",
-        total_rtf / items.len().max(1) as f64,
-        avg_wer
+        "mean RTF: {:.4}   word-weighted WER: {:.3}   over {} clip(s) in {}",
+        scored_rtf / scored.len().max(1) as f64,
+        avg_wer,
+        scored.len(),
+        if langs.is_empty() {
+            "no language".to_string()
+        } else {
+            langs.join("/")
+        }
     );
+    if !unscored.is_empty() {
+        let mut skipped: Vec<&str> = unscored.iter().map(|it| it.language.as_str()).collect();
+        skipped.sort_unstable();
+        skipped.dedup();
+        println!(
+            "note: {} clip(s) in {} were transcribed but NOT scored.",
+            unscored.len(),
+            skipped.join("/")
+        );
+        println!("      This model does not claim those languages; a WER against them would describe");
+        println!("      nothing useful. Its speed on them is still shown above.");
+        println!(
+            "      mean RTF over all {} clip(s), scored or not: {:.4}",
+            items.len(),
+            total_rtf / items.len().max(1) as f64
+        );
+    }
     Ok(())
 }

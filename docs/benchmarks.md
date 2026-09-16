@@ -64,6 +64,30 @@ lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backen
 lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backend npu
 ```
 
+### 5.0 WER is only scored on languages a model claims
+
+`lw bench` transcribes and times **every** fixture clip, but scores WER only on the clips whose
+language the engine declares in `supported_languages()`. Clips in other languages print with
+`(not scored)` and a note.
+
+This is not a detail. Measured on the X2:
+
+| Model | scored as | WER |
+|---|---|---:|
+| Moonshine tiny **en** | 3 English clips (what it claims) | **0.092** |
+| Moonshine tiny **en** | all 12 clips (en/ru/es/uk) | **0.850** |
+
+The second figure is what you get by asking an English-only model to transcribe Russian. It is
+arithmetically correct and descriptively worthless — worse than worthless in a catalog column
+headed "accuracy", where it reads as *this model is bad* rather than *this model was asked the
+wrong question*. Individual non-English clips exceed WER 1.0, because the model inserts more words
+than the reference contains.
+
+An engine that declares no languages has made no claim, so it is scored on everything. The
+"over N clip(s) in <languages>" line printed with every result is the provenance that belongs in
+any recorded measurement: a 3-clip English figure and a 12-clip multilingual figure must never be
+compared as though they measured the same thing.
+
 ### 5.1 Measured `lw bench` results on the X2 (re-measured 2026-08-27, release ARM64 `lw.exe`)
 
 Command (both tables): `lw bench tests/fixtures/audio --model-dir <dir> --backend {cpu,npu}`.
