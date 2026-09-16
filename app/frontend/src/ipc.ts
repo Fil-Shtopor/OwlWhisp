@@ -552,6 +552,18 @@ export function setMicTest(enabled: boolean): Promise<boolean> {
   return invoke<boolean>("set_mic_test", { enabled });
 }
 
+/**
+ * The microphone input devices this machine offers.
+ *
+ * Matching is by substring, case-insensitive: `settings.audio.input_device` holds a fragment of
+ * a device name, and an empty string means the system default. A saved name that matches nothing
+ * falls back to the default — worth surfacing, since the alternative is a user wondering why
+ * their chosen microphone is not being used.
+ */
+export function listInputDevices(): Promise<string[]> {
+  return invoke<string[]>("list_input_devices");
+}
+
 /** Payload of the `transcript` event, emitted once an utterance has been delivered. */
 export interface TranscriptPayload {
   /** The final text, after the cleanup pipeline. */

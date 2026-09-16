@@ -39,6 +39,18 @@ pub fn set_settings(app: AppHandle, state: State<'_, AppState>, settings: Value)
     serde_json::to_value(&parsed).map_err(|e| e.to_string())
 }
 
+/// The microphone input devices this machine offers, for the settings picker.
+///
+/// Enumerating opens the audio host, so it runs on a blocking thread. The list is what the OS
+/// reports now — a device unplugged since the last look will not be here, and a saved setting
+/// naming a missing device is worth telling the user about rather than silently ignoring.
+#[tauri::command]
+pub async fn list_input_devices() -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(lw_platform::audio::list_input_devices)
+        .await
+        .unwrap_or_default()
+}
+
 /// Play one cue so the user can hear a theme before committing to it.
 ///
 /// Takes the theme and volume as arguments rather than reading settings, so the preview follows

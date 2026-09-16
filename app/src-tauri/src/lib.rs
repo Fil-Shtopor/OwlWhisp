@@ -167,6 +167,7 @@ pub fn run() {
             commands::active_hotkey,
             commands::preview_sound,
             commands::list_sound_themes,
+            commands::list_input_devices,
             commands::get_autostart,
             commands::set_autostart,
             catalog::get_capabilities,

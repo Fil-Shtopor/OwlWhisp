@@ -53,6 +53,10 @@ pub struct AppState {
     pub installs: Mutex<std::collections::HashMap<String, lw_core::model::CancellationToken>>,
     /// Cue settings, mirrored from `settings.json` so a state transition never touches the disk.
     cue: Mutex<CueSettings>,
+    /// The configured input device, mirrored for the same reason: opening the microphone is on
+    /// the path between pressing the hotkey and hearing yourself, so it must not read the disk.
+    /// `None` means "the system default".
+    capture_device: Mutex<Option<String>>,
     recording: Mutex<RecordingState>,
     /// Bumped on every transition; lets delayed transitions detect staleness.
     generation: AtomicU64,
@@ -110,6 +114,7 @@ impl AppState {
             worker,
             installs: Mutex::new(std::collections::HashMap::new()),
             cue: Mutex::new(CueSettings::default()),
+            capture_device: Mutex::new(None),
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
             shortcut: Mutex::new(None),
@@ -182,6 +187,13 @@ impl AppState {
     /// Update the cue settings after a settings save.
     pub fn set_cue_settings(&self, settings: &Settings) {
         *self.cue.lock() = CueSettings::from(settings);
+        let device = settings.audio.input_device.trim();
+        *self.capture_device.lock() = (!device.is_empty()).then(|| device.to_string());
+    }
+
+    /// The input device to capture from, or `None` for the system default.
+    pub fn capture_device(&self) -> Option<String> {
+        self.capture_device.lock().clone()
     }
 
     /// The cue settings currently in force.

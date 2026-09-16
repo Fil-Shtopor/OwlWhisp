@@ -606,7 +606,8 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                 let _ = reply.send(run_benchmark_job(&settings_path, model_id, backend, None));
             }
             WorkerCmd::StartRecording { hands_free } => {
-                let mut cap = Capture::new(None, 16_000 * 120);
+                let device = app.state::<AppState>().capture_device();
+                let mut cap = Capture::new(device, 16_000 * 120);
                 match cap.start() {
                     Ok(()) => {
                         if hands_free {
@@ -623,7 +624,8 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                     // A separate capture from dictation's: this one exists only to drive the
                     // meter, and whatever it hears is dropped rather than transcribed.
                     if mic_test.is_none() {
-                        let mut cap = Capture::new(None, 16_000 * 4);
+                        let device = app.state::<AppState>().capture_device();
+                        let mut cap = Capture::new(device, 16_000 * 4);
                         match cap.start() {
                             Ok(()) => {
                                 spawn_level_pump(app.clone(), &cap, LevelSource::MicTest);
