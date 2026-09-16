@@ -62,6 +62,11 @@ pub struct Clip {
     pub duration_s: f32,
     /// Reference transcript, when one exists.
     pub reference: Option<String>,
+    /// BCP-47-ish language tag of the speech, when known (`"en"`, `"ru"`, …).
+    ///
+    /// Used to decide whether scoring this clip against a given engine means anything: see
+    /// [`measure`].
+    pub language: Option<String>,
 }
 
 /// One clip's measured result.
@@ -75,8 +80,15 @@ pub struct ClipResult {
     pub ms: f32,
     /// Real-time factor: wall seconds per second of audio. Lower is faster.
     pub rtf: f32,
-    /// Word error rate against the reference, when there was one.
+    /// Word error rate against the reference, when there was one **and** it counted.
     pub wer: Option<f32>,
+    /// The clip's language, when known.
+    pub language: Option<String>,
+    /// Whether this clip's WER contributed to [`Measurement::wer`].
+    ///
+    /// False when the engine does not claim the clip's language — the clip was still transcribed
+    /// and timed, but scoring it would measure the wrong thing.
+    pub scored: bool,
 }
 
 /// The result of one measured run. Every field was genuinely timed on the running machine.
@@ -90,8 +102,12 @@ pub struct Measurement {
     pub warm_count: usize,
     /// Per-clip warm wall time in ms.
     pub warm_ms: Vec<f32>,
-    /// Word-weighted WER, when reference transcripts were available.
+    /// Word-weighted WER over the **scored** clips, when any had reference transcripts.
     pub wer: Option<f32>,
+    /// Languages the scored clips covered, sorted, for provenance.
+    pub scored_languages: Vec<String>,
+    /// Clips that were transcribed and timed but not scored, and the languages they were in.
+    pub unscored_languages: Vec<String>,
     /// Every clip's individual result, in run order.
     pub results: Vec<ClipResult>,
     /// Total audio seconds run.
@@ -113,6 +129,31 @@ pub fn measure(
     if clips.is_empty() {
         return Err(Error::Other("benchmark needs at least one clip".into()));
     }
+
+    // Which fixture languages this engine actually claims.
+    //
+    // Scoring a model on a language it never advertised does not measure the model, it measures
+    // the question. Moonshine tiny en scores WER 0.092 on English clips and 0.850 once Russian,
+    // Spanish and Ukrainian are added -- individual clips exceed 1.0, because it inserts more
+    // words than the reference holds. The first number describes the model; the second describes
+    // a mistake. Unclaimed clips are still transcribed and timed, so RTF covers real work.
+    //
+    // An engine that declares no languages has made no claim, so everything counts.
+    let claimed: Vec<String> = engine
+        .supported_languages()
+        .iter()
+        .map(|l| l.0.to_ascii_lowercase())
+        .collect();
+    let counts = |clip: &Clip| -> bool {
+        match (&clip.language, claimed.is_empty()) {
+            (_, true) | (None, _) => true,
+            (Some(lang), false) => {
+                let lang = lang.to_ascii_lowercase();
+                claimed.contains(&lang)
+            }
+        }
+    };
+
     let mut cold_rtf = 0.0f32;
     let mut warm_ms = Vec::new();
     let mut warm_rtf_sum = 0.0f64;
@@ -120,8 +161,11 @@ pub fn measure(
     let mut total_words = 0usize;
     let mut audio_secs = 0.0f32;
     let mut results = Vec::with_capacity(clips.len());
+    let mut scored_languages: Vec<String> = Vec::new();
+    let mut unscored_languages: Vec<String> = Vec::new();
 
     for (i, clip) in clips.iter().enumerate() {
+        let scored = counts(clip);
         let t0 = Instant::now();
         let transcript = engine
             .transcribe(&clip.audio)
@@ -129,18 +173,36 @@ pub fn measure(
         let ms = t0.elapsed().as_secs_f32() * 1000.0;
         let rtf = (ms / 1000.0) / clip.duration_s.max(1e-6);
         audio_secs += clip.duration_s;
+
+        // The per-clip WER is always computed and reported; only the weighted total is restricted,
+        // so a curious caller can still see what an unclaimed language looked like.
         let wer = clip.reference.as_ref().map(|r| {
             let (w, n) = word_error_rate(r, &transcript.text);
-            total_err += w as f64 * n as f64;
-            total_words += n;
+            if scored {
+                total_err += w as f64 * n as f64;
+                total_words += n;
+            }
             w
         });
+        if let Some(lang) = &clip.language {
+            let bucket = if scored {
+                &mut scored_languages
+            } else {
+                &mut unscored_languages
+            };
+            if !bucket.iter().any(|l| l == lang) {
+                bucket.push(lang.clone());
+            }
+        }
+
         let result = ClipResult {
             name: clip.name.clone(),
             duration_s: clip.duration_s,
             ms,
             rtf,
             wer,
+            language: clip.language.clone(),
+            scored,
         };
         per_clip(&result);
         results.push(result);
@@ -158,12 +220,16 @@ pub fn measure(
     } else {
         cold_rtf
     };
+    scored_languages.sort();
+    unscored_languages.sort();
     Ok(Measurement {
         warm_rtf,
         cold_rtf,
         warm_count,
         warm_ms,
         wer: (total_words > 0).then(|| (total_err / total_words as f64) as f32),
+        scored_languages,
+        unscored_languages,
         results,
         audio_secs,
         source,
@@ -239,6 +305,8 @@ struct FixtureItem {
     file: String,
     duration_s: f32,
     transcript: String,
+    #[serde(default)]
+    language: Option<String>,
 }
 
 /// Find a fixtures directory: `$LW_FIXTURES` first, then `tests/fixtures/audio` up the tree.
@@ -267,6 +335,7 @@ pub fn fixture_clips(dir: &Path, max_clips: usize) -> Result<Vec<Clip>> {
             duration_s: it.duration_s,
             audio,
             reference: Some(it.transcript),
+            language: it.language,
         });
     }
     Ok(clips)
@@ -291,6 +360,8 @@ pub fn quick_clips(fixtures: Option<PathBuf>, max_clips: usize) -> Result<(Vec<C
                 duration_s: audio.duration_secs(),
                 audio,
                 reference: None,
+                // Synthetic audio is not speech in any language, so it is scored by every engine.
+                language: None,
             }
         })
         .collect();
@@ -411,6 +482,7 @@ mod tests {
     struct ScriptedEngine {
         replies: Vec<String>,
         next: usize,
+        languages: &'static [crate::engine::Language],
     }
 
     impl SpeechEngine for ScriptedEngine {
@@ -427,7 +499,7 @@ mod tests {
             crate::engine::Acceleration::Cpu
         }
         fn supported_languages(&self) -> &[crate::engine::Language] {
-            &[]
+            self.languages
         }
         fn supports_streaming(&self) -> bool {
             false
@@ -451,11 +523,16 @@ mod tests {
     }
 
     fn clip(name: &str, seconds: f32, reference: Option<&str>) -> Clip {
+        clip_in(name, seconds, reference, None)
+    }
+
+    fn clip_in(name: &str, seconds: f32, reference: Option<&str>, language: Option<&str>) -> Clip {
         Clip {
             name: name.to_string(),
             audio: synth_clip(0, seconds),
             duration_s: seconds,
             reference: reference.map(str::to_string),
+            language: language.map(str::to_string),
         }
     }
 
@@ -464,6 +541,7 @@ mod tests {
         let mut engine = ScriptedEngine {
             replies: vec![],
             next: 0,
+            languages: &[],
         };
         assert!(measure(&mut engine, &[], ClipSource::Synthetic, |_| {}).is_err());
     }
@@ -477,6 +555,7 @@ mod tests {
         let mut engine = ScriptedEngine {
             replies: vec!["one two".into(), "three four".into()],
             next: 0,
+            languages: &[],
         };
         let mut streamed = Vec::new();
         let m = measure(&mut engine, &clips, ClipSource::Synthetic, |r| {
@@ -500,6 +579,7 @@ mod tests {
         let mut engine = ScriptedEngine {
             replies: vec!["a b c X".into(), "e".into()],
             next: 0,
+            languages: &[],
         };
         let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
         let wer = m.wer.unwrap();
@@ -512,10 +592,80 @@ mod tests {
         let mut engine = ScriptedEngine {
             replies: vec!["anything".into(), "at all".into()],
             next: 0,
+            languages: &[],
         };
         let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
         assert_eq!(m.wer, None);
         assert!(m.results.iter().all(|r| r.wer.is_none()));
+    }
+
+    #[test]
+    fn a_clip_in_a_language_the_engine_does_not_claim_is_timed_but_not_scored() {
+        // The real case this guards: Moonshine tiny en scores 0.092 on English clips and 0.850
+        // once Russian is added. The second number measures the question, not the model.
+        use crate::engine::Language;
+        const EN: &[Language] = &[Language("en")];
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b c d"), Some("en")),
+            clip_in("ru.wav", 1.0, Some("а б в г"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            // Perfect on English, nonsense on Russian.
+            replies: vec!["a b c d".into(), "totally wrong words here".into()],
+            next: 0,
+            languages: EN,
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+
+        assert_eq!(m.wer, Some(0.0), "the Russian clip must not drag the total down");
+        assert_eq!(m.scored_languages, vec!["en".to_string()]);
+        assert_eq!(m.unscored_languages, vec!["ru".to_string()]);
+        // Both clips were still run, so RTF covers real work.
+        assert_eq!(m.results.len(), 2);
+        assert!(m.results[0].scored);
+        assert!(!m.results[1].scored);
+        // The unscored clip's own WER is still reported, just not counted.
+        assert!(m.results[1].wer.is_some());
+    }
+
+    #[test]
+    fn an_engine_claiming_the_language_scores_it() {
+        use crate::engine::Language;
+        const BOTH: &[Language] = &[Language("en"), Language("ru")];
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b"), Some("en")),
+            clip_in("ru.wav", 1.0, Some("а б"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b".into(), "totally wrong".into()],
+            next: 0,
+            languages: BOTH,
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+        assert!(
+            m.wer.unwrap() > 0.0,
+            "a claimed language must count against the model"
+        );
+        assert_eq!(m.scored_languages, vec!["en".to_string(), "ru".to_string()]);
+        assert!(m.unscored_languages.is_empty());
+    }
+
+    #[test]
+    fn an_engine_that_claims_nothing_is_scored_on_everything() {
+        // No declaration means no claim to violate -- the old behaviour, preserved.
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b"), Some("en")),
+            clip_in("ru.wav", 1.0, Some("а б"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b".into(), "а б".into()],
+            next: 0,
+            languages: &[],
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+        assert_eq!(m.wer, Some(0.0));
+        assert_eq!(m.scored_languages.len(), 2);
+        assert!(m.unscored_languages.is_empty());
     }
 
     #[test]
@@ -524,6 +674,7 @@ mod tests {
         let mut engine = ScriptedEngine {
             replies: vec!["x".into()],
             next: 0,
+            languages: &[],
         };
         let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
         assert_eq!(m.warm_count, 0);

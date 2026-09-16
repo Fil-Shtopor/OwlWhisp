@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use lw_core::bench::{load_wav, word_error_rate};
+use lw_core::bench::load_wav;
 use lw_core::engine::{EngineInitContext, SpeechEngine};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 use lw_ort::OrtRuntime;
@@ -465,110 +465,73 @@ fn bench(
     backend: BackendKind,
     threads: usize,
 ) -> anyhow::Result<()> {
-    #[derive(serde::Deserialize)]
-    struct Fixture {
-        file: String,
-        language: String,
-        duration_s: f32,
-        transcript: String,
+    use lw_core::bench::{ClipResult, ClipSource, fixture_clips, measure};
+
+    // usize::MAX: take the whole fixture set, not the 3-clip sample `--quick` uses.
+    let clips = fixture_clips(fixtures, usize::MAX).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    if clips.is_empty() {
+        anyhow::bail!("no clips in {}", fixtures.display());
     }
-    let manifest = fixtures.join("fixtures.json");
-    let data = std::fs::read_to_string(&manifest)?;
-    let items: Vec<Fixture> = serde_json::from_str(&data)?;
 
     let mut engine = build_engine(rt, model_dir, cache_dir, backend, threads)?;
     println!("backend: {} on {}", engine.provider(), engine.device().name);
-
-    // Which of the fixture languages this model actually claims. Scoring an English-only model
-    // against Russian clips produces a WER near (or above) 1.0 and reads as "this model is bad",
-    // when it was simply asked to do a job it never advertised. Measured here: Moonshine tiny en
-    // scores 0.09 over the English clips and 0.85 over all twelve. The second number describes
-    // nothing anyone would want to know, so it is not the headline.
-    let claimed: Vec<String> = engine
-        .supported_languages()
-        .iter()
-        .map(|l| l.0.to_ascii_lowercase())
-        .collect();
-    let speaks = |lang: &str| -> bool {
-        // An engine that declares no languages is making no claim, so score it on everything.
-        claimed.is_empty() || claimed.iter().any(|c| c == &lang.to_ascii_lowercase())
-    };
-    let scored: Vec<&Fixture> = items.iter().filter(|it| speaks(&it.language)).collect();
-    let unscored: Vec<&Fixture> = items.iter().filter(|it| !speaks(&it.language)).collect();
-
     println!(
         "{:<22} {:>7} {:>8} {:>7}  WER",
         "file", "dur(s)", "time(ms)", "RTF"
     );
-    let mut total_err = 0.0f64;
-    let mut total_words = 0usize;
-    let mut total_rtf = 0.0f64;
-    let mut scored_rtf = 0.0f64;
-    for it in &items {
-        let audio = load_wav(&fixtures.join(&it.file))?;
-        let t0 = Instant::now();
-        let transcript = engine
-            .transcribe(&audio)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        let ms = t0.elapsed().as_secs_f32() * 1000.0;
-        let rtf = (ms / 1000.0) / it.duration_s.max(1e-6);
-        let (wer, nwords) = word_error_rate(&it.transcript, &transcript.text);
-        total_rtf += rtf as f64;
-        let counts = speaks(&it.language);
-        if counts {
-            total_err += wer as f64 * nwords as f64;
-            total_words += nwords;
-            scored_rtf += rtf as f64;
-        }
-        println!(
-            "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]{}",
-            it.file,
-            it.duration_s,
-            ms,
-            rtf,
-            wer,
-            it.language,
-            if counts { "" } else { " (not scored)" }
-        );
+
+    let mut all_rtf = 0.0f64;
+    let m = measure(
+        engine.as_mut(),
+        &clips,
+        ClipSource::Fixtures {
+            dir: fixtures.to_path_buf(),
+        },
+        |c: &ClipResult| {
+            println!(
+                "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]{}",
+                c.name,
+                c.duration_s,
+                c.ms,
+                c.rtf,
+                c.wer.unwrap_or(0.0),
+                c.language.as_deref().unwrap_or("?"),
+                if c.scored { "" } else { " (not scored)" }
+            );
+        },
+    )
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    for r in &m.results {
+        all_rtf += r.rtf as f64;
     }
-    let avg_wer = if total_words > 0 {
-        total_err / total_words as f64
-    } else {
-        0.0
-    };
+    let scored: Vec<&ClipResult> = m.results.iter().filter(|r| r.scored).collect();
+    let scored_rtf: f64 = scored.iter().map(|r| r.rtf as f64).sum();
+
     println!("---");
-    let langs: Vec<&str> = {
-        let mut v: Vec<&str> = scored.iter().map(|it| it.language.as_str()).collect();
-        v.sort_unstable();
-        v.dedup();
-        v
-    };
     println!(
         "mean RTF: {:.4}   word-weighted WER: {:.3}   over {} clip(s) in {}",
         scored_rtf / scored.len().max(1) as f64,
-        avg_wer,
+        m.wer.unwrap_or(0.0),
         scored.len(),
-        if langs.is_empty() {
-            "no language".to_string()
+        if m.scored_languages.is_empty() {
+            "no declared language".to_string()
         } else {
-            langs.join("/")
+            m.scored_languages.join("/")
         }
     );
-    if !unscored.is_empty() {
-        let mut skipped: Vec<&str> = unscored.iter().map(|it| it.language.as_str()).collect();
-        skipped.sort_unstable();
-        skipped.dedup();
+    if !m.unscored_languages.is_empty() {
+        let unscored = m.results.len() - scored.len();
         println!(
-            "note: {} clip(s) in {} were transcribed but NOT scored.",
-            unscored.len(),
-            skipped.join("/")
+            "note: {unscored} clip(s) in {} were transcribed but NOT scored.",
+            m.unscored_languages.join("/")
         );
         println!("      This model does not claim those languages; a WER against them would describe");
         println!("      nothing useful. Its speed on them is still shown above.");
         println!(
             "      mean RTF over all {} clip(s), scored or not: {:.4}",
-            items.len(),
-            total_rtf / items.len().max(1) as f64
+            m.results.len(),
+            all_rtf / m.results.len().max(1) as f64
         );
     }
     Ok(())
