@@ -39,6 +39,16 @@ pub enum WorkerCmd {
     StopRecording,
     /// Reload settings (backend, dictionary, cleanup) for the next utterance.
     ReloadSettings,
+    /// Open or close a microphone stream that feeds the level meter and transcribes nothing.
+    ///
+    /// The meter is otherwise only alive while dictating, which makes "is my microphone even
+    /// working?" impossible to answer without dictating into something.
+    MicTest {
+        /// True to open the stream, false to close it.
+        enabled: bool,
+        /// Whether the stream is open afterwards, or why it could not be opened.
+        reply: Sender<Result<bool, String>>,
+    },
     /// Report what the loaded engine is actually running on, without loading one.
     Describe {
         /// Where to send the description.
@@ -462,10 +472,75 @@ fn run_benchmark_job(
     Ok(report)
 }
 
+/// Whether a microphone-test stream is currently open, so its pump knows when to stop.
+static MIC_TEST_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Which stream a level pump is reading, and therefore what makes it stop.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LevelSource {
+    /// Dictation: runs while the state machine says we are listening.
+    Recording,
+    /// The user checking their microphone: runs until they turn it off.
+    MicTest,
+}
+
+/// Map an RMS amplitude to a meter position in `[0, 1]`.
+///
+/// A linear RMS bar is useless: ordinary speech sits around 0.02-0.2, so it would barely leave
+/// the left edge while clipping would look like a third of the scale. Hearing is closer to
+/// logarithmic, so this uses the usual voice-meter range, -60 dBFS at the left to 0 dBFS at the
+/// right. It is a display mapping of a real measurement, not a substitute for one.
+fn meter_level(rms: f32) -> f32 {
+    const FLOOR_DB: f32 = -60.0;
+    if !rms.is_finite() || rms <= 0.0 {
+        return 0.0;
+    }
+    let db = 20.0 * rms.clamp(1e-6, 1.0).log10();
+    ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0)
+}
+
+/// Push the capture's real RMS to the UI's level channel until its stream ends.
+///
+/// This replaced a stub that generated a sine wave: the meter moved convincingly while showing
+/// nothing about the microphone, which is precisely the kind of thing this project must not do.
+fn spawn_level_pump(app: AppHandle, capture: &Capture, source: LevelSource) {
+    let level = capture.level_handle();
+    if source == LevelSource::MicTest {
+        MIC_TEST_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    std::thread::Builder::new()
+        .name("lw-level".into())
+        .spawn(move || {
+            loop {
+                let keep_going = match source {
+                    LevelSource::Recording => {
+                        app.state::<AppState>().recording_state() == RecordingState::Listening
+                    }
+                    LevelSource::MicTest => MIC_TEST_ACTIVE.load(std::sync::atomic::Ordering::Relaxed),
+                };
+                if !keep_going {
+                    break;
+                }
+                let display = meter_level(level.get());
+                if let Some(channel) = app.state::<AppState>().mic_level.lock().as_ref() {
+                    let _ = channel.send(display);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            // Leave the meter at rest rather than frozen at the last sample.
+            if let Some(channel) = app.state::<AppState>().mic_level.lock().as_ref() {
+                let _ = channel.send(0.0);
+            }
+        })
+        .ok();
+}
+
 fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) {
     // Lazy-load the engine on first use so app startup is not blocked by the 650 MB model.
     let mut loaded: Option<Result<Loaded, String>> = None;
     let mut capture: Option<Capture> = None;
+    // A second capture used only to drive the level meter while the user checks their mic.
+    let mut mic_test: Option<Capture> = None;
 
     let emit_error = |app: &AppHandle, msg: &str| {
         tracing::error!("dictation worker: {msg}");
@@ -537,9 +612,41 @@ fn worker_loop(app: AppHandle, settings_path: PathBuf, rx: Receiver<WorkerCmd>) 
                         if hands_free {
                             spawn_silence_watcher(app.clone(), &cap);
                         }
+                        spawn_level_pump(app.clone(), &cap, LevelSource::Recording);
                         capture = Some(cap);
                     }
                     Err(e) => emit_error(&app, &format!("microphone: {e}")),
+                }
+            }
+            WorkerCmd::MicTest { enabled, reply } => {
+                if enabled {
+                    // A separate capture from dictation's: this one exists only to drive the
+                    // meter, and whatever it hears is dropped rather than transcribed.
+                    if mic_test.is_none() {
+                        let mut cap = Capture::new(None, 16_000 * 4);
+                        match cap.start() {
+                            Ok(()) => {
+                                spawn_level_pump(app.clone(), &cap, LevelSource::MicTest);
+                                mic_test = Some(cap);
+                                let _ = reply.send(Ok(true));
+                            }
+                            Err(e) => {
+                                let _ = reply.send(Err(format!("microphone: {e}")));
+                            }
+                        }
+                    } else {
+                        let _ = reply.send(Ok(true));
+                    }
+                } else {
+                    if let Some(mut cap) = mic_test.take() {
+                        let _ = cap.stop();
+                    }
+                    MIC_TEST_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+                    // Park the meter at zero so it does not freeze at the last value it saw.
+                    if let Some(channel) = app.state::<AppState>().mic_level.lock().as_ref() {
+                        let _ = channel.send(0.0);
+                    }
+                    let _ = reply.send(Ok(false));
                 }
             }
             WorkerCmd::StopRecording => {
@@ -746,6 +853,37 @@ mod tests {
         // The winner must be one of the runs, not invented.
         if let Some(f) = &suite.fastest {
             assert!(suite.runs.iter().any(|r| r.accelerator.as_ref() == Some(f)));
+        }
+    }
+
+    #[test]
+    fn the_meter_maps_silence_to_zero_and_full_scale_to_one() {
+        assert_eq!(meter_level(0.0), 0.0);
+        assert_eq!(meter_level(-1.0), 0.0, "a nonsensical level must not wrap around");
+        assert_eq!(meter_level(f32::NAN), 0.0);
+        assert!((meter_level(1.0) - 1.0).abs() < 1e-6);
+        assert!(meter_level(2.0) <= 1.0, "must clamp rather than overflow the bar");
+    }
+
+    #[test]
+    fn the_meter_puts_ordinary_speech_in_the_usable_middle() {
+        // The reason this mapping exists: on a linear scale, speech at RMS 0.02-0.2 would sit in
+        // the leftmost fifth of the bar and look like nothing was happening.
+        let quiet = meter_level(0.02);
+        let normal = meter_level(0.08);
+        let loud = meter_level(0.3);
+        assert!(quiet > 0.2, "quiet speech should still be visible, got {quiet}");
+        assert!(normal > quiet && loud > normal, "must stay monotonic");
+        assert!(loud < 1.0, "loud speech must leave headroom before the top");
+    }
+
+    #[test]
+    fn the_meter_is_monotonic() {
+        let mut previous = -1.0;
+        for step in 0..=100 {
+            let level = meter_level(step as f32 / 100.0);
+            assert!(level >= previous, "went backwards at {step}");
+            previous = level;
         }
     }
 

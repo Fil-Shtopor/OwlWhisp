@@ -341,6 +341,25 @@ pub async fn active_backend(state: State<'_, AppState>) -> Result<crate::worker:
     .map_err(|e| format!("active_backend task failed: {e}"))?
 }
 
+/// Open or close a microphone stream that only drives the level meter.
+///
+/// Nothing is transcribed and nothing is kept: the audio is read for its amplitude and dropped.
+/// It exists so "is my microphone working?" can be answered on the first screen without
+/// dictating into something, and so the meter shows a real signal rather than an animation.
+///
+/// Returns whether the stream is open afterwards.
+#[tauri::command]
+pub async fn set_mic_test(state: State<'_, AppState>, enabled: bool) -> Result<bool, String> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    state.worker.send(WorkerCmd::MicTest { enabled, reply: tx });
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_else(|_| Err("the dictation worker did not answer".to_string()))
+    })
+    .await
+    .map_err(|e| format!("microphone test task failed: {e}"))?
+}
+
 /// Measure a model on **every usable accelerator** and return the comparison.
 ///
 /// One action instead of "pick a backend, run, write the number down, repeat". All runs use the

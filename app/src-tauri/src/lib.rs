@@ -16,8 +16,6 @@ pub mod commands;
 pub mod state;
 pub mod worker;
 
-use std::time::Duration;
-
 use lw_core::settings::{HotkeyMode, Settings};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -174,6 +172,7 @@ pub fn run() {
             catalog::get_capabilities,
             catalog::list_accelerators,
             catalog::active_backend,
+            catalog::set_mic_test,
             catalog::list_models,
             catalog::install_model,
             catalog::cancel_install,
@@ -355,11 +354,10 @@ fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
             if state.recording_state() == RecordingState::Processing {
                 return; // still finishing the previous utterance
             }
-            let generation = state.transition(app, RecordingState::Listening);
+            state.transition(app, RecordingState::Listening);
             state.worker.send(worker::WorkerCmd::StartRecording {
                 hands_free: state.hotkey_mode() == HotkeyMode::HandsFree,
             });
-            spawn_mic_level_stub(app.clone(), generation);
         }
         ShortcutState::Released => {
             if !hold_to_talk || state.recording_state() != RecordingState::Listening {
@@ -374,28 +372,6 @@ fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
 fn stop_recording(app: &AppHandle, state: &AppState) {
     state.transition(app, RecordingState::Processing);
     state.worker.send(worker::WorkerCmd::StopRecording);
-}
-
-/// Feed the `mic_level` channel with synthetic levels while listening.
-///
-/// TODO: wire to lw-platform AudioCapture — replace with real RMS/peak levels from
-/// the capture callback.
-fn spawn_mic_level_stub(app: AppHandle, generation: u64) {
-    std::thread::spawn(move || {
-        let state = app.state::<AppState>();
-        let mut t = 0f32;
-        while state.generation() == generation && state.recording_state() == RecordingState::Listening {
-            let level = (0.18 + 0.6 * ((t * 2.3).sin().abs() * (t * 0.9).cos().abs())).min(1.0);
-            if let Some(channel) = state.mic_level.lock().as_ref() {
-                let _ = channel.send(level);
-            }
-            t += 0.05;
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        if let Some(channel) = state.mic_level.lock().as_ref() {
-            let _ = channel.send(0.0);
-        }
-    });
 }
 
 #[cfg(test)]

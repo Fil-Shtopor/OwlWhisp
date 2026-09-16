@@ -230,7 +230,14 @@ export function activeHotkey(): Promise<string | null> {
   return invoke<string | null>("active_hotkey");
 }
 
-/** Register the mic-level stream (stubbed with synthetic levels in the backend for now). */
+/**
+ * Register the mic-level stream.
+ *
+ * Levels are the **real** RMS of the microphone, mapped to `[0, 1]` on a -60..0 dBFS scale so
+ * ordinary speech uses the middle of the bar. The stream is alive while dictating, and while
+ * `setMicTest(true)` holds a microphone open; it is pushed to zero when either ends. Before this
+ * existed the backend generated a sine wave, which moved convincingly and meant nothing.
+ */
 export function subscribeMicLevel(handler: (level: number) => void): Promise<void> {
   const channel = new Channel<number>();
   channel.onmessage = handler;
@@ -528,4 +535,34 @@ export function onBenchmarkProgress(
   handler: (p: BenchmarkProgress) => void,
 ): Promise<UnlistenFn> {
   return listen<BenchmarkProgress>("benchmark_progress", (event) => handler(event.payload));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Microphone check, and the text that comes out
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Open or close a microphone stream that only drives the level meter.
+ *
+ * Nothing is transcribed and nothing is kept — the audio is read for its amplitude and dropped.
+ * Returns whether the stream is open afterwards, which is not always what was asked: a machine
+ * that refuses microphone access reports false.
+ */
+export function setMicTest(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>("set_mic_test", { enabled });
+}
+
+/** Payload of the `transcript` event, emitted once an utterance has been delivered. */
+export interface TranscriptPayload {
+  /** The final text, after the cleanup pipeline. */
+  text: string;
+  /** True if it was typed into the focused application; false if it went to the clipboard. */
+  injected: boolean;
+  /** The backend that produced it, e.g. "QNN". */
+  provider: string;
+}
+
+/** Subscribe to finished transcripts. Returns the unlisten function. */
+export function onTranscript(handler: (payload: TranscriptPayload) => void): Promise<UnlistenFn> {
+  return listen<TranscriptPayload>("transcript", (event) => handler(event.payload));
 }

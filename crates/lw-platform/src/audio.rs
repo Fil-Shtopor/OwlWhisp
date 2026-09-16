@@ -36,6 +36,21 @@ pub trait AudioCapture {
     fn level_rms(&self) -> f32;
 }
 
+/// A cheap, shareable read handle on a capture's live RMS level.
+///
+/// The level meter runs on its own thread while the `Capture` itself has been moved into the
+/// worker's state, so it needs something it can hold that is neither the capture nor a borrow of
+/// it. Cloning is an `Arc` bump.
+#[derive(Clone)]
+pub struct LevelHandle(Arc<AtomicU32>);
+
+impl LevelHandle {
+    /// The RMS of the most recent callback buffer, in `[0, 1]`.
+    pub fn get(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+}
+
 /// Human-readable names of the available audio input devices.
 pub fn list_input_devices() -> Vec<String> {
     let host = cpal::default_host();
@@ -86,6 +101,14 @@ pub struct Capture {
 }
 
 impl Capture {
+    /// A handle on the live level that other threads can hold.
+    ///
+    /// Reading the level through this keeps working after the `Capture` is moved elsewhere,
+    /// which is what a meter running on its own thread needs.
+    pub fn level_handle(&self) -> LevelHandle {
+        LevelHandle(Arc::clone(&self.last_rms))
+    }
+
     /// New capture handle. `device_name` selects an input device whose name contains the
     /// given string (case-insensitive); `None` uses the system default input device.
     /// `ring_capacity_samples` bounds the rolling window ([`DEFAULT_RING_CAPACITY`] is a

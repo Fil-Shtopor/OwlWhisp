@@ -39,7 +39,7 @@ pub mod macos;
 #[cfg(target_os = "linux")]
 pub mod linux;
 
-pub use audio::{AudioCapture, Capture};
+pub use audio::{AudioCapture, Capture, LevelHandle};
 pub use clipboard::Clipboard;
 pub use hotkey::{GlobalHotkey, HotkeyEvent, HotkeySpec};
 pub use inject::{ForegroundApp, TextInjector};
