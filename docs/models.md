@@ -29,8 +29,11 @@ lw models list --dest <models-dir>   # also report what is already installed the
 ```
    ID                    NAME                            ENGINE          DOWNLOAD LANGS SPEED      QUALITY   EST RTF INSTALLED
 *  parakeet-tdt-0.6b-v3  NVIDIA Parakeet TDT 0.6B v3     parakeet_tdt   639.6 MiB    25 very-fast  best       ~0.012 yes
-   whisper-small         Whisper small (sherpa-onnx exp… whisper        609.8 MiB    99 moderate   better     ~0.188 n/a
-                         └─ needs the `sherpa` engine feature, which this build does not include
+   gigaam-v3-ru          GigaAM v3 Russian, with punctu… sherpa         221.2 MiB     1 very-fast  best       ~0.026 yes
+   whisper-turbo         Whisper large-v3-turbo (sherpa… whisper        988.6 MiB   100 moderate   best       ~0.188 no
+   parakeet-tdt-ctc-110… NVIDIA Parakeet TDT-CTC 110M e… nemo_transdu…  455.3 MiB     1 very-fast  better     ~0.026 no
+   sense-voice-small     SenseVoice Small (int8, sherpa… sense_voice    228.5 MiB     5 very-fast  better     ~0.026 no
+   moonshine-tiny-en     Moonshine tiny en (int8, sherp… moonshine      118.2 MiB     1 very-fast  good       ~0.026 yes
 ```
 
 - `*` marks the top-ranked entry this build can actually run here. Ranking is: runnable first, then
@@ -53,28 +56,26 @@ can run, the only one with a Qualcomm NPU path, and the only one measured on an 
 [§5.1](benchmarks.md#51-measured-lw-bench-results-on-the-x2-2026-08-26-native-arm64-lwexe)). It
 covers 25 European languages with punctuation and casing. Cost: a 640 MiB download.
 
-The other fourteen entries are hash-pinned and installable, but need a build with the `sherpa`
-engine feature (see the box at the end of this section); they are marked
+The other five entries are hash-pinned and installable, and the shipped application runs them
+(it links the `sherpa` engine; a default `cargo build` of the CLI does not — see the box at the end
+of this section). They are marked
 `requires_engine_feature: "sherpa"`.
 
 ### 3.1 What has actually been measured here
 
-Nine of the fifteen entries carry a `measurements` point taken on this project's target machine
+Five of the six entries carry a `measurements` point taken on this project's target machine
 (Snapdragon X2 Elite Extreme X2E94100, CPU only, 8 threads) with `lw bench` over
 `tests/fixtures/audio` — 12 FLEURS clips, three each in **en, es, ru, uk**. Nothing in this table
 came from an upstream claim.
 
-| Model | Download | Measured WER | Mean RTF | Scored over |
-|---|---|---|---|---|
-| `whisper-turbo` | 989 MiB | **0.042** | 0.469 | 12 clips, en/es/ru/uk |
-| `parakeet-tdt-0.6b-v3` | 640 MiB | **0.054** | 0.032 | 12 clips, en/es/ru/uk |
-| `whisper-medium` | 902 MiB | **0.054** | 1.250 | 12 clips, en/es/ru/uk |
-| `whisper-distil-small-en` | 285 MiB | **0.062** | 0.075 | 3 clips, en |
-| `parakeet-tdt-ctc-110m-en` | 455 MiB | **0.062** | 0.014 | 3 clips, en |
-| `paraformer-en` | 219 MiB | **0.077** | 0.011 | 3 clips, en |
-| `moonshine-tiny-en` | 118 MiB | **0.092** | 0.0125 | 3 clips, en |
-| `paraformer-trilingual-zh-yue-en` | 233 MiB | **0.169** | 0.011 | 3 clips, en (of zh/yue/en) |
-| `paraformer-zh` | 217 MiB | **0.277** | 0.011 | 3 clips, en (a Chinese model) |
+| Model | Role | Download | Measured WER | Mean RTF | Scored over |
+|---|---|---|---|---|---|
+| `gigaam-v3-ru` | fast, accurate | 221 MiB | **0.029** | 0.0175 | 3 clips, ru |
+| `whisper-turbo` | accurate, universal | 989 MiB | **0.042** | 0.469 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-0.6b-v3` | fast | 640 MiB | **0.054** | 0.032 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | **0.062** | 0.014 | 3 clips, en |
+| `moonshine-tiny-en` | compact | 118 MiB | **0.092** | 0.0125 | 3 clips, en |
+| `sense-voice-small` | — | 228 MiB | *none* | — | its languages are not in the fixtures |
 
 > **Read the "scored over" column before you compare two rows.** A 3-clip English figure and a
 > 12-clip four-language figure are not the same measurement. Twelve clips are indicative, three are
@@ -83,10 +84,12 @@ came from an upstream claim.
 > cannot tell them apart. Each entry's `measurements[].source` spells this out; `lw models info <id>`
 > prints it.
 
-Two rows need their footnote read twice. `paraformer-zh` is a **Chinese** model and the fixture set
-has no Chinese at all, so the only clips it could be scored on are the English three — 0.277 is a
-real number about its secondary language, and this catalog contains **no** measurement of its
-actual one. `paraformer-trilingual-zh-yue-en` has the same problem for two of its three languages.
+One row needs its footnote read twice, and it is the row with no number. `sense-voice-small`
+covers Chinese, Japanese, Korean and Cantonese, and the fixture set contains none of them, so there
+is nothing here it could honestly be scored on. It is listed with an empty measurement rather than
+with a figure from its secondary language. That is not hypothetical: two Paraformer entries were
+removed from this catalog on 2026-09-17 partly because their only measurements *were* English
+figures for Chinese models — 0.277 and 0.169 — numbers that were real, and about the wrong thing.
 The same gap applies to `sense-voice-small` (zh/ja/ko/yue), which is why it carries no measurement
 at all.
 
@@ -110,30 +113,45 @@ fixture directory; its `source` says so.
 
 ### 3.2 Picking one
 
-| If you need… | Look at | Download | Why |
-|---|---|---|---|
-| the best accuracy measured here, any of 100 languages | `whisper-turbo` | 989 MiB | large-v3's encoder, 4-layer decoder; WER 0.042, RTF 0.469 |
-| the classic large Whisper | `whisper-medium` | 902 MiB | WER 0.054 — but RTF 1.250, i.e. slower than real time |
-| a language Parakeet does not cover, cheaply | `whisper-base` (99 languages) | 153 MiB | broad coverage, modest accuracy |
-| more accuracy than `base`, same coverage | `whisper-small` | 358 MiB | ~3× the compute of `base` |
-| fast English, distilled | `whisper-distil-small-en` | 285 MiB | 2 decoder layers instead of 12; ~10× quicker than `whisper-small` |
-| English with punctuation and casing, small | `parakeet-tdt-ctc-110m-en` | 455 MiB | NVIDIA's 110M Parakeet; full precision, no int8 published |
-| the smallest English-only footprint | `whisper-tiny-en` | 99 MiB | the classic tiny baseline |
-| short utterances / low latency, English | `moonshine-tiny-en` | 118 MiB | no fixed 30 s padding, unlike Whisper |
-| the same, with more accuracy | `moonshine-base-en` | 274 MiB | ~2.3× tiny, same variable-length design |
-| Chinese / Japanese / Korean / Cantonese | `sense-voice-small` | 228 MiB | one non-autoregressive pass, with punctuation |
-| Mandarin specifically | `paraformer-zh` | 217 MiB | Alibaba's Paraformer-large; non-autoregressive, RTF 0.011 |
-| Mandarin + Cantonese + English | `paraformer-trilingual-zh-yue-en` | 233 MiB | SeACo-Paraformer; the only other Cantonese option here |
-| English from the same family | `paraformer-en` | 219 MiB | WER 0.077 at RTF 0.011; no punctuation or casing |
-| the top English-only quality tier | `parakeet-tdt-0.6b-v2-en` | 631 MiB | same architecture as v3, English-only; the tier is editorial, nobody here has measured it |
-| **Russian, or any of 25 European languages** | `parakeet-tdt-0.6b-v3` | 640 MiB | the built-in default, and the only entry with an NPU path; WER 0.054 across en/es/ru/uk |
-| Russian with wider language coverage | `whisper-turbo` | 989 MiB | best accuracy measured here, 100 languages, but CPU-only and RTF 0.469 |
+The catalog carries **six** entries, each with a job no other entry does better. Five of the six
+declare a `roles` list — `fast`, `accurate`, `universal`, `compact` — which is what the app's
+"pick by what you need" strip resolves against. Roles are editorial, like the quality and speed
+tiers; the measurement beside them is the evidence.
+
+| If you need… | Look at | Role | Download | Why |
+|---|---|---|---|---|
+| Russian, and nothing else | `gigaam-v3-ru` | fast, accurate | 221 MiB | WER **0.029** against Parakeet v3's 0.059 on the same three Russian clips, at RTF 0.0175, and it emits punctuation |
+| 25 European languages, quickest | `parakeet-tdt-0.6b-v3` | fast | 640 MiB | the built-in default and the only entry with a Qualcomm NPU path; WER 0.054 across en/es/ru/uk |
+| the best accuracy measured here, or a language nothing else covers | `whisper-turbo` | accurate, universal | 989 MiB | large-v3's encoder with a 4-layer decoder; WER 0.042 over 100 languages, but RTF 0.469 |
+| English, fastest at that accuracy | `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | WER 0.062 at RTF 0.014; punctuation and casing |
+| the smallest thing worth using | `moonshine-tiny-en` | compact | 118 MiB | WER 0.092 at RTF 0.0125, and no fixed 30 s padding, so cost scales with what you actually said |
+| Chinese, Japanese, Korean or Cantonese | `sense-voice-small` | — | 228 MiB | one non-autoregressive pass with punctuation; **no measurement here**, because the fixtures contain none of its languages |
+
+There is deliberately **no `live` role**. Live transcription means partial text appearing while you
+speak, and this application has no such path: the hotkey opens a capture, releasing it closes one,
+and the utterance is transcribed whole. Tagging a model `live` would advertise a mode the product
+does not have, whatever the model can do elsewhere.
+
+#### What was removed, and why
+
+The catalog was cut from fifteen entries to six on 2026-09-17. Everything dropped is in git
+history, so restoring any of it is a revert. The cuts, with the evidence:
+
+| Removed | Because |
+|---|---|
+| `whisper-medium` | `whisper-turbo` beats it on **both** axes measured here — 0.042 at RTF 0.469 against 0.054 at RTF 1.250 — in a smaller download. Keeping both offered a strictly worse choice. |
+| `whisper-small`, `whisper-base`, `whisper-tiny-en` | never measured here; all three are the weaker end of a family whose measured end is `whisper-turbo`. A cheap multilingual model that mis-transcribes is a false economy when the text is typed straight into another application. |
+| `whisper-distil-small-en` | same WER as `parakeet-tdt-ctc-110m-en` (0.062) at five times the real-time factor (0.075 against 0.014). |
+| `parakeet-tdt-0.6b-v2-en` | 631 MiB, English-only, never measured, and superseded by the v3 entry that is the default. |
+| `moonshine-base-en` | never measured; `moonshine-tiny-en` holds the compact role with a real number. |
+| `paraformer-en` | 219 MiB for WER 0.077, against `moonshine-tiny-en`'s 118 MiB for 0.092 and `parakeet-tdt-ctc-110m-en`'s 0.062. It won neither axis. |
+| `paraformer-zh`, `paraformer-trilingual-zh-yue-en` | their only measurement here was on English, a **secondary** language for one and absent from the other's name — the fixtures contain no Chinese or Cantonese at all. `sense-voice-small` covers the same languages and carries no misleading number. |
 
 Every download figure above is the exact sum of the pinned file sizes in that entry's manifest, not
-a rounded upstream claim. All but one pin the **int8** exports only: for `whisper-small` that is the
-difference between a 358 MiB and a ~925 MiB install, for a quality difference nobody here has
-measured. If you want the fp32 graphs, they sit in the same upstream repository — add a second
-`artifacts` set with target `any` and the hashes you compute yourself. The exception is
+a rounded upstream claim. Most pin the **int8** exports only, for a quality difference nobody here
+has measured; if you want the fp32 graphs, they sit in the same upstream repositories — add a
+second `artifacts` set with target `any` and the hashes you compute yourself. `gigaam-v3-ru` is
+int8 in its encoder only, which is how it is published. The exception is
 `parakeet-tdt-ctc-110m-en`, which is pinned at full precision because the upstream `-int8`
 repository publishes no loose files at all: its quantized weights exist only inside the `.tar.bz2`
 on the GitHub release, which the installer cannot unpack.
@@ -144,7 +162,7 @@ model does on *your* audio, accent, or vocabulary. The only way to know that is 
 
 > **The installed application runs these. A default-built `lw` does not.** The shipping build
 > script passes `--features sherpa` to both binaries, but a plain `cargo build -p lw-cli` links
-> only `lw-engine-parakeet`, so `lw models install` will fetch and verify any of the fourteen
+> only `lw-engine-parakeet`, so `lw models install` will fetch and verify any of the five
 > sherpa entries while `lw transcribe` and `lw bench` refuse to load one. Build the CLI with the
 > feature — the extra step is what keeps GPL-3.0 espeak-ng out of the binary, see
 > [build.md](build.md) and [licenses.md](licenses.md):
@@ -297,7 +315,8 @@ see [benchmarks.md §6](benchmarks.md#6-estimates-vs-measurements-lw-models--lw-
    printed language list is wider than the model, run against a language-subset copy of
    `tests/fixtures/audio` and say so in `source`. Conversely, when the fixtures cannot reach a
    model's real language at all — Chinese, Cantonese, Japanese — do not let the number stand
-   unqualified; `paraformer-zh`'s notes are the pattern.
+   unqualified, and prefer no measurement to a misleading one: `sense-voice-small` ships with an
+   empty `measurements` for exactly this reason.
 6. To make the entry installable, download the files, hash them, and commit a manifest under
    `models/manifests/`, then point the entry's `manifest` field at it. Compute the hashes from the
    bytes you downloaded; never copy a checksum out of upstream metadata. Pin URLs that cannot move

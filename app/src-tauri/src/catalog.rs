@@ -184,6 +184,11 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
                 "description": e.description,
                 "engine": e.engine.as_str(),
                 "vendor": (!e.vendor.is_empty()).then(|| e.vendor.clone()),
+                "roles": e
+                    .roles
+                    .iter()
+                    .map(|r| json!({ "id": r.id(), "label": r.label(), "blurb": r.blurb() }))
+                    .collect::<Vec<_>>(),
                 "licence": e.license,
                 "upstream_url": e.source_url,
                 "languages": e.languages,
@@ -217,6 +222,12 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
         "manifests_dir": manifests.map(|d| d.display().to_string()),
         "recommended": recommended,
         "estimate_disclaimer": ESTIMATE_DISCLAIMER,
+        // The role vocabulary itself, so the picker offers exactly the roles this build knows
+        // about rather than a list hardcoded in the frontend that could drift from the catalog.
+        "roles": lw_core::model::ModelRole::ALL
+            .iter()
+            .map(|r| json!({ "id": r.id(), "label": r.label(), "blurb": r.blurb() }))
+            .collect::<Vec<_>>(),
         "entries": entries,
     }))
 }

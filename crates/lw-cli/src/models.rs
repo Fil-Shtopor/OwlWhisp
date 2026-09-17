@@ -1064,10 +1064,15 @@ mod tests {
 
     #[test]
     fn unpinned_entry_has_no_install_dir() {
+        // An entry with no pinned manifest is informational: there is no verified file set, so
+        // there is no directory to report and `install` must refuse it. Built by clearing the
+        // field rather than by naming a shipped entry -- every entry in today's catalog is
+        // pinned, and this behaviour should not stop being tested because of that.
         let cat = Catalog::builtin().unwrap();
-        let e = cat.get("whisper-base").unwrap();
+        let mut e = cat.get("moonshine-tiny-en").unwrap().clone();
+        e.manifest = None;
         let caps = Capabilities::unknown();
-        let p = entry_paths(e, None, Path::new("/nonexistent"), &caps);
+        let p = entry_paths(&e, None, Path::new("/nonexistent"), &caps);
         assert_eq!(p.state, InstallState::Unpinned);
         assert!(p.dir.is_none());
     }

@@ -314,6 +314,12 @@ export interface ModelEntry {
    * organisations.
    */
   vendor: string | null;
+  /**
+   * The jobs this entry is here to do, so the catalog can be read by need rather than by name.
+   * Editorial, like the quality and speed tiers. Empty means the entry earns its place some other
+   * way — usually by covering languages nothing else here covers.
+   */
+  roles: ModelRole[];
   licence: string;
   upstream_url: string | null;
   languages: string[];
@@ -343,6 +349,14 @@ export interface ModelEntry {
   notes: string | null;
 }
 
+/** One of the jobs an entry can be tagged with; the vocabulary comes from the backend. */
+export interface ModelRole {
+  id: string;
+  label: string;
+  /** One line saying what picking this role gets you. */
+  blurb: string;
+}
+
 export interface ModelCatalog {
   machine: string;
   models_root: string;
@@ -351,6 +365,8 @@ export interface ModelCatalog {
   recommended: string | null;
   /** Sentence the UI must show next to any estimated number. */
   estimate_disclaimer: string;
+  /** Every role this build knows about, in the order they should be offered. */
+  roles: ModelRole[];
   entries: ModelEntry[];
 }
 

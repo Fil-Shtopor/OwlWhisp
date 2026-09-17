@@ -27,9 +27,10 @@ fetched, and `lw models info <id>` prints it.
 
 | Model | Licence | Note |
 |---|---|---|
-| Whisper tiny.en / base / small (sherpa-onnx exports) | **MIT** | — |
-| Moonshine tiny / base en (int8) | **MIT** | — |
-| NVIDIA Parakeet TDT 0.6B v2 en (int8) | **CC-BY-4.0** | attribution as for v3 |
+| Whisper large-v3-turbo (sherpa-onnx export, int8) | **MIT** | the openai/whisper repository is MIT; the `openai/whisper-*` Hugging Face cards say Apache-2.0. Read both before redistributing. |
+| Moonshine tiny en (int8) | **MIT** | — |
+| NVIDIA Parakeet TDT-CTC 110M en | **CC-BY-4.0** | attribution as for v3 |
+| **GigaAM v3 Russian** (punct, int8 encoder) | **MIT** | Copyright (c) 2024 GigaChat Team. The Hugging Face `license` metadata field on the export is **empty**; the licence comes from the 1070-byte `LICENSE` file in the repository, which was read in full. That check is not ceremonial — an earlier GigaAM v2 export shipped a file named `LICENSE` that was a saved copy of a GitHub web page and granted nothing. |
 | **SenseVoice Small** (int8) | **`LicenseRef-FunASR-Model-1.1`** — *not* SPDX, not OSI-approved | Alibaba's FunASR Model Open Source License Agreement v1.1. Permits use, copying, modification and sharing; requires attribution and retention of model names; disclaims all liability; and **terminates if you "denigrate" the software**. Materially more restrictive than everything else here. Read it before redistributing anything built with it. |
 
 SenseVoice is listed rather than hidden because a user is entitled to choose it with the terms in

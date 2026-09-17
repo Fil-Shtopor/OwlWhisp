@@ -160,6 +160,75 @@ pub enum QualityTier {
     Best,
 }
 
+/// The job an entry is in the catalog to do, for "pick by what you need" rather than by name.
+///
+/// **Editorial, like the quality and speed tiers** — a role is a judgement about why an entry
+/// earns its place next to the others, not a measurement. Where a measurement exists it is the
+/// evidence behind the role, and the UI shows both.
+///
+/// There is deliberately no `Live` role. Live/streaming transcription means partial text appearing
+/// while you speak, and this application has no such path: the hotkey starts a capture, the
+/// release ends it, and the whole utterance is transcribed at once. Tagging a model `Live` would
+/// advertise a mode the app does not have, whatever the model can do elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRole {
+    /// Quickest to turn speech into text on ordinary hardware. The default kind of pick.
+    Fast,
+    /// Chosen when the text matters more than the wait.
+    Accurate,
+    /// The widest language coverage here, for when nothing else claims the language.
+    Universal,
+    /// The smallest download that is still worth using.
+    Compact,
+}
+
+impl ModelRole {
+    /// Stable id used in `catalog.json` and over IPC.
+    pub fn id(self) -> &'static str {
+        match self {
+            ModelRole::Fast => "fast",
+            ModelRole::Accurate => "accurate",
+            ModelRole::Universal => "universal",
+            ModelRole::Compact => "compact",
+        }
+    }
+
+    /// Short human label.
+    pub fn label(self) -> &'static str {
+        match self {
+            ModelRole::Fast => "Fast",
+            ModelRole::Accurate => "Accurate",
+            ModelRole::Universal => "Universal",
+            ModelRole::Compact => "Compact",
+        }
+    }
+
+    /// One line saying what picking this role gets you.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            ModelRole::Fast => "Least delay between finishing a sentence and seeing it typed.",
+            ModelRole::Accurate => "Fewest word errors, at the cost of waiting longer.",
+            ModelRole::Universal => "Most languages, for when nothing else covers yours.",
+            ModelRole::Compact => "Smallest download and memory footprint.",
+        }
+    }
+
+    /// Every role, in the order they should be offered.
+    pub const ALL: &'static [ModelRole] = &[
+        ModelRole::Fast,
+        ModelRole::Accurate,
+        ModelRole::Universal,
+        ModelRole::Compact,
+    ];
+}
+
+impl std::fmt::Display for ModelRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 impl QualityTier {
     /// Short label for tables.
     pub fn label(self) -> &'static str {
@@ -293,6 +362,13 @@ pub struct CatalogEntry {
     /// Licence string for the model weights.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub license: String,
+    /// The jobs this entry is here to do, for picking by need rather than by name.
+    ///
+    /// Empty is meaningful: the entry earns its place some other way — usually by covering
+    /// languages nothing else here covers — and claiming a role it does not win would make the
+    /// roles useless for choosing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<ModelRole>,
     /// Who made the model, for grouping the catalog by maker (`"NVIDIA"`, `"OpenAI"`, …).
     ///
     /// Deliberately a field rather than something derived from [`CatalogEntry::engine`]: an
@@ -767,6 +843,7 @@ mod tests {
             manifest: Some(format!("{id}.json")),
             source_url: None,
             license: "CC-BY-4.0".into(),
+            roles: Vec::new(),
             vendor: "Test Vendor".into(),
             notes: "synthetic test entry; nothing here is measured".into(),
         }
@@ -858,22 +935,50 @@ mod tests {
         }
     }
 
+    /// Why `vendor` is its own field rather than something derived from `engine`.
+    ///
+    /// An engine is a decoder architecture; a vendor is an organisation, and the two do not line
+    /// up. This was once asserted against the shipped catalog, which then held both OpenAI's
+    /// Whisper and Hugging Face's Distil-Whisper on the same engine. Pruning the catalog removed
+    /// the second one and broke the test -- the field was still right, the evidence had simply
+    /// left the building. It is now asserted where it belongs: on the type, which permits it
+    /// whether or not today's catalog happens to demonstrate it.
     #[test]
     fn vendor_is_not_derivable_from_engine() {
-        // Guards the reason vendor is its own field: Whisper and Distil-Whisper share an engine
-        // and come from different organisations. If that ever stops being true, the field is
-        // still right, but this test is the reminder of why it exists.
-        let catalog = Catalog::builtin().unwrap();
-        let whisper: Vec<_> = catalog
-            .iter()
-            .filter(|e| e.engine == EngineKind::Whisper)
-            .map(|e| e.vendor.as_str())
-            .collect();
-        let distinct: std::collections::BTreeSet<_> = whisper.iter().collect();
-        assert!(
-            distinct.len() > 1,
-            "expected more than one maker among the whisper-engine entries, got {distinct:?}"
-        );
+        let mut openai = entry("whisper-ish");
+        openai.engine = EngineKind::Whisper;
+        openai.vendor = "OpenAI".into();
+
+        let mut distil = entry("distil-whisper-ish");
+        distil.engine = EngineKind::Whisper;
+        distil.vendor = "Hugging Face".into();
+
+        let catalog = catalog(vec![openai, distil]);
+        catalog.validate().expect("two makers on one engine is valid");
+        let makers: std::collections::BTreeSet<_> = catalog.iter().map(|e| e.vendor.as_str()).collect();
+        assert_eq!(makers.len(), 2, "one engine must be able to carry several makers");
+    }
+
+    #[test]
+    fn every_role_on_a_shipped_entry_is_one_a_reader_can_act_on() {
+        for e in Catalog::builtin().unwrap().iter() {
+            for role in &e.roles {
+                assert!(
+                    ModelRole::ALL.contains(role),
+                    "{} claims a role outside ModelRole::ALL",
+                    e.id
+                );
+            }
+        }
+        // At least one entry per offered role, or the role is an empty promise in the picker.
+        for role in ModelRole::ALL {
+            let n = Catalog::builtin()
+                .unwrap()
+                .iter()
+                .filter(|e| e.roles.contains(role))
+                .count();
+            assert!(n > 0, "no shipped entry fills the `{}` role", role.id());
+        }
     }
 
     #[test]

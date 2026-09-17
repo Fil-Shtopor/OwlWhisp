@@ -16,7 +16,8 @@ pub mod paths;
 
 pub use catalog::{
     BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
-    MeasuredPoint, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf, estimate_rtf,
+    MeasuredPoint, ModelRole, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf,
+    estimate_rtf,
 };
 pub use download::{DownloadEvent, ModelDownloader, Progress, staging_dir_for};
 pub use manifest::{ArtifactSet, ArtifactTarget, FileEntry, ModelManifest};

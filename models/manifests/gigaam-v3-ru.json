@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "gigaam-v3-ru",
+  "name": "GigaAM v3 Russian, with punctuation (int8 encoder, sherpa-onnx export)",
+  "version": "csukuangfj-a6039be7",
+  "license": "MIT",
+  "attribution": "GigaAM v3 by the GigaChat Team, Sber (MIT, Copyright (c) 2024 GigaChat Team); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "gigaam-v3-ru",
+  "languages": ["ru"],
+  "common": [
+    {"path":"tokens.txt","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/a6039be7cee829a9044a69ac0ebaf1c191217c97/tokens.txt","bytes":13354,"sha256":"39abae20e692998290c574e606f11a9edef2902a1995463fcff63d1490cf22b7"},
+    {"path":"decoder.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/a6039be7cee829a9044a69ac0ebaf1c191217c97/decoder.onnx","bytes":4600132,"sha256":"38fc7475443ea2a26f63211ca350f73ac50fff824ab7a3876ee2bd610c53bbc4"},
+    {"path":"joiner.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/a6039be7cee829a9044a69ac0ebaf1c191217c97/joiner.onnx","bytes":2712896,"sha256":"602ff7017a93311aad34df1437c8d7f49911353c13d6eae7a6ee7b041339465c"}
+  ],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {"path":"encoder.int8.onnx","url":"https://huggingface.co/csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/resolve/a6039be7cee829a9044a69ac0ebaf1c191217c97/encoder.int8.onnx","bytes":224570820,"sha256":"369f35a71bf288d3b8e0391fabd8dba5f2314088d440bca474056b7b4b6e66bf"}
+      ]
+    }
+  ]
+}
