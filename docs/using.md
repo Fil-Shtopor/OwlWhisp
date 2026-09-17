@@ -18,6 +18,27 @@ that does nothing.
 Transcribed text is injected into the focused application. The overlay window shows recording
 state without stealing focus.
 
+Three things on this screen answer the questions people actually ask first.
+
+**Try dictating here** is a scratchpad. Click it, press the hotkey and speak: the text arrives by
+the same focus path it would use in any other application, so it tests the real mechanism rather
+than a preview of it. Nothing typed or dictated there is saved, logged or sent anywhere, and it is
+gone when the window closes.
+
+**Last transcript** says what happened to the text — typed into the focused window, or written to
+the clipboard because typing was refused. Those are different outcomes with different next steps,
+so they are labelled differently rather than both reading as success.
+
+**Microphone level** is the real RMS of the capture, mapped onto the usual −60…0 dBFS voice range.
+It only moves while something is capturing, which is why **Test microphone** exists: it opens the
+microphone, moves the bar, and transcribes nothing. The checkbox shows what the application
+*managed* to do, not what was asked — if the machine refuses access, or a saved device is gone, it
+stays off and says why. If the bar does not move it says the input is reaching the app as silence,
+which is a real diagnosis; it never animates to look busy.
+
+A failure from the dictation worker appears here as a banner carrying the worker's own message,
+and stays until it is dismissed or the next transcript arrives.
+
 ---
 
 ## 2. Hotkey and modes
@@ -46,9 +67,14 @@ After saving, Settings shows what the OS actually registered, so you can see the
 
 ## 3. Choosing a model
 
-The **Models** tab lists the catalog with, for each entry: size, languages, a quality tier, a speed
-tier, and an **estimated** real-time factor for your machine. The entry recommended for your
-hardware is marked.
+The **Models** tab lists the catalog as one row per model, so the whole catalog fits on a screen:
+size, family, languages, a quality tier, an **estimated** real-time factor for your machine and,
+where one exists, a measured WER. The arrow at the left of a row expands it for everything else.
+The entry recommended for your hardware is marked.
+
+Rows are grouped by who made the model — a heading, a count, and a gap, in one continuous list.
+The recommended model's maker leads, then makers by how many models they have, with anything
+whose maker is unknown under *Other*. Sorting by a column drops the grouping, and says so.
 
 Two kinds of number appear there, and the app never mixes them up:
 
@@ -120,9 +146,22 @@ what each one needs.
 
 ---
 
-## 5. Sounds and starting with the computer
+## 5. Microphone, sounds, and starting with the computer
 
-Both live in Settings.
+All three live in Settings.
+
+**Microphone.** A picker over the input devices the machine reports, with **System default** as an
+explicit first choice rather than an empty one. *Re-scan* re-reads the list without restarting.
+
+A saved device that is not present now stays selected, under *Saved, but not present now*, and
+says that dictation will **fail** until it is reconnected or another input is chosen. That is the
+truth about what the application does: it refuses rather than quietly recording from whatever the
+system happens to call default, because a silent substitution is how you end up dictating into the
+wrong microphone for a week. The saved setting is left alone so reconnecting the device is enough.
+
+A **Test microphone** switch sits beside the picker so a device can be chosen and heard in one
+place. It opens the *saved* device — the one the worker will use — and says so when the picker has
+changes that have not been saved yet.
 
 **Start at login.** One checkbox, working the same way on Windows, macOS and Linux. It applies
 immediately rather than waiting for Save, and it reports **what the operating system says
@@ -171,6 +210,14 @@ en: 0.092 on English, 0.850 if you score it on all four.)
 It takes tens of seconds. The **first NPU run takes minutes**: the encoder's Hexagon context binary
 is prepared on-device and cached (~1.2 GB), after which it reloads in about two seconds.
 
+**How this is measured** at the top of the tab spells the method out in the app itself — the clip
+set, cold versus warm, how WER is computed, and why unclaimed languages are excluded.
+
+A run is not tied to the tab being visible. Start a benchmark, switch to Models or Settings, come
+back: it is still running, with the clock at true elapsed time, and a run that finishes while you
+are elsewhere is waiting when you return. A model download behaves the same way, keeping its
+progress bar, its file counter and its Cancel button across a tab switch.
+
 Benchmarks run on the dictation worker, so dictation pauses while one is in flight. That is
 deliberate: two engines would mean two QNN sessions competing for one Hexagon context, and the
 failure would look like a benchmark result.
@@ -205,6 +252,11 @@ The **Diagnostics** tab reports the ONNX Runtime it found, whether the QNN provi
 whether an NPU device actually enumerated, and the app/OS versions. "Present" and "usable" are
 reported separately: a driver package can be installed while the execution provider fails to load,
 and only the second one means acceleration.
+
+It also carries the full accelerator table for this machine — the provider library, whether ONNX
+Runtime registered it, how many devices it then found, and the verdict — which is four separate
+facts rather than one. *Refresh* forces a fresh probe. Settings keeps only the choice itself and a
+pointer here, so there is one place that answers "what can this machine actually do?".
 
 Logs are written under the app data directory in `logs/localwisper.log.<date>`, at `info` by
 default. Raise it with `LW_LOG=debug`.
