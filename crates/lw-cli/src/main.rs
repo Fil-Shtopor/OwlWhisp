@@ -337,7 +337,12 @@ fn build_engine(
     // points at a Whisper export should get Whisper, not an unhelpful error from the Parakeet
     // loader about a missing vocab.txt.
     if let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+        // Only the message below needs the family name, and that branch is compiled out of a
+        // sherpa build -- binding it unconditionally warns in exactly the configuration we ship.
+        #[cfg(not(feature = "sherpa"))]
         let kind = files.kind();
+        #[cfg(feature = "sherpa")]
+        let _ = &files;
         #[cfg(feature = "sherpa")]
         {
             let cfg = lw_engine_sherpa::SherpaConfig::new(model_dir).with_threads(threads);

@@ -63,6 +63,10 @@ pub struct AppState {
     /// The dictation shortcut currently registered with the OS, so it can be unregistered on change
     /// and so the handler ignores events from any other binding.
     shortcut: Mutex<Option<Shortcut>>,
+    /// Whether [`Self::shortcut`] is actually held by the OS. It is stored separately because the
+    /// requested binding is recorded even when registration fails -- the handler still has to
+    /// recognise it -- and the UI must not be told a dead binding is live.
+    shortcut_registered: AtomicBool,
     /// Hold-to-talk vs tap-to-toggle vs hands-free, mirroring `Settings.hotkey.mode`.
     hotkey_mode: Mutex<HotkeyMode>,
 }
@@ -118,6 +122,7 @@ impl AppState {
             recording: Mutex::new(RecordingState::Idle),
             generation: AtomicU64::new(0),
             shortcut: Mutex::new(None),
+            shortcut_registered: AtomicBool::new(false),
             hotkey_mode: Mutex::new(hotkey_mode),
         }
     }
@@ -127,19 +132,20 @@ impl AppState {
         *self.shortcut.lock()
     }
 
-    /// Record the shortcut now registered with the OS.
-    pub fn set_shortcut(&self, shortcut: Option<Shortcut>) {
+    /// Record the shortcut the handler should answer to, and whether the OS actually took it.
+    pub fn set_shortcut(&self, shortcut: Option<Shortcut>, registered: bool) {
         *self.shortcut.lock() = shortcut;
+        self.shortcut_registered.store(registered, Ordering::Relaxed);
+    }
+
+    /// Whether the recorded shortcut is really held by the OS.
+    pub fn shortcut_registered(&self) -> bool {
+        self.shortcut_registered.load(Ordering::Relaxed)
     }
 
     /// The active hotkey behaviour.
     pub fn hotkey_mode(&self) -> HotkeyMode {
         *self.hotkey_mode.lock()
-    }
-
-    /// Update the active hotkey behaviour (after a settings change).
-    pub fn set_hotkey_mode(&self, mode: HotkeyMode) {
-        *self.hotkey_mode.lock() = mode;
     }
 
     /// Current recording state.
@@ -184,11 +190,24 @@ impl AppState {
         Some(generation)
     }
 
-    /// Update the cue settings after a settings save.
-    pub fn set_cue_settings(&self, settings: &Settings) {
+    /// Mirror everything this process keeps in memory from `settings.json`, in one place.
+    ///
+    /// Every field here exists because reading the disk at the moment it is needed would be wrong:
+    /// a cue plays on a state transition, the microphone opens between the hotkey and the first
+    /// word, and the hotkey handler decides hold-vs-tap inside the key event itself.
+    ///
+    /// One method rather than several deliberately. `hotkey.mode` used to be mirrored inside
+    /// `reregister_shortcut`, which returns early when the key binding has not changed -- so
+    /// switching push-to-talk to toggle, or either to hands-free, without also changing the keys
+    /// did nothing until the app was restarted. The mode is not part of the binding, and nothing
+    /// about the binding should decide whether it is applied.
+    pub fn apply_settings(&self, settings: &Settings) {
+        self.overlay_enabled
+            .store(settings.overlay_enabled, Ordering::Relaxed);
         *self.cue.lock() = CueSettings::from(settings);
         let device = settings.audio.input_device.trim();
         *self.capture_device.lock() = (!device.is_empty()).then(|| device.to_string());
+        *self.hotkey_mode.lock() = settings.hotkey.mode;
     }
 
     /// The input device to capture from, or `None` for the system default.
@@ -231,5 +250,94 @@ impl AppState {
         } else {
             let _ = overlay.hide();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lw_core::settings::HotkeyMode;
+
+    fn state() -> AppState {
+        AppState::new(
+            PathBuf::from("settings.json"),
+            true,
+            HotkeyMode::Toggle,
+            crate::worker::WorkerHandle::detached(),
+        )
+    }
+
+    /// The bug this method exists to prevent: the mode was applied inside `reregister_shortcut`,
+    /// which returns early when the keys have not changed. Switching Toggle to Push-to-talk (or
+    /// to Hands-free) on the same binding therefore did nothing at all until the next restart --
+    /// the user picked a mode, saved, and the app kept the old behaviour with no sign of it.
+    #[test]
+    fn changing_only_the_mode_still_applies_it() {
+        let state = state();
+        assert_eq!(state.hotkey_mode(), HotkeyMode::Toggle);
+
+        for mode in [HotkeyMode::PushToTalk, HotkeyMode::HandsFree, HotkeyMode::Toggle] {
+            let settings = Settings {
+                hotkey: lw_core::settings::HotkeyConfig {
+                    mode,
+                    ..Settings::default().hotkey
+                },
+                ..Settings::default()
+            };
+            // Same keys as whatever came before -- exactly the case that used to be skipped.
+            state.apply_settings(&settings);
+            assert_eq!(state.hotkey_mode(), mode, "mode {mode:?} was not applied");
+        }
+    }
+
+    #[test]
+    fn apply_settings_mirrors_every_field_that_is_read_off_the_hot_path() {
+        let state = state();
+        let settings = Settings {
+            overlay_enabled: false,
+            sounds_enabled: false,
+            sound_volume: 0.25,
+            audio: lw_core::settings::AudioConfig {
+                input_device: "  Headset Microphone  ".into(),
+                ..Settings::default().audio
+            },
+            ..Settings::default()
+        };
+
+        state.apply_settings(&settings);
+
+        assert!(!state.overlay_enabled.load(Ordering::Relaxed));
+        let cue = state.cue_settings();
+        assert!(!cue.enabled);
+        assert_eq!(cue.volume, 0.25);
+        // Trimmed, because a stored name with stray spaces would match no device.
+        assert_eq!(state.capture_device().as_deref(), Some("Headset Microphone"));
+    }
+
+    /// A blank device name means "system default", not a device called "".
+    #[test]
+    fn a_blank_input_device_means_the_system_default() {
+        let state = state();
+        let settings = Settings {
+            audio: lw_core::settings::AudioConfig {
+                input_device: "   ".into(),
+                ..Settings::default().audio
+            },
+            ..Settings::default()
+        };
+        state.apply_settings(&settings);
+        assert_eq!(state.capture_device(), None);
+    }
+
+    /// The requested binding is recorded even when the OS refuses it, so the handler still
+    /// recognises its own events -- but the UI must be able to tell the two apart.
+    #[test]
+    fn a_refused_registration_is_recorded_as_not_registered() {
+        let state = state();
+        assert!(!state.shortcut_registered());
+        state.set_shortcut(None, true);
+        assert!(state.shortcut_registered());
+        state.set_shortcut(None, false);
+        assert!(!state.shortcut_registered());
     }
 }

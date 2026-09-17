@@ -27,13 +27,11 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<Value, String> {
 pub fn set_settings(app: AppHandle, state: State<'_, AppState>, settings: Value) -> Result<Value, String> {
     let parsed: Settings = serde_json::from_value(settings).map_err(|e| e.to_string())?;
     parsed.save(&state.settings_path).map_err(|e| e.to_string())?;
-    state
-        .overlay_enabled
-        .store(parsed.overlay_enabled, std::sync::atomic::Ordering::Relaxed);
-    // Mirrored into memory so a state transition never reads the disk to decide whether to beep.
-    state.set_cue_settings(&parsed);
-    // Apply the parts that live outside the settings file: rebind the global hotkey (and its
-    // hold/toggle behaviour) and make the worker pick up the new model/backend/dictionary.
+    // Everything this process mirrors in memory -- overlay, cues, input device, hotkey mode --
+    // in one call, so none of them can be missed on one path and applied on another.
+    state.apply_settings(&parsed);
+    // Then the parts that live outside this process: rebind the global hotkey with the OS, and
+    // make the worker pick up the new model/backend/dictionary.
     crate::reregister_shortcut(&app, &parsed);
     state.worker.send(crate::worker::WorkerCmd::ReloadSettings);
     serde_json::to_value(&parsed).map_err(|e| e.to_string())

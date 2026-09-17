@@ -60,29 +60,39 @@ fn shortcut_from_settings(settings: &Settings) -> Shortcut {
     }
 }
 
-/// Re-register the global shortcut after the binding changed. Returns the shortcut now in effect.
+/// Re-register the global shortcut if the binding changed, and announce the result either way.
+///
+/// The announcement is unconditional because `hotkey_changed` carries the *mode* as well as the
+/// keys, and the mode changes far more often than the keys do. Returning early without emitting
+/// left the UI showing the previous mode.
+///
+/// This function no longer touches the mode itself -- see [`AppState::apply_settings`], which is
+/// where every mirrored setting is applied, and why.
 pub fn reregister_shortcut(app: &AppHandle, settings: &Settings) -> Shortcut {
     let state = app.state::<AppState>();
     let next = shortcut_from_settings(settings);
     let current = state.shortcut();
-    if current.as_ref() == Some(&next) {
-        return next;
-    }
-    if let Some(old) = current {
-        let _ = app.global_shortcut().unregister(old);
-    }
-    let registered = match app.global_shortcut().register(next) {
-        Ok(()) => {
-            tracing::info!("hotkey registered: {}", next.into_string());
-            true
+    let registered = if current.as_ref() == Some(&next) {
+        // Same keys: nothing to rebind, and re-registering would open a window where the hotkey
+        // is dead. Report what the OS actually holds rather than assuming it took.
+        state.shortcut_registered()
+    } else {
+        if let Some(old) = current {
+            let _ = app.global_shortcut().unregister(old);
         }
-        Err(e) => {
-            tracing::error!("failed to register hotkey {}: {e}", next.into_string());
-            false
-        }
+        let ok = match app.global_shortcut().register(next) {
+            Ok(()) => {
+                tracing::info!("hotkey registered: {}", next.into_string());
+                true
+            }
+            Err(e) => {
+                tracing::error!("failed to register hotkey {}: {e}", next.into_string());
+                false
+            }
+        };
+        state.set_shortcut(Some(next), ok);
+        ok
     };
-    state.set_shortcut(Some(next));
-    state.set_hotkey_mode(settings.hotkey.mode);
     // The UI cannot rely on polling alone: the main webview exists before `setup` runs, so its
     // first `active_hotkey` call can land before the binding is in place. Announcing every
     // (re)registration means a frontend that asked too early is corrected, and one open while
@@ -199,7 +209,7 @@ pub fn run() {
 
             {
                 let state = app.state::<AppState>();
-                state.set_cue_settings(&settings);
+                state.apply_settings(&settings);
                 // The OS owns the autostart registration; settings.json only mirrors it. If a user
                 // removed the entry outside the app, believe the OS and write the file back.
                 use tauri_plugin_autostart::ManagerExt;

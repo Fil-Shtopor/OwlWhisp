@@ -103,6 +103,14 @@ impl WorkerHandle {
     pub fn send(&self, cmd: WorkerCmd) {
         let _ = self.tx.send(cmd);
     }
+
+    /// A handle attached to nothing, for tests that need an [`AppState`] but no worker thread.
+    /// Commands sent to it are dropped, which is what `send` already does once a worker stops.
+    #[cfg(test)]
+    pub fn detached() -> Self {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        Self { tx }
+    }
 }
 
 /// Spawn the worker thread. `app` is used to emit events; `settings_path` locates settings and,
