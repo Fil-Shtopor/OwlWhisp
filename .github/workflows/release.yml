@@ -59,6 +59,26 @@ jobs:
         shell: pwsh
         run: pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform ${{ matrix.platform }}
 
+      # ring, a build-dependency of sherpa-onnx-sys (it downloads the archive), has no
+      # aarch64-windows assembly path MSVC alone can build. UNVERIFIED: no CI run has exercised
+      # this. If a Windows job fails here, that is the thing to fix -- but the release fails
+      # instead of shipping an application that cannot load fourteen of its fifteen models.
+      - name: LLVM (ring needs clang on Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm --no-progress -y
+
+      # Fourteen of the fifteen catalog models run on this engine, so a release without it ships
+      # models that download, verify, and then refuse to load. The script fetches the GPL-free
+      # -no-tts archive and refuses outright if that archive ever carries a real espeak-ng again;
+      # see docs/licenses.md for why that matters next to the Qualcomm runtime.
+      - name: Stage the GPL-free sherpa-onnx libraries
+        shell: pwsh
+        run: |
+          $dir = pwsh -File scripts/build/fetch-sherpa.ps1 -Platform ${{ matrix.platform }} -Quiet
+          if (-not $dir -or -not (Test-Path $dir)) { throw "fetch-sherpa.ps1 produced no library directory" }
+          "SHERPA_ONNX_LIB_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "SHERPA_ONNX_LIB_DIR=$dir"
+
       - name: Frontend
         working-directory: app/frontend
         run: |
@@ -66,9 +86,28 @@ jobs:
           npm run build
 
       - name: Build bundles
-        run: cargo tauri build --target ${{ matrix.target }} --features custom-protocol
+        run: cargo tauri build --target ${{ matrix.target }} --features custom-protocol,sherpa
         env:
           TAURI_BUNDLE_TARGETS: all
+
+      # Two claims this project makes about every shipped binary, checked against the binary
+      # rather than against the build inputs: the engine is in it, and the GPL-3.0 component is
+      # not. A clean staging directory is an argument; this is the evidence.
+      - name: Engine present, espeak absent
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse "target/${{ matrix.target }}/release" -File |
+            Where-Object { $_.Name -in @("localwisper", "localwisper.exe") } |
+            Select-Object -First 1
+          if (-not $exe) { throw "could not find the built application binary" }
+          $txt = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
+          $engine = ([regex]::Matches($txt, "sherpa-onnx")).Count
+          if ($engine -lt 1) { throw "$($exe.Name) contains no sherpa-onnx strings: the engine did not link, and fourteen of fifteen models would not load" }
+          foreach ($gpl in @("espeak", "piper_phonemize")) {
+            $n = ([regex]::Matches($txt, $gpl)).Count
+            if ($n -gt 0) { throw "$($exe.Name) contains $n '$gpl' strings: a GPL-3.0 component linked into a binary that also ships proprietary runtimes. Refusing to release." }
+          }
+          Write-Host "ok: $engine sherpa-onnx strings, no espeak, no piper_phonemize"
 
       # The Qualcomm QNN libraries are licensed for redistribution only as part of an application
       # that uses them, and only on Snapdragon. Shipping them inside an x64 or macOS package would
@@ -106,3 +145,5 @@ jobs:
 #   - macOS signing + notarization; unsigned .app is blocked by Gatekeeper.
 #   - Only the windows-arm64 artifact has been built and run on real hardware. The others compile
 #     the same code but have not been executed — see docs/hardware.md.
+#   - This workflow itself has never been run. The `sherpa` steps above were written from a local
+#     build on Windows ARM64 and are unverified on every runner, including that one.

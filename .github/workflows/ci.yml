@@ -45,7 +45,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev                                   patchelf libasound2-dev libxdo-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+                                  patchelf libasound2-dev libxdo-dev
       - name: Check workspace
         run: cargo check --workspace --target ${{ matrix.target }}
       - name: Unit tests (no hardware needed)
