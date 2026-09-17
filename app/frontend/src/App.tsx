@@ -68,7 +68,7 @@ export function App() {
       </nav>
       <main className="panel">
         {tab === "dictate" && <DictatePanel state={state} />}
-        {tab === "settings" && <SettingsPanel />}
+        {tab === "settings" && <SettingsPanel state={state} />}
         {tab === "models" && <ModelsPanel />}
         {tab === "diagnostics" && <DiagnosticsPanel />}
         {tab === "benchmark" && <BenchmarkPanel />}

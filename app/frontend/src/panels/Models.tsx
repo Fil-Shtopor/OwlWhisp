@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  cancelInstall,
   getCapabilities,
   getSettings,
-  installModel,
   listModels,
   setSettings,
   type Capabilities,
@@ -20,6 +18,15 @@ import {
   formatRtf,
   formatWer,
 } from "../format";
+import {
+  getInstall,
+  installPercent,
+  onInstallSettled,
+  startInstall,
+  stopInstall,
+  subscribeInstall,
+  type InstallProgress,
+} from "../installRun";
 
 /**
  * Wording for each install state, plus the tone of its badge.
@@ -222,6 +229,62 @@ const SORT_COLUMNS: Readonly<Record<SortKey, SortColumn>> = {
   },
 };
 
+// ---------------------------------------------------------------------------------------------
+// Grouping by maker
+// ---------------------------------------------------------------------------------------------
+
+/** Where an entry with no recorded maker goes. A residue, never a company. */
+const OTHER_VENDOR = "Other";
+
+interface VendorGroup {
+  readonly vendor: string;
+  readonly entries: readonly ModelEntry[];
+}
+
+/**
+ * One continuous list, split by who made each model.
+ *
+ * Deliberately not a filter: every model stays on screen at once, and a heading plus a little
+ * space is the whole of the grouping. Vendor tabs would hide most of the catalog behind a click,
+ * which is the opposite of what a comparison table is for.
+ *
+ * Order: the recommended model's maker leads, so the recommendation stays near the top; then the
+ * makers offering the most models, alphabetically within a tie; then `Other`. It depends only on
+ * the catalog, so it does not shuffle when a model is installed or selected. Within a group the
+ * catalog's own order is kept untouched.
+ */
+function groupByVendor(entries: readonly ModelEntry[], recommended: string | null): VendorGroup[] {
+  const buckets = new Map<string, ModelEntry[]>();
+  for (const entry of entries) {
+    const name =
+      entry.vendor === null || entry.vendor.trim() === "" ? OTHER_VENDOR : entry.vendor.trim();
+    const bucket = buckets.get(name);
+    if (bucket === undefined) buckets.set(name, [entry]);
+    else bucket.push(entry);
+  }
+
+  const recommendedEntry =
+    recommended === null ? undefined : entries.find((e) => e.id === recommended);
+  const leadVendor =
+    recommendedEntry === undefined || recommendedEntry.vendor === null
+      ? null
+      : recommendedEntry.vendor.trim();
+
+  return [...buckets.entries()]
+    .map(([vendor, list]) => ({ vendor, entries: list }))
+    .sort((a, b) => {
+      if (a.vendor === b.vendor) return 0;
+      if (leadVendor !== null) {
+        if (a.vendor === leadVendor) return -1;
+        if (b.vendor === leadVendor) return 1;
+      }
+      if (a.vendor === OTHER_VENDOR) return 1;
+      if (b.vendor === OTHER_VENDOR) return -1;
+      if (a.entries.length !== b.entries.length) return b.entries.length - a.entries.length;
+      return a.vendor.localeCompare(b.vendor);
+    });
+}
+
 /** Stable sort: equal rows keep the catalog's own recommendation order. */
 function sortEntries(entries: ModelEntry[], key: SortKey, dir: SortDir): ModelEntry[] {
   const column = SORT_COLUMNS[key];
@@ -242,25 +305,6 @@ function sortEntries(entries: ModelEntry[], key: SortKey, dir: SortDir): ModelEn
 // Installs
 // ---------------------------------------------------------------------------------------------
 
-/** Progress of the one install that can be in flight at a time. */
-interface InstallProgress {
-  id: string;
-  file: string | null;
-  received: number;
-  total: number;
-  /** 0-based, from the `progress` event. Null until the first one arrives. */
-  fileIndex: number | null;
-  fileCount: number | null;
-  verified: number;
-  finishing: boolean;
-}
-
-/** Progress of the file currently downloading — the bar is per file, not per download. */
-function percent(p: InstallProgress): number {
-  if (p.total <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((p.received / p.total) * 100)));
-}
-
 /**
  * The line under the bar. A 640 MB model arrives as several files, so "file 2 of 5" is the part
  * that tells you how much is actually left; the percentage alone would keep resetting to 0.
@@ -273,7 +317,7 @@ function progressLine(p: InstallProgress): string {
   }
   parts.push(
     p.total > 0
-      ? `${percent(p)}% — ${formatBytes(p.received)} of ${formatBytes(p.total)}`
+      ? `${installPercent(p)}% — ${formatBytes(p.received)} of ${formatBytes(p.total)}`
       : "Starting…",
   );
   if (p.verified > 0) {
@@ -307,10 +351,16 @@ export function ModelsPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectBusy, setSelectBusy] = useState<string | null>(null);
   const [selectError, setSelectError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<InstallProgress | null>(null);
-  const [installError, setInstallError] = useState<{ id: string; message: string } | null>(null);
-  const [installNotice, setInstallNotice] = useState<{ id: string; message: string } | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  /**
+   * The download, read from the module-level store rather than held here: a 989 MB fetch keeps
+   * going when this panel unmounts on a tab change, so its progress — and the Cancel button that
+   * needs the in-flight id — must outlive the component too.
+   */
+  const [install, setInstall] = useState(getInstall);
+  const progress = install.progress;
+  const installError = install.error;
+  const installNotice = install.notice;
+  const cancelling = install.cancelling;
   /** Ids whose detail is expanded. Any number of rows may be open at once. */
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   /** Null means the catalog's own order, which is its recommendation ranking. */
@@ -371,108 +421,19 @@ export function ModelsPanel() {
     return sortEntries(catalog.entries, sort.key, sort.dir);
   }, [catalog, sort]);
 
-  const startInstall = async (id: string) => {
-    setInstallError(null);
-    setInstallNotice(null);
-    setCancelling(false);
-    setProgress({
-      id,
-      file: null,
-      received: 0,
-      total: 0,
-      fileIndex: null,
-      fileCount: null,
-      verified: 0,
-      finishing: false,
-    });
-    try {
-      await installModel(id, (e) => {
-        if (!alive.current) return;
-        switch (e.event) {
-          case "file_started":
-            setProgress((p) =>
-              p === null || p.id !== id ? p : { ...p, file: e.path, received: 0, total: e.total },
-            );
-            break;
-          case "progress":
-            setProgress((p) =>
-              p === null || p.id !== id
-                ? p
-                : {
-                    ...p,
-                    file: e.path,
-                    received: e.received,
-                    total: e.total,
-                    fileIndex: e.file_index,
-                    fileCount: e.file_count,
-                  },
-            );
-            break;
-          case "file_verified":
-            setProgress((p) =>
-              p === null || p.id !== id ? p : { ...p, verified: p.verified + 1 },
-            );
-            break;
-          case "completed":
-            // Two of these arrive: a bare one from the downloader, then one carrying `dir`. Both
-            // mean the same thing, so the later message simply replaces the earlier one.
-            setProgress((p) => (p === null || p.id !== id ? p : { ...p, finishing: true }));
-            setInstallNotice({
-              id,
-              message:
-                e.dir === undefined
-                  ? "Downloaded and verified."
-                  : `Downloaded and verified into ${e.dir}`,
-            });
-            break;
-          case "cancelled":
-            // Not an error: the command resolves after this, and staging keeps the partial files.
-            setInstallError(null);
-            setInstallNotice({
-              id,
-              message: "Download cancelled. Partial files stay in staging and resume next time.",
-            });
-            break;
-          case "failed":
-            setInstallError({ id, message: e.message });
-            break;
-        }
-      });
-      // Resolved: completed or cancelled, and the matching event has almost certainly already set
-      // the notice. Only fill one in if none landed — the channel and the promise are separate
-      // deliveries, so their order is not guaranteed.
-      if (alive.current) {
-        setInstallNotice((prev) =>
-          prev !== null && prev.id === id ? prev : { id, message: "Downloaded and verified." },
-        );
-      }
-    } catch (e: unknown) {
-      if (!alive.current) return;
-      // A `failed` event carries the better message; only fall back to the rejection.
-      setInstallError((prev) =>
-        prev !== null && prev.id === id ? prev : { id, message: String(e) },
-      );
-    } finally {
-      if (alive.current) {
-        setProgress(null);
-        setCancelling(false);
-        // One refresh covers every outcome: installed, resumable after a cancel, or failed.
-        void refresh();
-      }
-    }
-  };
+  // Sorting ranks the whole catalog against one column, which a per-maker split would silently
+  // undo — so grouping applies to the catalog's own order only, and the legend says when it is
+  // set aside.
+  const groups = useMemo(
+    () =>
+      catalog === null || sort !== null ? [] : groupByVendor(catalog.entries, catalog.recommended),
+    [catalog, sort],
+  );
 
-  const stopInstall = async (id: string) => {
-    setCancelling(true);
-    try {
-      await cancelInstall(id);
-    } catch (e: unknown) {
-      if (alive.current) {
-        setCancelling(false);
-        setInstallError({ id, message: String(e) });
-      }
-    }
-  };
+  // Mounting only *reads* the download; it never owns it. The settled callback is what makes a
+  // download that finished while the user was on another tab show up as installed on return.
+  useEffect(() => subscribeInstall(setInstall), []);
+  useEffect(() => onInstallSettled(() => void refresh()), [refresh]);
 
   const select = async (id: string) => {
     setSelectBusy(id);
@@ -711,7 +672,7 @@ export function ModelsPanel() {
               <div className="install-progress">
                 <div className="progress-head">
                   <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${percent(progress)}%` }} />
+                    <div className="progress-fill" style={{ width: `${installPercent(progress)}%` }} />
                   </div>
                   <button
                     className="btn secondary small"
@@ -965,11 +926,25 @@ export function ModelsPanel() {
             </span>
           </div>
 
-          <ul className="model-rows">{entries.map(renderRow)}</ul>
+          <ul className="model-rows">
+            {sort === null
+              ? groups.flatMap((group) => [
+                  <li className="mgroup" key={`vendor-${group.vendor}`}>
+                    <h3 className="mgroup-name">{group.vendor}</h3>
+                    <span className="sub mgroup-count">
+                      {group.entries.length} model{group.entries.length === 1 ? "" : "s"}
+                    </span>
+                  </li>,
+                  ...group.entries.map(renderRow),
+                ])
+              : entries.map(renderRow)}
+          </ul>
 
           <p className="sub model-legend">
-            Rows start in the catalog's recommendation order; click a column heading to sort, and
-            again to reverse. <b>Speed</b> is an estimate computed from the model's speed tier and
+            {sort === null
+              ? "Models are grouped by who made them — the maker of the recommended model first, then the makers offering the most, with anything uncredited under Other. Inside a group the catalog's own recommendation order is kept."
+              : "Sorting ranks every model against one column, so the grouping by maker is set aside while it is on; press “Catalog order” to bring it back."}{" "}
+            Click a column heading to sort, and again to reverse. <b>Speed</b> is an estimate computed from the model's speed tier and
             this machine — never a measurement; the <code>~</code> marks it and hovering gives the
             full wording and the hardware it assumes. Under <b>Accuracy</b>, the tier is an
             editorial ranking of the model family, while a green WER is a real measurement — hover

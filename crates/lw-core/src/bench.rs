@@ -80,7 +80,11 @@ pub struct ClipResult {
     pub ms: f32,
     /// Real-time factor: wall seconds per second of audio. Lower is faster.
     pub rtf: f32,
-    /// Word error rate against the reference, when there was one **and** it counted.
+    /// Word error rate against the reference, when the clip had one.
+    ///
+    /// Always computed, including for a clip whose language the engine does not claim — see
+    /// [`ClipResult::scored`] for whether it reached [`Measurement::wer`]. The unscored figure is
+    /// the evidence that excluding it was right, so it is reported rather than blanked.
     pub wer: Option<f32>,
     /// The clip's language, when known.
     pub language: Option<String>,

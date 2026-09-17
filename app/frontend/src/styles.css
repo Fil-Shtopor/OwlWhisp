@@ -7,6 +7,15 @@
   --text: #e5e7ee;
   --text-dim: #9aa0b0;
   --accent: #89b4fa;
+  /*
+   * The one width in this file that is deliberately NOT elastic.
+   *
+   * Tables, forms, cards, meters and controls all grow with the window — that is the whole point
+   * of the width pass. Running prose does not: a sentence 2000px wide is measurably harder to
+   * read, because the eye loses the line on the way back. Every `max-width` left in this file is
+   * either this token on a paragraph, or a grid column minimum, and says so.
+   */
+  --measure: 78ch;
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
@@ -73,8 +82,18 @@ body {
 
 .panel {
   flex: 1;
+  width: 100%;
   padding: 22px 26px;
   overflow-y: auto;
+}
+
+/*
+ * Prose keeps a comfortable measure at every window width. Applied to paragraphs only: the
+ * structural blocks around them take all the width they are given.
+ */
+.panel p,
+.panel .measured-prose {
+  max-width: var(--measure);
 }
 
 /* ---------- Dictate ---------- */
@@ -83,9 +102,30 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 18px;
-  min-height: 60vh;
+  width: 100%;
+}
+
+.dictate > p {
+  text-align: center;
+}
+
+/*
+ * The two things you actually do on this screen: check the microphone, and try dictating into
+ * something. Side by side once there is room for both to stay usable, stacked below that.
+ */
+.dictate-tools {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+@media (min-width: 1080px) {
+  .dictate-tools {
+    grid-template-columns: minmax(300px, 1fr) minmax(380px, 1.5fr);
+  }
 }
 
 .state-orb {
@@ -122,8 +162,9 @@ body {
 }
 
 .meter {
-  width: 260px;
-  height: 8px;
+  /* Grows with its card: a level meter has no reason to stay 260px wide on a maximised window. */
+  width: 100%;
+  height: 10px;
   border-radius: 4px;
   background: var(--bg-inset);
   border: 1px solid var(--border);
@@ -134,6 +175,146 @@ body {
   height: 100%;
   background: var(--accent);
   transition: width 60ms linear;
+}
+
+/* ---------- Dictate: microphone check ---------- */
+
+.mic-check,
+.scratchpad {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  text-align: left;
+}
+
+.mic-check-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mic-check-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.mic-check .check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: none;
+}
+
+/* The "records nothing" promise sits on the same line as the switch, not in a tooltip. */
+.mic-check-note {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.mic-check p {
+  margin: 0;
+}
+
+.mic-peak {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Dictate: scratchpad ---------- */
+
+.scratchpad-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.scratch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scratch-area {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.scratch-area:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.scratchpad p {
+  margin: 0;
+}
+
+.scratch-last {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-inset);
+}
+
+.scratch-last-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scratch-last-text {
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Dictate: why the last utterance produced nothing ---------- */
+
+.failure {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.failure .badge {
+  flex: none;
+}
+
+.failure-text {
+  flex: 1 1 260px;
+  min-width: 0;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.failure .btn {
+  flex: none;
+  align-self: center;
 }
 
 .simulate {
@@ -161,11 +342,37 @@ body {
 /* ---------- Forms (Settings) ---------- */
 
 .form {
-  /* Wide enough for the accelerator table, which needs its four facts side by side. */
-  max-width: 760px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/*
+ * Wide windows: the sections tile into two columns instead of stacking into one very long, very
+ * wide ribbon. 620px is the width the hotkey editor and the accelerator picker need before their
+ * own rows start wrapping, so two columns only appear once both can have it.
+ *
+ * The Save button and the lines that report on it keep a full row: they end the form, and reading
+ * "Settings saved" beside some unrelated field would be nonsense.
+ */
+@media (min-width: 1300px) {
+  .form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 16px 20px;
+  }
+
+  .form > .btn,
+  .form > .status-ok,
+  .form > .status-err {
+    grid-column: 1 / -1;
+  }
+
+  .form > .btn {
+    justify-self: start;
+  }
 }
 
 .field {
@@ -190,8 +397,20 @@ body {
   font-size: 12px;
 }
 
+/*
+ * A helper line under a control is prose, so it keeps the measure. Only direct children: as flex
+ * or grid items these blockify and the limit applies, while the inline `.sub` spans that trail a
+ * radio label stay inline and are unaffected.
+ */
+.field > .sub {
+  max-width: var(--measure);
+}
+
 select,
+textarea,
 input[type="text"] {
+  /* The app body sets `user-select: none`; anything you can type into has to opt back in. */
+  user-select: text;
   font: inherit;
   background: var(--bg-inset);
   color: var(--text);
@@ -258,7 +477,6 @@ input[type="checkbox"] {
 .diag-table {
   border-collapse: collapse;
   width: 100%;
-  max-width: 760px;
 }
 
 .diag-table th,
@@ -427,8 +645,7 @@ input[type="radio"] {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* Wider than the other panels: the comparison table is the point of this one. */
-  max-width: 1180px;
+  width: 100%;
 }
 
 .machine-box {
@@ -714,6 +931,41 @@ input[type="radio"] {
   padding: 2px var(--model-pad) 16px calc(var(--model-pad) + 24px);
 }
 
+/*
+ * A maker's heading inside the one continuous list. Not a tab, not a filter, not a collapsible:
+ * every model stays on screen, and the heading plus the space above it is the whole of the split.
+ */
+.mgroup {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px var(--model-pad) 6px;
+  border-top: 1px solid var(--border);
+}
+
+.mgroup:first-child {
+  border-top: 0;
+  padding-top: 10px;
+}
+
+.mgroup-name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.mgroup-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The heading and its first row read as one block, so no rule between them. */
+.mgroup + .mrow {
+  border-top: 0;
+}
+
 .model-legend {
   margin: 0;
   padding: 8px 12px;
@@ -778,13 +1030,26 @@ input[type="radio"] {
   }
 }
 
+/*
+ * Wide windows: the slack goes to the two text columns rather than to the model name alone, and
+ * the numeric columns stop truncating. Fractions, not fixed widths, so the table keeps filling
+ * whatever it is given.
+ */
+@media (min-width: 1440px) {
+  .model-table {
+    --model-cols: 20px minmax(0, 2fr) 128px 96px minmax(0, 1fr) 140px 220px 116px;
+    --model-gap: 14px;
+    --model-pad: 16px;
+  }
+}
+
 .model-desc {
   margin: 4px 0 0;
 }
 
 .model-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 8px 16px;
   margin: 0;
 }
@@ -802,7 +1067,7 @@ input[type="radio"] {
 
 .model-perf {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 10px 16px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -905,17 +1170,16 @@ input[type="radio"] {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 860px;
+  width: 100%;
 }
 
+/* The two selectors share the row and grow with it; `min()` keeps the track from ever exceeding
+   the container, which is what would push a narrow window into horizontal scroll. */
 .bench-controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  align-items: start;
   gap: 18px;
-}
-
-.bench-controls .field {
-  min-width: 240px;
 }
 
 .bench .toolbar {
@@ -982,7 +1246,7 @@ input[type="radio"] {
 
 .bench-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -1004,8 +1268,7 @@ input[type="radio"] {
 
 /* ---------- Accelerators ---------- */
 
-.accel-picker,
-.accel-section {
+.accel-picker {
   gap: 10px;
   padding: 14px;
   border: 1px solid var(--border);
@@ -1133,7 +1396,6 @@ input[type="radio"] {
 
 .accel-legend {
   margin: 8px 0 0;
-  max-width: 760px;
 }
 
 /* ---------- Diagnostics sections ---------- */
@@ -1217,7 +1479,6 @@ input[type="radio"] {
 
 .bench-timing {
   margin: 0;
-  max-width: 760px;
 }
 
 .compare-table td {
@@ -1297,4 +1558,83 @@ input[type="radio"] {
 
 .bench-run-notes .bench-note-list {
   padding-top: 6px;
+}
+
+/* ---------- Benchmark: how this is measured ---------- */
+
+.bench-method {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 10px 14px;
+}
+
+.bench-method > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.bench-method[open] > summary {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.bench-method-body p {
+  margin: 0 0 10px;
+}
+
+/*
+ * One definition per term. Two columns once the window is wide enough that a single column would
+ * leave the definitions floating in space; one below that.
+ */
+.bench-method-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 12px 24px;
+}
+
+.bench-method-item dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.bench-method-item dd {
+  margin: 3px 0 0;
+  /* Definitions are prose, so they keep a measure even inside a wide column. */
+  max-width: var(--measure);
+}
+
+.bench-method-item .badge {
+  white-space: nowrap;
+}
+
+/* ---------- Benchmark: per-clip results ---------- */
+
+.clip-wer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* A clip kept out of the WER total still reads as a measured row — it contributed to RTF. It is
+   dimmed, not struck through. */
+.clip-table .clip-unscored td {
+  color: var(--text-dim);
+}
+
+/* ---------- Settings: microphone ---------- */
+
+.mic-field .mic-check {
+  margin-top: 4px;
+  background: var(--bg-inset);
+}
+
+.mic-field .sub {
+  max-width: var(--measure);
 }

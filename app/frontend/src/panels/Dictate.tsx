@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   activeBackend,
@@ -6,14 +6,16 @@ import {
   getSettings,
   listBackends,
   onHotkeyChanged,
+  onTranscript,
+  onWorkerError,
   setRecordingState,
-  subscribeMicLevel,
   type AcceleratorReport,
   type ActiveBackend,
   type BackendOption,
   type BackendPreference,
   type HotkeyConfig,
   type RecordingState,
+  type TranscriptPayload,
 } from "../ipc";
 import { hotkeyParts, hotkeyTrigger } from "../format";
 import {
@@ -25,6 +27,7 @@ import {
   type LastRun,
 } from "../backend";
 import { STATE_VISUALS, type UiState } from "../stateVisuals";
+import { MicCheck } from "../MicCheck";
 
 const SIMULATED: readonly RecordingState[] = ["idle", "listening", "processing", "done", "error"];
 
@@ -120,9 +123,141 @@ function BackendHint({ line, detail }: { line: BackendLine; detail: string }) {
   );
 }
 
+/**
+ * Why the last utterance produced nothing.
+ *
+ * The state machine flashes `error` and drops straight back to `idle`, so the orb cannot carry
+ * this: by the time anyone looks up it is grey again. The message is the worker's own, shown
+ * verbatim — "input device matching "…" not found" tells the user exactly what to fix, and any
+ * generic rewording of it would throw that away. It stays until a transcript proves dictation is
+ * working again, or until the user dismisses it.
+ */
+function FailureBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div className="failure" role="alert">
+      <span className="badge no">failed</span>
+      <span className="failure-text">{message}</span>
+      <button className="btn secondary small" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A place to try dictation without leaving the app.
+ *
+ * LocalWisper types into whatever window has focus, so a focused textarea receives dictated text
+ * by the ordinary path — there is no special wiring here, and that is the point: what happens in
+ * this box is what happens in any other application.
+ *
+ * The panel below it exists for the case where the text went somewhere else. `injected: false`
+ * means it could not be typed and landed on the clipboard instead, which is a genuinely different
+ * outcome and not one the user should have to deduce from an empty box.
+ */
+function Scratchpad({ last }: { last: TranscriptPayload | null }) {
+  const [text, setText] = useState("");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const area = useRef<HTMLTextAreaElement | null>(null);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+    } catch {
+      // No clipboard permission, or no clipboard API in this webview. Selecting the text is
+      // still possible, so say that rather than pretending the copy worked.
+      setCopyState("failed");
+    }
+  };
+
+  return (
+    <section className="scratchpad">
+      <div className="scratchpad-head">
+        <span className="perf-label">Try dictating here</span>
+        <div className="scratch-actions">
+          <button
+            className="btn secondary small"
+            onClick={() => void copy()}
+            disabled={text === ""}
+          >
+            Copy
+          </button>
+          <button
+            className="btn secondary small"
+            onClick={() => {
+              setText("");
+              setCopyState("idle");
+              area.current?.focus();
+            }}
+            disabled={text === ""}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <textarea
+        ref={area}
+        className="scratch-area"
+        value={text}
+        spellCheck={false}
+        placeholder="Click here first, then use your hotkey and speak. The text arrives the same way it would in any other app."
+        onChange={(e) => {
+          setText(e.currentTarget.value);
+          setCopyState("idle");
+        }}
+        aria-label="Scratchpad for trying dictation"
+      />
+
+      <p className="sub">
+        A scratchpad. Nothing typed or dictated here is saved, logged or sent anywhere — it is gone
+        when this window closes.
+      </p>
+      {copyState === "copied" && <p className="sub status-ok">Copied to the clipboard.</p>}
+      {copyState === "failed" && (
+        <p className="sub status-err">
+          This webview would not give up the clipboard. Select the text and copy it by hand.
+        </p>
+      )}
+
+      <div className="scratch-last">
+        <span className="perf-label">Last transcript</span>
+        {last === null ? (
+          <p className="sub">Nothing has been dictated yet in this session.</p>
+        ) : (
+          <>
+            <div className="scratch-last-head">
+              {last.injected ? (
+                <span className="badge yes">typed into the focused window</span>
+              ) : (
+                <span className="badge warn">sent to the clipboard</span>
+              )}
+              <span className="sub mono">via {last.provider}</span>
+            </div>
+            <p className="scratch-last-text">
+              {last.text.trim() === "" ? (
+                <span className="sub">The transcript was empty.</span>
+              ) : (
+                last.text
+              )}
+            </p>
+            {!last.injected && (
+              <p className="sub">
+                It could not be typed into the focused application, so it was copied instead. Paste
+                it with <span className="kbd">Ctrl</span> + <span className="kbd">V</span>.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function DictatePanel({ state }: { state: UiState }) {
-  const [micLevel, setMicLevel] = useState(0);
   const [hotkey, setHotkey] = useState<HotkeyConfig | null>(null);
+  const [inputDevice, setInputDevice] = useState<string | null>(null);
   const [settingsFailed, setSettingsFailed] = useState(false);
   const [registration, setRegistration] = useState<Registration>("unknown");
   const [preference, setPreference] = useState<BackendPreference | null>(null);
@@ -132,19 +267,10 @@ export function DictatePanel({ state }: { state: UiState }) {
   const [active, setActive] = useState<ActiveBackend | null>(null);
   const [activeError, setActiveError] = useState<string | null>(null);
   const [activeNonce, setActiveNonce] = useState(0);
+  const [lastTranscript, setLastTranscript] = useState<TranscriptPayload | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const visual = STATE_VISUALS[state];
-
-  useEffect(() => {
-    let disposed = false;
-    void subscribeMicLevel((level) => {
-      if (!disposed) setMicLevel(level);
-    }).catch(() => {
-      // Channel registration failing is non-fatal; the meter just stays at 0.
-    });
-    return () => {
-      disposed = true;
-    };
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -153,6 +279,7 @@ export function DictatePanel({ state }: { state: UiState }) {
         if (!disposed) {
           setHotkey(s.hotkey);
           setPreference(s.backend);
+          setInputDevice(s.audio.input_device);
         }
       })
       .catch(() => {
@@ -181,6 +308,41 @@ export function DictatePanel({ state }: { state: UiState }) {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  // What came out, and what stopped it coming out. One effect for both, because they are two
+  // halves of the same question and a transcript is what clears a failure.
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: UnlistenFn[] = [];
+    const keep = (un: UnlistenFn) => {
+      if (disposed) un();
+      else unlisteners.push(un);
+    };
+
+    void onTranscript((payload) => {
+      if (disposed) return;
+      setLastTranscript(payload);
+      // A finished utterance is proof that whatever failed before is no longer failing.
+      setFailure(null);
+    })
+      .then(keep)
+      .catch((e: unknown) => {
+        if (!disposed) setEventsError(String(e));
+      });
+
+    void onWorkerError((message) => {
+      if (!disposed) setFailure(message);
+    })
+      .then(keep)
+      .catch((e: unknown) => {
+        if (!disposed) setEventsError(String(e));
+      });
+
+    return () => {
+      disposed = true;
+      for (const un of unlisteners) un();
     };
   }, []);
 
@@ -260,6 +422,17 @@ export function DictatePanel({ state }: { state: UiState }) {
       ? backendLine.detail
       : `${backendLine.detail} (The worker could not be asked what is running: ${activeError})`;
 
+  // Which input the test stream will open. Read from the saved settings, because that is what the
+  // backend reads too — the picker in Settings only takes effect once it has been saved.
+  const deviceNote =
+    inputDevice === null
+      ? null
+      : inputDevice.trim() === ""
+        ? "Uses the system default input. Change it under Microphone in Settings."
+        : `Uses the input matching “${inputDevice.trim()}”, from Settings.`;
+
+  const dictating = state === "listening" || state === "processing";
+
   return (
     <div className="dictate">
       <div
@@ -272,9 +445,22 @@ export function DictatePanel({ state }: { state: UiState }) {
       <div className="state-label">{visual.label}</div>
       <HotkeyHint hotkey={hotkey} failed={settingsFailed} registration={registration} />
       <BackendHint line={backendLine} detail={backendDetail} />
-      <div className="meter" title="Microphone level (synthetic until audio capture is wired)">
-        <div className="meter-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
+
+      {failure !== null && (
+        <FailureBanner message={failure} onDismiss={() => setFailure(null)} />
+      )}
+      {eventsError !== null && (
+        <p className="sub status-err">
+          This panel could not subscribe to the worker's events ({eventsError}), so it cannot report
+          transcripts or failures. Dictation itself is unaffected.
+        </p>
+      )}
+
+      <div className="dictate-tools">
+        <MicCheck busyElsewhere={dictating} deviceNote={deviceNote} />
+        <Scratchpad last={lastTranscript} />
       </div>
+
       <div className="simulate">
         {SIMULATED.map((s) => (
           <button key={s} onClick={() => void setRecordingState(s)}>

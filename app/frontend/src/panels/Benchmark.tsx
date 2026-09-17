@@ -1,25 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   listBackends,
   listModels,
-  onBenchmarkProgress,
-  runBenchmark,
-  runBenchmarkAll,
   type AcceleratorReport,
   type BackendOption,
-  type BackendPreference,
+  type BenchClip,
   type BenchmarkProgress,
-  type BenchReport,
   type BenchSuite,
   type ModelEntry,
 } from "../ipc";
-import type { UnlistenFn } from "@tauri-apps/api/event";
 import { formatMs, formatRtf, formatSeconds, formatWer } from "../format";
-import { isCoarse, probeAccelerators, recordBenchRun, resolveOption } from "../backend";
+import { isCoarse, probeAccelerators, resolveOption } from "../backend";
+import {
+  getBenchRun,
+  setBackendChoice,
+  setModelChoice,
+  startBenchmark,
+  startBenchmarkAll,
+  subscribeBenchRun,
+  type BackendChoice,
+} from "../benchRun";
 
-/** "" means "leave it to Settings" for both selectors. */
+/** "" means "leave it to Settings" for both selectors; `BackendChoice` lives with the store. */
 type ModelChoice = string;
-type BackendChoice = "" | BackendPreference;
 
 /**
  * The option label as offered in the dropdown, with the reason it cannot be measured appended.
@@ -43,6 +46,126 @@ function optionText(option: BackendOption, report: AcceleratorReport | null): st
 function isFallbackNote(note: string): boolean {
   const text = note.toLowerCase();
   return text.includes("unavailable") || text.includes("using cpu");
+}
+
+/**
+ * What a run actually does, collapsed by default.
+ *
+ * Reference material rather than something to read before every run — but without it, "RTF 0.04,
+ * WER 7.9%" is a pair of numbers with no method behind them, and the reader has no way to tell
+ * that the cold figure is deliberately the worst one or that four of the twelve clips were left
+ * out of the accuracy total on purpose.
+ */
+function Methodology() {
+  return (
+    <details className="bench-method">
+      <summary>How this is measured</summary>
+      <div className="bench-method-body">
+        <p>
+          A run transcribes the fixture clips committed with this repository — <strong>12 clips</strong>,
+          three each in English, Russian, Spanish and Ukrainian — and times every one. They are real
+          speech with reference transcripts, not a synthesised tone.
+        </p>
+        <dl className="bench-method-list">
+          <div className="bench-method-item">
+            <dt>RTF</dt>
+            <dd>
+              Wall-clock seconds per second of audio; lower is faster. The <strong>first</strong>{" "}
+              clip is reported separately as <em>cold</em>, because it carries the one-time warm-up.{" "}
+              <em>Warm</em> is the mean of the rest, and warm is what steady-state dictation feels
+              like.
+            </dd>
+          </div>
+          <div className="bench-method-item">
+            <dt>WER</dt>
+            <dd>
+              Word error rate against the reference: Levenshtein distance over words, lowercased and
+              with punctuation stripped, so casing and commas never count as errors. It is
+              word-weighted across the clips — long clips carry more of the total — not a mean of
+              per-clip rates.
+            </dd>
+          </div>
+          <div className="bench-method-item">
+            <dt>Which clips count</dt>
+            <dd>
+              WER is scored only on the languages the model claims. An English-only model is judged
+              on the English clips; the rest are still transcribed and timed, but marked{" "}
+              <span className="badge">not scored</span>, because a WER against a language a model
+              never advertised measures the question rather than the model. Moonshine tiny en scores
+              0.092 on English and 0.850 if you score it on all four.
+            </dd>
+          </div>
+          <div className="bench-method-item">
+            <dt>Comparing backends</dt>
+            <dd>
+              <strong>Compare all backends</strong> runs every usable accelerator over one clip set,
+              loaded once before the sweep starts. That shared set is what makes the rows
+              comparable.
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Every clip, timed — and, where it was left out of the accuracy total, why.
+ *
+ * A clip the model does not claim the language of still has a per-clip WER, and it is shown: an
+ * English-only model scoring 0.85 on the Russian clips is exactly the evidence that excluding them
+ * from the total was right. What must not happen is that number quietly joining the total.
+ */
+function ClipTable({ clips }: { clips: readonly BenchClip[] }) {
+  if (clips.length === 0) {
+    return <p className="hint">The run produced no clips.</p>;
+  }
+  const unscored = clips.filter((c) => !c.scored).length;
+  return (
+    <>
+      <table className="diag-table bench-table clip-table">
+        <thead>
+          <tr>
+            <th>clip</th>
+            <th>language</th>
+            <th>duration</th>
+            <th>time</th>
+            <th>RTF</th>
+            <th>WER</th>
+          </tr>
+        </thead>
+        <tbody>
+          {clips.map((clip, i) => (
+            <tr key={`${clip.name}-${i}`} className={clip.scored ? "" : "clip-unscored"}>
+              <td>{clip.name}</td>
+              <td>{clip.language === null ? <span className="sub">unknown</span> : clip.language}</td>
+              <td>{formatSeconds(clip.duration_s)}</td>
+              <td>{formatMs(clip.ms)}</td>
+              <td>{formatRtf(clip.rtf)}</td>
+              <td className="clip-wer">
+                {clip.wer === null ? "no reference" : formatWer(clip.wer)}
+                {!clip.scored && (
+                  <span
+                    className="badge"
+                    title="The model does not claim this clip's language, so its WER was kept out of the total."
+                  >
+                    not scored
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {unscored > 0 && (
+        <p className="sub">
+          {unscored} of {clips.length} clips are marked <strong>not scored</strong>: this model does
+          not claim their language, so they were transcribed and timed — they count towards RTF —
+          but kept out of the WER total. Their own WER is still shown above.
+        </p>
+      )}
+    </>
+  );
 }
 
 /** One line of running commentary while a sweep is in flight. */
@@ -245,40 +368,25 @@ export function BenchmarkPanel() {
   const [backends, setBackends] = useState<BackendOption[] | null>(null);
   const [backendsError, setBackendsError] = useState<string | null>(null);
   const [accel, setAccel] = useState<AcceleratorReport | null>(null);
-  const [modelChoice, setModelChoice] = useState<ModelChoice>("");
-  const [backendChoice, setBackendChoice] = useState<BackendChoice>("");
-  const [report, setReport] = useState<BenchReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  /**
+   * The run itself lives in a module-level store, not here.
+   *
+   * A sweep takes minutes and App.tsx unmounts this panel on any tab change. Held locally, the
+   * progress list, the clock and the result all died with the component while the backend carried
+   * on — so a run in flight looked cancelled, and a result that landed while the user was
+   * elsewhere was lost. This component only renders the store and asks it to start things.
+   */
+  const [run, setRun] = useState(getBenchRun);
   const [elapsed, setElapsed] = useState(0);
-  // The sweep over every accelerator, kept in its own state so neither result can be mistaken for
-  // the other.
-  const [suite, setSuite] = useState<BenchSuite | null>(null);
-  const [suiteError, setSuiteError] = useState<string | null>(null);
-  const [runningAll, setRunningAll] = useState(false);
-  const [progress, setProgress] = useState<BenchmarkProgress[]>([]);
-  const [progressError, setProgressError] = useState<string | null>(null);
 
-  const busy = running || runningAll;
+  const { report, suite, error, suiteError, progress, progressError } = run;
+  const running = run.activity === "single";
+  const runningAll = run.activity === "sweep";
+  const busy = run.activity !== null;
+  const modelChoice: ModelChoice = run.modelChoice;
+  const backendChoice: BackendChoice = run.backendChoice;
 
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  // The sweep's progress subscription. Registered *before* the command is invoked, so the first
-  // backend's "running" event cannot be missed, and dropped the moment the sweep ends — or the
-  // panel unmounts mid-run, which is what this ref is for.
-  const unlisten = useRef<UnlistenFn | null>(null);
-  const stopListening = () => {
-    const fn = unlisten.current;
-    unlisten.current = null;
-    if (fn !== null) void fn();
-  };
-  useEffect(() => stopListening, []);
+  useEffect(() => subscribeBenchRun(setRun), []);
 
   useEffect(() => {
     let disposed = false;
@@ -313,91 +421,19 @@ export function BenchmarkPanel() {
     };
   }, []);
 
-  // A visible clock, because a first NPU run can take minutes and silence looks like a hang.
+  // A visible clock, because a first NPU run can take minutes and silence looks like a hang. It is
+  // derived from the moment the run started rather than counted from zero, so coming back to this
+  // tab after four minutes shows four minutes.
   useEffect(() => {
-    if (!busy) return;
-    setElapsed(0);
-    const started = Date.now();
-    const timer = window.setInterval(() => {
-      setElapsed(Math.round((Date.now() - started) / 1000));
-    }, 1000);
+    const startedAt = run.startedAt;
+    if (startedAt === null) return;
+    const tick = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [busy]);
-
-  const run = async () => {
-    setRunning(true);
-    setError(null);
-    // One current result on screen: a sweep from five minutes ago sitting under a fresh single run
-    // would read as part of it.
-    setSuite(null);
-    setSuiteError(null);
-    setProgress([]);
-    try {
-      const result = await runBenchmark(
-        modelChoice === "" ? undefined : modelChoice,
-        backendChoice === "" ? undefined : backendChoice,
-      );
-      // File it for the Dictate panel: this run is the only proof of what actually executed.
-      recordBenchRun(result, backendChoice === "" ? null : backendChoice);
-      if (alive.current) setReport(result);
-    } catch (e: unknown) {
-      if (alive.current) setError(String(e));
-    } finally {
-      if (alive.current) setRunning(false);
-    }
-  };
-
-  const runAll = async () => {
-    setRunningAll(true);
-    setSuiteError(null);
-    setSuite(null);
-    setProgress([]);
-    setProgressError(null);
-    setReport(null);
-    setError(null);
-    try {
-      try {
-        const fn = await onBenchmarkProgress((entry) => {
-          if (!alive.current) return;
-          setProgress((prev) => {
-            const next = prev.filter((p) => p.accelerator !== entry.accelerator);
-            next.push(entry);
-            next.sort((a, b) => a.index - b.index);
-            return next;
-          });
-        });
-        if (alive.current) {
-          unlisten.current = fn;
-        } else {
-          void fn();
-        }
-      } catch (e: unknown) {
-        // The sweep still runs; only the running commentary is missing. Saying so beats a blank
-        // screen for several minutes.
-        if (alive.current) setProgressError(String(e));
-      }
-      const result = await runBenchmarkAll(modelChoice === "" ? undefined : modelChoice);
-      if (alive.current) setSuite(result);
-      // The sweep's last run is the last engine the worker held, and Dictate and Settings ask what
-      // actually ran. Only filed when this build can name the preference that pinned it, so
-      // nothing is attributed to a choice the user never made.
-      const last = result.runs.length === 0 ? undefined : result.runs[result.runs.length - 1];
-      if (last !== undefined) {
-        const pinned =
-          (backends ?? []).find(
-            (o) => o.accelerator !== null && o.accelerator === last.accelerator,
-          ) ?? null;
-        if (pinned !== null) recordBenchRun(last, pinned.value);
-      }
-    } catch (e: unknown) {
-      if (alive.current) setSuiteError(String(e));
-    } finally {
-      stopListening();
-      if (alive.current) setRunningAll(false);
-    }
-  };
+  }, [run.startedAt]);
 
   const options = backends ?? [];
   const coarseOptions = options.filter(isCoarse);
@@ -424,6 +460,8 @@ export function BenchmarkPanel() {
         Every number on this page is measured on this machine by the run you start here — unlike the
         catalog figures in Models, which are estimates.
       </p>
+
+      <Methodology />
 
       <div className="bench-controls">
         <div className="field">
@@ -493,10 +531,10 @@ export function BenchmarkPanel() {
       </div>
 
       <div className="toolbar bench-actions">
-        <button className="btn" onClick={() => void run()} disabled={busy}>
+        <button className="btn" onClick={() => void startBenchmark()} disabled={busy}>
           {running ? `Running… ${elapsed}s` : "Run benchmark"}
         </button>
-        <button className="btn secondary" onClick={() => void runAll()} disabled={busy}>
+        <button className="btn secondary" onClick={() => void startBenchmarkAll(backends ?? [])} disabled={busy}>
           {runningAll ? `Comparing… ${elapsed}s` : "Compare all backends"}
         </button>
       </div>
@@ -603,32 +641,7 @@ export function BenchmarkPanel() {
           )}
 
           <h3 className="bench-heading">Per clip</h3>
-          {report.clips.length === 0 ? (
-            <p className="hint">The run produced no clips.</p>
-          ) : (
-            <table className="diag-table bench-table">
-              <thead>
-                <tr>
-                  <th>clip</th>
-                  <th>duration</th>
-                  <th>time</th>
-                  <th>RTF</th>
-                  <th>WER</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.clips.map((clip, i) => (
-                  <tr key={`${clip.name}-${i}`}>
-                    <td>{clip.name}</td>
-                    <td>{formatSeconds(clip.duration_s)}</td>
-                    <td>{formatMs(clip.ms)}</td>
-                    <td>{formatRtf(clip.rtf)}</td>
-                    <td>{clip.wer === null ? "no reference" : formatWer(clip.wer)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <ClipTable clips={report.clips} />
 
           <h3 className="bench-heading">Measured on this machine</h3>
           <div className="bench-summary">
@@ -655,8 +668,10 @@ export function BenchmarkPanel() {
               </span>
               <span className="sub">
                 {report.wer === null
-                  ? "The clips had no reference transcripts, so accuracy could not be computed."
-                  : "Word-weighted across all clips."}
+                  ? "No clip contributed a reference this model could be scored against, so accuracy could not be computed."
+                  : report.clips.every((c) => c.scored)
+                    ? "Word-weighted across all clips."
+                    : `Word-weighted across the ${report.clips.filter((c) => c.scored).length} clips in languages this model claims.`}
               </span>
             </div>
           </div>

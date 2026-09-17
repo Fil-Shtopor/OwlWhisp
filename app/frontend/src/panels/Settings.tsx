@@ -5,6 +5,7 @@ import {
   getAutostart,
   getSettings,
   listBackends,
+  listInputDevices,
   listSoundThemes,
   previewSound,
   setAutostart,
@@ -40,7 +41,8 @@ import {
   type BackendResolution,
   type LastRun,
 } from "../backend";
-import { AcceleratorTable } from "../AcceleratorTable";
+import { MicCheck } from "../MicCheck";
+import type { UiState } from "../stateVisuals";
 
 const MODE_OPTIONS: ReadonlyArray<{ id: HotkeyMode; label: string; help: string }> = [
   {
@@ -546,20 +548,184 @@ function SoundCues({
   );
 }
 
-export function SettingsPanel() {
+/**
+ * Which microphone dictation opens.
+ *
+ * Three things about `audio.input_device` decide how this has to behave.
+ *
+ * It is a *fragment*, matched case-insensitively against the device names the OS reports — so the
+ * value stored here is the full name, which trivially contains itself, and a shorter value written
+ * by hand keeps working.
+ *
+ * An empty string means the system default. That is a choice, so it is offered as one rather than
+ * shown as a blank field.
+ *
+ * And a saved name that matches nothing is **refused**, not quietly replaced: capture fails with
+ * `input device matching "…" not found`. That is the right call — someone who picks a specific
+ * microphone does so because the default is wrong for them, and substituting it would produce bad
+ * transcripts with no clue why — but it means this screen must say "dictation will fail", not
+ * "the default will be used". The setting is left exactly as saved: the device may simply be
+ * unplugged, and rewriting it would lose the user's choice for them.
+ */
+function MicrophoneField({
+  value,
+  savedValue,
+  disabled,
+  dictating,
+  onChange,
+}: {
+  value: string;
+  /** The value as last saved. The test stream opens that one, not the edited one. */
+  savedValue: string | null;
+  disabled: boolean;
+  /** True while dictation owns the microphone, so the test releases it. */
+  dictating: boolean;
+  onChange: (device: string) => void;
+}) {
+  const [devices, setDevices] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    let disposed = false;
+    setDevices(null);
+    void listInputDevices()
+      .then((list) => {
+        if (!disposed) {
+          setDevices(list);
+          setError(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!disposed) {
+          setDevices([]);
+          setError(String(e));
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [nonce]);
+
+  const wanted = value.trim();
+  const matched =
+    wanted === "" || devices === null
+      ? null
+      : (devices.find((d) => d.toLowerCase().includes(wanted.toLowerCase())) ?? null);
+  // Only a loaded list can prove something is missing; before that, "not found" is not yet true.
+  const orphaned = devices !== null && wanted !== "" && matched === null;
+  const selectValue = wanted === "" ? "" : (matched ?? value);
+  const hasChoices = (devices?.length ?? 0) > 0;
+  const unsaved = savedValue !== null && savedValue.trim() !== wanted;
+
+  const deviceNote =
+    savedValue === null
+      ? null
+      : savedValue.trim() === ""
+        ? "This test opens the system default input."
+        : `This test opens the saved input, matching “${savedValue.trim()}”.`;
+
+  return (
+    <section className="field mic-field">
+      <div className="field-row">
+        <label htmlFor="input-device">Microphone</label>
+        <button
+          className="btn secondary small"
+          onClick={() => setNonce((n) => n + 1)}
+          disabled={disabled || devices === null}
+        >
+          {devices === null ? "Scanning…" : "Re-scan"}
+        </button>
+      </div>
+
+      <select
+        id="input-device"
+        value={selectValue}
+        disabled={disabled || devices === null || (!hasChoices && !orphaned)}
+        onChange={(e) => onChange(e.currentTarget.value)}
+      >
+        <option value="">System default</option>
+        {orphaned && (
+          <optgroup label="Saved, but not present now">
+            <option value={value}>{value} — unavailable</option>
+          </optgroup>
+        )}
+        {hasChoices && (
+          <optgroup label="Inputs on this machine">
+            {(devices ?? []).map((device, i) => (
+              <option key={`${device}-${i}`} value={device}>
+                {device}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+
+      {devices === null && error === null && <span className="sub">Asking for input devices…</span>}
+
+      {error !== null && (
+        <p className="status-err">
+          Could not list input devices: {error}. The saved value is still in force and can only be
+          changed from here once this succeeds.
+        </p>
+      )}
+
+      {devices !== null && !hasChoices && error === null && (
+        <p className="status-err">
+          This machine reports no audio inputs at all. Dictation has nothing to record from until
+          one is connected.
+        </p>
+      )}
+
+      {orphaned && (
+        <p className="status-err">
+          Nothing on this machine matches “{wanted}” right now — it is probably unplugged or
+          renamed. Dictation will <strong>fail</strong> until it is reconnected or another input is
+          chosen here; it is not silently replaced by the default. The setting is left as you saved
+          it.
+        </p>
+      )}
+
+      {wanted === "" && (
+        <span className="sub">
+          Whatever the operating system calls default when recording starts.
+        </span>
+      )}
+      {matched !== null && matched !== value && (
+        <span className="sub">
+          Matches <strong>{matched}</strong> — the stored value is a fragment, matched
+          case-insensitively.
+        </span>
+      )}
+
+      {unsaved && (
+        <span className="sub">
+          Not saved yet. Dictation and the test below both open the saved device, so press Save
+          before checking this one.
+        </span>
+      )}
+
+      <MicCheck busyElsewhere={dictating} deviceNote={deviceNote} />
+    </section>
+  );
+}
+
+export function SettingsPanel({ state }: { state: UiState }) {
   const [settings, setLocal] = useState<Settings | null>(null);
   // The preference as *saved*, which is what the running engine was built from. The edited copy
   // above can differ the moment a radio is clicked, and comparing the engine against an unsaved
   // edit would accuse it of a fallback it never made.
   const [savedBackend, setSavedBackend] = useState<BackendPreference | null>(null);
+  // Same reasoning for the microphone: the worker opens the *saved* device, so the test meter and
+  // the "not saved yet" note both have to compare against this rather than the edited copy.
+  const [savedDevice, setSavedDevice] = useState<string | null>(null);
   // Null until `list_backends` answers: the labels belong to the Rust side, so there is nothing
   // honest to show before it does.
   const [backends, setBackends] = useState<BackendOption[] | null>(null);
   const [backendsError, setBackendsError] = useState<string | null>(null);
+  // Probed only to resolve what each backend choice would land on. The table that used to render
+  // this lives on Diagnostics now, so a failed probe simply leaves availability "unknown" here.
   const [accel, setAccel] = useState<AcceleratorReport | null>(null);
-  const [accelError, setAccelError] = useState<string | null>(null);
-  const [accelLoading, setAccelLoading] = useState(true);
-  const [probeNonce, setProbeNonce] = useState(0);
   const [lastRun, setLastRun] = useState<LastRun | null>(getLastRun);
   const [active, setActive] = useState<ActiveBackend | null>(null);
   const [activeNonce, setActiveNonce] = useState(0);
@@ -579,6 +745,7 @@ export function SettingsPanel() {
         if (!disposed) {
           setLocal(s);
           setSavedBackend(s.backend);
+          setSavedDevice(s.audio.input_device);
         }
       })
       .catch((e: unknown) => {
@@ -607,31 +774,21 @@ export function SettingsPanel() {
     };
   }, []);
 
-  // Probing loads provider libraries, so it is a real call — the shared result is reused, and
-  // only "Re-probe" forces a fresh one.
+  // Probing loads provider libraries, so it is a real call; the session-wide result is reused.
   useEffect(() => {
     let disposed = false;
-    setAccelLoading(true);
-    void probeAccelerators(probeNonce > 0)
+    void probeAccelerators()
       .then((report) => {
-        if (!disposed) {
-          setAccel(report);
-          setAccelError(null);
-        }
+        if (!disposed) setAccel(report);
       })
-      .catch((e: unknown) => {
-        if (!disposed) {
-          setAccel(null);
-          setAccelError(String(e));
-        }
-      })
-      .finally(() => {
-        if (!disposed) setAccelLoading(false);
+      .catch(() => {
+        // Leaves every choice's availability "unknown", which is the honest state — and is what
+        // the picker already renders when it cannot establish one.
       });
     return () => {
       disposed = true;
     };
-  }, [probeNonce]);
+  }, []);
 
   // What the dictation worker's engine actually selected — the answer that outranks every
   // prediction on this screen. Null until it answers; a failure leaves it null and the screen
@@ -740,6 +897,7 @@ export function SettingsPanel() {
       const normalized = await setSettings(settings);
       setLocal(normalized);
       setSavedBackend(normalized.backend);
+      setSavedDevice(normalized.audio.input_device);
       setStatus({ kind: "saved" });
       // Saving makes the worker drop its engine and reload it on the next utterance, so whatever
       // it reported a moment ago is stale: ask again rather than leave a dead engine on screen.
@@ -930,6 +1088,10 @@ export function SettingsPanel() {
           accelerator and falls back to the CPU; every other choice is strict, so if it cannot be
           honoured the run fails instead of quietly running somewhere else.
         </span>
+        <span className="sub">
+          The full picture of what this machine can accelerate with — each provider library, the
+          devices it found and the verdict — is on the <strong>Diagnostics</strong> tab.
+        </span>
 
         {backendsError !== null && (
           <p className="status-err">
@@ -1025,19 +1187,15 @@ export function SettingsPanel() {
         )}
       </section>
 
-      <section className="field accel-section">
-        <div className="field-row">
-          <label>This machine</label>
-          <button
-            className="btn secondary small"
-            onClick={() => setProbeNonce((n) => n + 1)}
-            disabled={accelLoading}
-          >
-            {accelLoading ? "Probing…" : "Re-probe"}
-          </button>
-        </div>
-        <AcceleratorTable report={accel} loadError={accelError} loading={accelLoading} />
-      </section>
+      <MicrophoneField
+        value={settings.audio.input_device}
+        savedValue={savedDevice}
+        disabled={saving}
+        dictating={state === "listening" || state === "processing"}
+        onChange={(device) =>
+          update({ audio: { ...settings.audio, input_device: device } })
+        }
+      />
 
       <div className="field">
         <label htmlFor="vad-threshold">VAD threshold: {settings.vad.threshold.toFixed(2)}</label>
