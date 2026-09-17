@@ -115,6 +115,181 @@ function compactLanguages(entry: ModelEntry): string {
   return `${langs.length} langs`;
 }
 
+/**
+ * "I need X, in language Y — which one?", answered from the catalog.
+ *
+ * The winner for a role is simply the first entry in **catalog order** that carries that role and
+ * claims the chosen language. Catalog order is already the ranking the backend computed for this
+ * machine (runnable first, then quality, then estimated speed), so reusing it keeps one ranking in
+ * the product instead of inventing a second one here that could disagree with the recommendation
+ * badge two rows below.
+ *
+ * A role with no winner says so rather than falling back to something that does not fill it.
+ */
+function RolePicks({
+  catalog,
+  onPick,
+}: {
+  catalog: ModelCatalog;
+  onPick: (id: string) => void;
+}) {
+  const [language, setLanguage] = useState<string>("");
+
+  const languages = useMemo(() => {
+    const seen = new Set<string>();
+    for (const e of catalog.entries) for (const l of e.languages) seen.add(l);
+    return [...seen].sort();
+  }, [catalog.entries]);
+
+  const eligible = useMemo(
+    () =>
+      language === ""
+        ? catalog.entries
+        : catalog.entries.filter((e) => e.languages.includes(language)),
+    [catalog.entries, language],
+  );
+
+  if (catalog.roles.length === 0) return null;
+
+  return (
+    <section className="picks">
+      <div className="picks-head">
+        <h3>Pick by what you need</h3>
+        <label className="picks-lang">
+          <span className="sub">Language</span>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="">Any</option>
+            {languages.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ul className="picks-list">
+        {catalog.roles.map((role) => {
+          const winner = eligible.find((e) => e.roles.some((r) => r.id === role.id)) ?? null;
+          return (
+            <li key={role.id} className="pick">
+              <span className={`badge role role-${role.id}`}>{role.label}</span>
+              <span className="pick-blurb sub">{role.blurb}</span>
+              {winner === null ? (
+                <span className="pick-none sub">
+                  {language === ""
+                    ? "Nothing in this catalog fills that role."
+                    : `Nothing here fills that role for ${language}.`}
+                </span>
+              ) : (
+                <button className="pick-name" type="button" onClick={() => onPick(winner.id)}>
+                  {winner.name}
+                  {!winner.runnable && <span className="badge no"> cannot run here</span>}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="sub picks-note">
+        These are editorial roles, not measurements — the row below each name carries the numbers.
+        The pick is the highest-ranked model for this machine that carries the role and claims the
+        language.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * What WER and RTF mean, and — the question this block exists to answer — where the numbers in the
+ * Accuracy column come from.
+ *
+ * There are three plausible answers and only one is true, so it is said outright rather than left
+ * to a tooltip: they are **not** the model publisher's published figures, and they are **not**
+ * measured on the machine reading this page. They were measured by this project, with `lw bench`,
+ * on the machine named here, and committed to the catalog. When that machine is not this machine,
+ * the block says so, because a real number from different silicon is still a number about
+ * different silicon.
+ */
+function Glossary({ machine, entries }: { machine: string; entries: readonly ModelEntry[] }) {
+  const machines = new Set<string>();
+  for (const e of entries) for (const m of e.measurements) machines.add(m.machine);
+  const measured = [...machines];
+  // One measuring machine is the normal case; the comparison is exact because both strings come
+  // from the same capability summary.
+  const sameMachine = measured.length === 1 && measured[0] === machine;
+
+  return (
+    <details className="glossary">
+      <summary>What the numbers mean, and where they come from</summary>
+      <div className="glossary-body">
+        <dl className="glossary-list">
+          <div className="glossary-item">
+            <dt>
+              WER <span className="sub">word error rate</span>
+            </dt>
+            <dd>
+              The share of words the model got wrong — substituted, dropped or invented — against a
+              reference transcript. <strong>Lower is better</strong>; 5% means about one word in
+              twenty. Casing and punctuation are stripped before scoring, so neither counts as an
+              error.
+            </dd>
+          </div>
+          <div className="glossary-item">
+            <dt>
+              RTF <span className="sub">real-time factor</span>
+            </dt>
+            <dd>
+              Seconds of computing per second of audio. <strong>Lower is faster</strong>: 0.05 means
+              a 10-second sentence takes about half a second to transcribe, and 1.0 means it takes
+              as long as it took to say.
+            </dd>
+          </div>
+          <div className="glossary-item">
+            <dt>Where the WER comes from</dt>
+            <dd>
+              {measured.length === 0 ? (
+                "No entry in this catalog carries a measurement yet."
+              ) : (
+                <>
+                  Not from the model's publisher, and not measured on your machine. Every WER shown
+                  here was measured by this project with <code>lw bench</code> over the same twelve
+                  committed speech fixtures, on{" "}
+                  {measured.map((m, i) => (
+                    <span key={m}>
+                      {i > 0 ? "; " : ""}
+                      <span className="mono">{m}</span>
+                    </span>
+                  ))}
+                  .{" "}
+                  {sameMachine ? (
+                    <>That is this machine, so the figures describe your hardware.</>
+                  ) : (
+                    <strong>
+                      That is not this machine, so treat every WER and RTF here as indicative for
+                      yours.
+                    </strong>
+                  )}{" "}
+                  Run <b>Benchmark</b> for numbers measured on the machine you are using now.
+                </>
+              )}
+            </dd>
+          </div>
+          <div className="glossary-item">
+            <dt>Estimated vs measured</dt>
+            <dd>
+              The <b>Speed</b> column is an <em>estimate</em> — arithmetic on the model's speed tier
+              and your detected hardware, marked with <code>~</code>, never a measurement. A green
+              WER is a measurement. The quality pill beside it (<code>good</code>,{" "}
+              <code>better</code>, <code>best</code>) is an editorial ranking of the model family,
+              not either of those.
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </details>
+  );
+}
+
 /** A measured word-error rate the row can show, and whether it describes this machine's target. */
 interface AccuracyEvidence {
   readonly point: MeasuredPoint;
@@ -589,6 +764,11 @@ export function ModelsPanel() {
                 <span className="badge-text"> cannot run</span>
               </span>
             )}
+            {entry.roles.map((role) => (
+              <span key={role.id} className={`badge role role-${role.id}`} title={role.blurb}>
+                {role.label}
+              </span>
+            ))}
             {/* Stands in for the family column once the window is too narrow to keep it. */}
             <span className="mname-family sub" title={entry.engine}>
               {family}
@@ -905,6 +1085,10 @@ export function ModelsPanel() {
 
       <p className="sub disclaimer">{catalog.estimate_disclaimer}</p>
 
+      <RolePicks catalog={catalog} onPick={(id) => setOpenIds(new Set([id]))} />
+
+      <Glossary machine={catalog.machine} entries={catalog.entries} />
+
       {catalog.entries.length === 0 ? (
         <p className="hint">The catalog is empty — no models to show.</p>
       ) : (
@@ -916,10 +1100,10 @@ export function ModelsPanel() {
             <span className="mcell mcell-size num">{sortHeader("size", "Download", null)}</span>
             <span className="mcell mcell-langs">{sortHeader("languages", "Languages", null)}</span>
             <span className="mcell mcell-rtf num">
-              {sortHeader("speed", "Speed", "estimated RTF")}
+              {sortHeader("speed", "Speed", "estimated RTF, lower is faster")}
             </span>
             <span className="mcell mcell-acc">
-              {sortHeader("accuracy", "Accuracy", "tier · measured WER")}
+              {sortHeader("accuracy", "Accuracy", "tier · measured WER, lower is better")}
             </span>
             <span className="mcell mcell-state">
               {sortHeader("state", "Status", "on disk")}

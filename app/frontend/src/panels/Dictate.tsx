@@ -29,7 +29,19 @@ import {
 import { STATE_VISUALS, type UiState } from "../stateVisuals";
 import { MicCheck } from "../MicCheck";
 
-const SIMULATED: readonly RecordingState[] = ["idle", "listening", "processing", "done", "error"];
+/// The states the display can be forced into, with what each one means when it appears for real.
+///
+/// Forcing a state is a display test, not a dictation: no microphone is opened and nothing is
+/// transcribed. It does move the app's real state, though, so the overlay and the start/stop
+/// sounds follow along -- which is the point, since those are the parts hardest to check by
+/// dictating at the exact moment you want to look at them.
+const SIMULATED: readonly { readonly state: RecordingState; readonly means: string }[] = [
+  { state: "idle", means: "Waiting for the hotkey. Nothing is being captured." },
+  { state: "listening", means: "The microphone is open and your speech is being captured." },
+  { state: "processing", means: "Capture has ended and the model is turning it into text." },
+  { state: "done", means: "The text was produced and typed or copied. Returns to idle shortly." },
+  { state: "error", means: "Something failed; the banner above carries the worker's reason." },
+];
 
 /** What the OS shortcut registry answered. `unknown` covers "not asked yet" and "did not answer". */
 type Registration = "unknown" | "held" | "none";
@@ -461,13 +473,38 @@ export function DictatePanel({ state }: { state: UiState }) {
         <Scratchpad last={lastTranscript} />
       </div>
 
-      <div className="simulate">
-        {SIMULATED.map((s) => (
-          <button key={s} onClick={() => void setRecordingState(s)}>
-            {s}
-          </button>
-        ))}
-      </div>
+      <section className="card simulate-card">
+        <div className="simulate-head">
+          <h3>Test displaying statuses</h3>
+          <p className="sub">
+            Puts the display into each state without dictating, so the orb, its wording, the
+            overlay and the start/stop sounds can be seen and heard on demand. No microphone is
+            opened and nothing is transcribed — but this does set the app's real state, so the
+            overlay and the sounds follow it.
+          </p>
+        </div>
+        <div className="simulate">
+          {SIMULATED.map(({ state: s, means }) => {
+            const current = s === state;
+            return (
+              <button
+                key={s}
+                type="button"
+                className={current ? "simulate-btn current" : "simulate-btn"}
+                aria-pressed={current}
+                onClick={() => void setRecordingState(s)}
+              >
+                <span className="simulate-dot" style={{ backgroundColor: STATE_VISUALS[s].color }} />
+                <span className="simulate-text">
+                  <span className="simulate-name">{STATE_VISUALS[s].label}</span>
+                  <span className="simulate-means">{means}</span>
+                </span>
+                {current && <span className="badge">showing now</span>}
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

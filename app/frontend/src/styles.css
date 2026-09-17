@@ -1638,3 +1638,280 @@ input[type="radio"] {
 .mic-field .sub {
   max-width: var(--measure);
 }
+
+/* ---------- Wider still: three columns, and lists that tile ---------- */
+
+/*
+ * At 1300px the form went from one column to two, which stopped it being a very wide ribbon but
+ * left it a very tall one: the accelerator picker alone is nine options with two lines each, and
+ * the sound section four more. On a full-screen 1800px window the page ran to about three
+ * screenfuls, and settings you wanted to compare sat a scroll apart.
+ *
+ * Two changes, both width-gated so nothing narrower is affected:
+ *   - the option lists inside a section tile into columns of their own, which is where most of
+ *     the height was; and
+ *   - the form itself takes a third column once there is room for three readable ones.
+ */
+@media (min-width: 1150px) {
+  /* The sound themes use this class too -- both are radio lists of the same shape. */
+  .accel-group-block {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+    gap: 8px 14px;
+    align-items: start;
+  }
+
+  /* A group's heading, and any message about the group, introduce all of it: own row. */
+  .accel-group-block > .perf-label,
+  .accel-group-block > .status-err,
+  .accel-group-block > .hint,
+  .accel-group-block > p {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1700px) {
+  .form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /*
+   * The accelerator picker is the tallest section by a wide margin and its rows are the widest,
+   * so it takes two of the three columns; everything else stays one column wide and tiles around
+   * it. Without this the third column is mostly empty space beside one very tall card.
+   */
+  .form > .accel-picker {
+    grid-column: span 2;
+  }
+}
+
+/* ---------- Status test (Dictate) ---------- */
+
+/*
+ * The five state buttons used to be an unlabelled row of lowercase words under the orb. They read
+ * as debug leftovers, and nothing said what they did or that pressing one is a display test rather
+ * than a recording. Now they are a titled card where each button says what its state means when it
+ * turns up for real, and the one currently showing is marked.
+ */
+.simulate-card {
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  text-align: left;
+}
+
+.simulate-head h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.simulate-head .sub {
+  margin: 0 0 12px;
+}
+
+.simulate {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+  margin-top: 0;
+}
+
+.simulate-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font: inherit;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.simulate-btn:hover {
+  border-color: var(--accent);
+}
+
+.simulate-btn.current {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.simulate-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.simulate-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.simulate-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.simulate-means {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---------- Roles, picks and the glossary (Models) ---------- */
+
+.badge.role {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.badge.role-fast {
+  color: #f0b429;
+  border-color: color-mix(in srgb, #f0b429 45%, transparent);
+}
+
+.badge.role-accurate {
+  color: #22c55e;
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+
+.badge.role-universal {
+  color: #3b82f6;
+  border-color: color-mix(in srgb, #3b82f6 45%, transparent);
+}
+
+.badge.role-compact {
+  color: #a78bfa;
+  border-color: color-mix(in srgb, #a78bfa 45%, transparent);
+}
+
+.picks {
+  width: 100%;
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.picks-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.picks-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.picks-lang {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.picks-lang select {
+  width: auto;
+  min-width: 90px;
+}
+
+.picks-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 8px 16px;
+}
+
+.pick {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.pick-blurb {
+  grid-column: 2;
+}
+
+.pick-name {
+  grid-column: 2;
+  justify-self: start;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.pick-name:hover {
+  text-decoration: underline;
+}
+
+.pick-none {
+  grid-column: 2;
+}
+
+.picks-note {
+  margin: 10px 0 0;
+}
+
+.glossary {
+  width: 100%;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.glossary > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.glossary-body {
+  padding: 0 14px 12px;
+}
+
+.glossary-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 10px 20px;
+}
+
+.glossary-item dt {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.glossary-item dt .sub {
+  font-weight: 400;
+}
+
+.glossary-item dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}

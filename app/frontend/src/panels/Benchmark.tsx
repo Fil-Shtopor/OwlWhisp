@@ -68,18 +68,25 @@ function Methodology() {
         </p>
         <dl className="bench-method-list">
           <div className="bench-method-item">
-            <dt>RTF</dt>
+            <dt>
+              RTF <span className="sub">real-time factor</span>
+            </dt>
             <dd>
-              Wall-clock seconds per second of audio; lower is faster. The <strong>first</strong>{" "}
+              Wall-clock seconds per second of audio; <strong>lower is faster</strong>, and 1.0
+              means transcribing takes as long as the recording did. The <strong>first</strong>{" "}
               clip is reported separately as <em>cold</em>, because it carries the one-time warm-up.{" "}
               <em>Warm</em> is the mean of the rest, and warm is what steady-state dictation feels
               like.
             </dd>
           </div>
           <div className="bench-method-item">
-            <dt>WER</dt>
+            <dt>
+              WER <span className="sub">word error rate</span>
+            </dt>
             <dd>
-              Word error rate against the reference: Levenshtein distance over words, lowercased and
+              The share of words that came out wrong — substituted, dropped or invented — against
+              the reference. <strong>Lower is better</strong>: 5% is about one word in twenty.
+              Levenshtein distance over words, lowercased and
               with punctuation stripped, so casing and commas never count as errors. It is
               word-weighted across the clips — long clips carry more of the total — not a mean of
               per-clip rates.
@@ -130,8 +137,8 @@ function ClipTable({ clips }: { clips: readonly BenchClip[] }) {
             <th>language</th>
             <th>duration</th>
             <th>time</th>
-            <th>RTF</th>
-            <th>WER</th>
+            <th title="Real-time factor: seconds of computing per second of audio. Lower is faster.">RTF</th>
+            <th title="Word error rate: the share of words that came out wrong. Lower is better.">WER</th>
           </tr>
         </thead>
         <tbody>
@@ -241,9 +248,9 @@ function SuiteReport({ suite }: { suite: BenchSuite }) {
             <thead>
               <tr>
                 <th>backend</th>
-                <th>cold RTF</th>
-                <th>warm RTF</th>
-                <th>WER</th>
+                <th title="Real-time factor on the first clip, which carries the one-time warm-up. Lower is faster.">cold RTF</th>
+                <th title="Mean real-time factor over the clips after the first. Lower is faster.">warm RTF</th>
+                <th title="Word error rate: the share of words that came out wrong. Lower is better.">WER</th>
                 <th>marks</th>
               </tr>
             </thead>
@@ -646,12 +653,16 @@ export function BenchmarkPanel() {
           <h3 className="bench-heading">Measured on this machine</h3>
           <div className="bench-summary">
             <div className="stat">
-              <span className="perf-label">Cold RTF</span>
+              <span className="perf-label" title="Real-time factor: seconds of computing per second of audio. Lower is faster.">
+                Cold RTF <span className="sub">real-time factor, lower is faster</span>
+              </span>
               <span className="mono stat-value">{formatRtf(report.cold_rtf)}</span>
               <span className="sub">First run, including one-time warm-up.</span>
             </div>
             <div className="stat">
-              <span className="perf-label">Warm RTF</span>
+              <span className="perf-label" title="Real-time factor: seconds of computing per second of audio. Lower is faster.">
+                Warm RTF <span className="sub">real-time factor, lower is faster</span>
+              </span>
               <span className="mono stat-value">
                 {report.warm_rtf === null ? "no warm run" : formatRtf(report.warm_rtf)}
               </span>
@@ -662,7 +673,9 @@ export function BenchmarkPanel() {
               </span>
             </div>
             <div className="stat">
-              <span className="perf-label">WER (word-weighted)</span>
+              <span className="perf-label" title="Word error rate: the share of words that came out wrong. Lower is better.">
+                WER <span className="sub">word error rate, lower is better</span>
+              </span>
               <span className="mono stat-value">
                 {report.wer === null ? "—" : formatWer(report.wer)}
               </span>

@@ -39,6 +39,13 @@ which is a real diagnosis; it never animates to look busy.
 A failure from the dictation worker appears here as a banner carrying the worker's own message,
 and stays until it is dismissed or the next transcript arrives.
 
+At the foot of the tab, **Test displaying statuses** puts the display into each state — idle,
+listening, processing, done, error — without dictating, so the orb, its wording, the overlay and
+the start/stop sounds can be checked on demand instead of at the exact moment you happen to be
+speaking. Each button says what its state means when it turns up for real. It opens no microphone
+and transcribes nothing, but it does set the app's real state, which is why the overlay and the
+cues follow it.
+
 ---
 
 ## 2. Hotkey and modes
@@ -75,6 +82,24 @@ The entry recommended for your hardware is marked.
 Rows are grouped by who made the model — a heading, a count, and a gap, in one continuous list.
 The recommended model's maker leads, then makers by how many models they have, with anything
 whose maker is unknown under *Other*. Sorting by a column drops the grouping, and says so.
+
+**Pick by what you need** sits above the table: choose a language, and each role — *fast*,
+*accurate*, *universal*, *compact* — names the entry that fills it. Roles are editorial judgements
+about why a model earns its place next to the others; the numbers in its row are the evidence. A
+role with no model for the language you chose says so rather than offering something that does not
+fill it. There is no *live* role, because live transcription means partial text appearing while you
+speak and this app has no such path — the hotkey opens a capture, releasing it closes one, and the
+utterance is transcribed whole.
+
+**What the numbers mean, and where they come from** answers the three questions the Accuracy
+column raises. **WER** (word error rate) is the share of words that came out wrong — *lower is
+better*, 5% being about one word in twenty, with casing and punctuation stripped before scoring.
+**RTF** (real-time factor) is seconds of computing per second of audio — *lower is faster*, 1.0
+meaning transcription takes as long as the recording. And the WER shown in the table is neither
+the publisher's published figure nor a measurement of your machine: it was measured by this
+project with `lw bench` over the same committed fixtures, on the machine the block names. When
+that is not your machine, the block says so in as many words. **Benchmark** is how you get a
+number from the hardware in front of you.
 
 Two kinds of number appear there, and the app never mixes them up:
 
