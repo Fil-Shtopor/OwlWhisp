@@ -142,10 +142,12 @@ Rules of thumb the catalog encodes: **quality tier** is an editorial ranking of 
 not a measurement; **speed tier** is the input to the RTF estimate; and neither tells you how the
 model does on *your* audio, accent, or vocabulary. The only way to know that is §5.
 
-> **These need a `sherpa` build of the CLI.** The default `lw` links only `lw-engine-parakeet`, so
-> `lw models install` will fetch and verify any of the fourteen sherpa entries but `lw transcribe`
-> and `lw bench` will not load one. Build the CLI with the feature — the extra step keeps GPL-3.0
-> espeak-ng out of the binary, see [build.md](build.md) and [licenses.md](licenses.md):
+> **The installed application runs these. A default-built `lw` does not.** The shipping build
+> script passes `--features sherpa` to both binaries, but a plain `cargo build -p lw-cli` links
+> only `lw-engine-parakeet`, so `lw models install` will fetch and verify any of the fourteen
+> sherpa entries while `lw transcribe` and `lw bench` refuse to load one. Build the CLI with the
+> feature — the extra step is what keeps GPL-3.0 espeak-ng out of the binary, see
+> [build.md](build.md) and [licenses.md](licenses.md):
 >
 > ```sh
 > $env:SHERPA_ONNX_LIB_DIR = (pwsh -File scripts/build/fetch-sherpa.ps1 -Quiet)

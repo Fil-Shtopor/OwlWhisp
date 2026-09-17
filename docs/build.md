@@ -134,12 +134,23 @@ cargo test --workspace -- --ignored   # integration tests that need the model + 
 - **Linux**: `cargo build --release`; the platform layer is scaffolding (audio via cpal compiles;
   hotkeys/injection are stubs returning `Unavailable`). ORT CPU EP works.
 
-## Optional: the `sherpa` engine (Whisper, Moonshine, SenseVoice, …)
+## The `sherpa` engine (Whisper, Moonshine, SenseVoice, …)
 
-Off by default because it links a ~130 MB native archive. Enabling it needs one extra step, and
-that step is **not optional** — building it the obvious way links GPL-3.0 espeak-ng, which cannot
-ship alongside the proprietary Qualcomm runtime. See [`licenses.md`](licenses.md) for the full
-reasoning.
+**The shipped Windows build includes it**, because fourteen of the fifteen catalog entries need it
+and a model that downloads and verifies but cannot be loaded is not a feature.
+`scripts\build\build-windows-arm64.ps1` stages the libraries and passes `--features sherpa` to both
+the CLI and the Tauri app; `-NoSherpa` builds the Parakeet-only binary.
+
+It is **not** a default *cargo* feature, and that is deliberate. Enabling it needs one extra step,
+and that step is **not optional** — building it the obvious way lets `sherpa-onnx-sys` fetch its
+stock archive, which links GPL-3.0 espeak-ng, which cannot ship alongside the proprietary Qualcomm
+runtime. A default feature would make the wrong build the easy one. See
+[`licenses.md`](licenses.md) for the full reasoning.
+
+One more prerequisite: **clang on PATH**. `sherpa-onnx-sys`'s build script pulls `ureq → rustls →
+ring` to download the archive, and `ring` has no aarch64-windows assembly path MSVC alone can
+build. The build script checks for it up front and names this feature in the error, rather than
+letting cc-rs fail inside a dependency nobody asked for.
 
 ```powershell
 # Fetch the no-tts archive and generate the stub libraries the crate's link flags demand.
@@ -158,8 +169,12 @@ The script is idempotent: it re-uses an already-staged archive and only download
 refuses to continue if the archive it fetched contains a real espeak-ng, so the licence guarantee
 cannot silently lapse when upstream changes.
 
-**Verified** on Windows ARM64 with sherpa-onnx 1.13.6: the build links and all 44
-`lw-engine-sherpa` tests pass.
+**Verified** on Windows ARM64 with sherpa-onnx 1.13.6: the build links, all 44
+`lw-engine-sherpa` tests pass, and the Tauri app builds with the feature (14 tests in the app
+crate, including `a_sherpa_build_can_actually_run_the_gated_models`, which asserts that the
+feature reaches the engine crate *and* that the catalog then stops reporting a sherpa blocker on a
+gated entry). The linked `localwisper.exe` was searched for the strings the licence argument turns
+on: 390 hits for `sherpa-onnx`, **zero** for `espeak` and `piper_phonemize`.
 
 ## Packaging
 

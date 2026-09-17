@@ -80,9 +80,11 @@ Apache-2.0. Enumerated in `app/frontend/package.json`; a full SBOM is produced a
 
 ## The `sherpa` engine — a GPL trap, and how this project avoids it
 
-`lw-engine-sherpa` provides Whisper, Moonshine, SenseVoice and NeMo/Zipformer models. Enabling it
-is a build-time decision (`--features sherpa`), and it comes with a licensing hazard that is worth
-stating precisely, because the obvious build is the wrong one.
+`lw-engine-sherpa` provides Whisper, Moonshine, SenseVoice and NeMo/Zipformer models. **The
+shipped Windows build links it**, so the statement below is about the binary users actually get,
+not about an optional extra. Enabling it is a build-time decision (`--features sherpa`, passed by
+`scripts/build/build-windows-arm64.ps1` after it stages the right libraries), and it comes with a
+licensing hazard worth stating precisely, because the obvious build is the wrong one.
 
 **The hazard.** The `sherpa-onnx-sys` crate downloads a prebuilt native archive. The archive it
 chooses by default statically links **espeak-ng, GPL-3.0-or-later**, together with
@@ -113,12 +115,16 @@ enters the binary. The stubs satisfy a spurious flag; they stand in for nothing.
 refuses to run if a future archive starts shipping a real espeak-ng again.
 
 ```powershell
-$env:SHERPA_ONNX_LIB_DIR = (pwsh -File scriptsuildetch-sherpa.ps1 -Quiet)
+$env:SHERPA_ONNX_LIB_DIR = (pwsh -File scripts\build\fetch-sherpa.ps1 -Quiet)
 cargo build --release -p lw-cli --features sherpa
 ```
 
-**Verified** on Windows ARM64: the build links, all 44 `lw-engine-sherpa` tests pass, and the
-staged library directory contains no espeak-ng, piper_phonemize or ucd beyond the 1 KB stubs.
+**Verified** on Windows ARM64, at two levels. The staged library directory contains no espeak-ng,
+piper_phonemize or ucd beyond the 1 KB stubs, the build links, and all 44 `lw-engine-sherpa` tests
+pass. And because a clean input directory is an argument rather than a guarantee, the linked
+`localwisper.exe` was itself searched: 390 occurrences of `sherpa-onnx`, 24 of `OfflineRecognizer`,
+36 of `kaldi` — and **zero** of `espeak` or `piper_phonemize`. The engine is in the shipped binary;
+the GPL-3.0 component is not.
 
 `sherpa-onnx-sys`'s **build script** additionally pulls `ureq → rustls → ring` to download the
 archive. Those are build-dependencies only and are never linked into the shipped binary.

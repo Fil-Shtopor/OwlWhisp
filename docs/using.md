@@ -66,9 +66,13 @@ files stay in staging and the next attempt resumes them.
 Entries with no pinned manifest cannot be downloaded from here. That is deliberate — see
 [`models.md`](models.md) §4.
 
-Some models need a build with the optional `sherpa` engine feature; the list says so and disables
-download rather than offering something this build cannot run. See [`licenses.md`](licenses.md)
-for why that feature is off by default.
+Fourteen of the fifteen entries run on the portable `sherpa` engine, which **the installed
+application includes** — the Windows build script links it, having first staged a GPL-free copy
+(see [`licenses.md`](licenses.md) for what that means and why it is not automatic). If you are
+running a build made without it — a plain `cargo build`, or `-NoSherpa` — the list says so on each
+affected row and disables download rather than offering a model the build cannot load. That state
+is a property of the binary, not of your machine or your licence: nothing can be installed to
+repair it, only a build with the feature.
 
 Models live in the app's own data directory. To make the CLI agree about what is installed, point
 it there with `LW_MODELS_ROOT` ([`models.md`](models.md)).

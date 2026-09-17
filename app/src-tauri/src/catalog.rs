@@ -447,6 +447,40 @@ mod tests {
         assert!(engine_features().contains(&"parakeet"));
     }
 
+    /// The shipped Windows build turns the `sherpa` feature on (see
+    /// `scripts/build/build-windows-arm64.ps1`), because fourteen of the fifteen catalog entries
+    /// are gated on it and installing one of those models in a build without it produces a model
+    /// that downloads, verifies, and then cannot be loaded. This pins the whole chain: the feature
+    /// reaches the engine crate, the engine crate reports itself available, and the catalog then
+    /// marks a gated entry runnable rather than blocked.
+    #[test]
+    #[cfg(feature = "sherpa")]
+    fn a_sherpa_build_can_actually_run_the_gated_models() {
+        assert!(
+            engine_features().contains(&"sherpa"),
+            "the feature is on for this crate but the engine crate says it is not linked"
+        );
+
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        let gated = catalog
+            .entries
+            .iter()
+            .find(|e| e.requires_engine_feature.as_deref() == Some("sherpa"))
+            .expect("the catalog is supposed to contain sherpa-gated entries");
+
+        let recs = catalog.recommend_with(probe_capabilities(), &engine_features());
+        let rec = recs
+            .iter()
+            .find(|r| r.entry.id == gated.id)
+            .expect("every entry is ranked");
+        assert!(
+            !rec.blockers.iter().any(|b| b.contains("sherpa")),
+            "{} still reports a sherpa blocker in a sherpa build: {:?}",
+            gated.id,
+            rec.blockers
+        );
+    }
+
     #[test]
     fn catalog_json_shape_matches_the_frontend_contract() {
         let root = std::env::temp_dir().join("lw-catalog-json-test");
