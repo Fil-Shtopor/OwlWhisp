@@ -693,7 +693,7 @@ input[type="radio"] {
  * Columns: arrow | model | family | download | languages | speed (est.) | accuracy | on disk
  */
 .model-table {
-  --model-cols: 18px minmax(0, 1fr) 92px 72px 76px 108px 156px 92px;
+  --model-cols: 18px minmax(0, 1.4fr) 92px 72px 76px 108px 156px 92px;
   --model-gap: 10px;
   --model-pad: 12px;
   border: 1px solid var(--border);
@@ -710,6 +710,9 @@ input[type="radio"] {
 }
 
 .model-thead {
+  /* Notes wrap to two lines now, so the column labels line up at the top rather than each one
+     floating in the middle of its own cell's height. */
+  align-items: start;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -760,14 +763,22 @@ input[type="radio"] {
 }
 
 /* The column's honesty note: "estimated", "tier · measured WER". */
+/*
+ * The header note carries the two facts a reader cannot guess -- what the column is measured in,
+ * and which direction is good -- so it must not be the part that gets clipped. `nowrap` with an
+ * ellipsis turned "tier - measured WER, lower is better" into "lower is bett...", which cuts the
+ * answer off mid-word. It wraps to a second line instead; a table header has room downwards, and
+ * the rows below do not move because every header shares the same grid row.
+ */
 .th-note {
   font-size: 10px;
   line-height: 1.3;
   color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
+  /* `normal` explicitly: the cell above may be nowrap, and an inherited nowrap is what clipped
+     "lower is faster" to "lower is fa" with no ellipsis to even hint at it. */
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .model-rows {
@@ -1670,7 +1681,13 @@ input[type="radio"] {
   }
 }
 
-@media (min-width: 1700px) {
+/*
+ * 1560px, not 1700px. The target machine is a 2880px display at 175% scaling, which is 1645 CSS
+ * pixels maximised -- a 1700px rule is unreachable there, so the third column would have been
+ * dead code on the one machine this is built for. At 1560 the three columns are about 490px each,
+ * which every section here fits without its own rows wrapping.
+ */
+@media (min-width: 1560px) {
   .form {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1769,7 +1786,15 @@ input[type="radio"] {
 
 /* ---------- Roles, picks and the glossary (Models) ---------- */
 
+/*
+ * Role chips sit in the name cell, which is the one column that has to give up space for them.
+ * They are deliberately smaller than the other badges: a truncated model name costs the reader
+ * more than a slightly smaller tag, and "Parakeet TDT 0.6B v3" losing its version is exactly the
+ * kind of truncation that misleads.
+ */
 .badge.role {
+  padding: 0 7px;
+  font-size: 11px;
   border: 1px solid var(--border);
   background: var(--bg-raised);
   color: var(--text-dim);

@@ -205,18 +205,22 @@ function RolePicks({
  *
  * There are three plausible answers and only one is true, so it is said outright rather than left
  * to a tooltip: they are **not** the model publisher's published figures, and they are **not**
- * measured on the machine reading this page. They were measured by this project, with `lw bench`,
- * on the machine named here, and committed to the catalog. When that machine is not this machine,
- * the block says so, because a real number from different silicon is still a number about
- * different silicon.
+ * measured live on the machine reading this page. They were measured by this project with
+ * `lw bench` on the machine named here, and committed to the catalog.
+ *
+ * The block names that machine and leaves the comparison to the reader. An earlier version tried
+ * to decide it — `measurement.machine === catalog.machine` — and got it backwards on the very
+ * machine the numbers came from: the catalog's `machine` is the capability summary
+ * ("Snapdragon(R) X2 Elite Extreme - X2E94100 - … · 18 cores · NPU Hexagon V81 via QNN EP") while
+ * a measurement's is free text written when it was recorded ("ASUS Zenbook A16 - Snapdragon X2
+ * Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64"). Same machine, different strings,
+ * and the page confidently said "that is not this machine". Naming both and saying "where they
+ * differ" is right whatever the strings look like.
  */
 function Glossary({ machine, entries }: { machine: string; entries: readonly ModelEntry[] }) {
   const machines = new Set<string>();
   for (const e of entries) for (const m of e.measurements) machines.add(m.machine);
   const measured = [...machines];
-  // One measuring machine is the normal case; the comparison is exact because both strings come
-  // from the same capability summary.
-  const sameMachine = measured.length === 1 && measured[0] === machine;
 
   return (
     <details className="glossary">
@@ -251,24 +255,20 @@ function Glossary({ machine, entries }: { machine: string; entries: readonly Mod
                 "No entry in this catalog carries a measurement yet."
               ) : (
                 <>
-                  Not from the model's publisher, and not measured on your machine. Every WER shown
-                  here was measured by this project with <code>lw bench</code> over the same twelve
-                  committed speech fixtures, on{" "}
+                  Not from the model's publisher, and not measured live on your machine. Every WER
+                  shown here was measured by this project with <code>lw bench</code> over the same
+                  twelve committed speech fixtures, on{" "}
                   {measured.map((m, i) => (
                     <span key={m}>
                       {i > 0 ? "; " : ""}
                       <span className="mono">{m}</span>
                     </span>
                   ))}
-                  .{" "}
-                  {sameMachine ? (
-                    <>That is this machine, so the figures describe your hardware.</>
-                  ) : (
-                    <strong>
-                      That is not this machine, so treat every WER and RTF here as indicative for
-                      yours.
-                    </strong>
-                  )}{" "}
+                  . This app is running on <span className="mono">{machine}</span>.{" "}
+                  <strong>
+                    Where those differ, treat every WER and RTF here as indicative for yours
+                  </strong>{" "}
+                  — a real number from different silicon is still a number about different silicon.
                   Run <b>Benchmark</b> for numbers measured on the machine you are using now.
                 </>
               )}
