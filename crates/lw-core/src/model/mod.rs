@@ -9,11 +9,13 @@
 //! No downloaded file is ever executed; only data files (ONNX, vocab, context binaries) are
 //! fetched, and each is verified against a pinned SHA-256 before use.
 
+pub mod archive;
 pub mod catalog;
 mod download;
 mod manifest;
 pub mod paths;
 
+pub use archive::{ArchiveFormat, Extract};
 pub use catalog::{
     BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
     MeasuredPoint, ModelRole, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf,
@@ -173,6 +175,7 @@ mod tests {
             url: "https://x/f".into(),
             bytes: 5,
             sha256: "0".repeat(64),
+            extract: None,
         };
         let err = verify_file(dir.path(), &entry).unwrap_err();
         assert!(matches!(err, Error::Integrity { .. }));
@@ -199,6 +202,7 @@ mod tests {
             url: "https://x/a".into(),
             bytes: 3,
             sha256: "a".repeat(64),
+            extract: None,
         }];
         assert_eq!(reg.state(&manifest, &files), CacheState::Missing);
         write(&reg.model_dir(&manifest).join("a.bin"), b"abc");

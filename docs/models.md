@@ -56,26 +56,70 @@ can run, the only one with a Qualcomm NPU path, and the only one measured on an 
 [§5.1](benchmarks.md#51-measured-lw-bench-results-on-the-x2-2026-08-26-native-arm64-lwexe)). It
 covers 25 European languages with punctuation and casing. Cost: a 640 MiB download.
 
-The other five entries are hash-pinned and installable, and the shipped application runs them
+The other six entries are hash-pinned and installable, and the shipped application runs them
 (it links the `sherpa` engine; a default `cargo build` of the CLI does not — see the box at the end
 of this section). They are marked
 `requires_engine_feature: "sherpa"`.
 
 ### 3.1 What has actually been measured here
 
-Five of the six entries carry a `measurements` point taken on this project's target machine
+Every one of the seven entries carries a `measurements` point taken on this project's target machine
 (Snapdragon X2 Elite Extreme X2E94100, CPU only, 8 threads) with `lw bench` over
 `tests/fixtures/audio` — 12 FLEURS clips, three each in **en, es, ru, uk**. Nothing in this table
 came from an upstream claim.
 
+Every figure below comes from **one sweep on 2026-09-18**: each model in turn, on the CPU, over
+the same twelve clips. The CPU rather than the NPU because the CPU is the only accelerator all of
+them can use — sherpa-onnx links its own static ONNX Runtime with the CPU provider, so
+`parakeet-tdt-0.6b-v3` is the only entry here with any other path at all.
+
 | Model | Role | Download | Measured WER | Mean RTF | Scored over |
 |---|---|---|---|---|---|
-| `gigaam-v3-ru` | fast, accurate | 221 MiB | **0.029** | 0.0175 | 3 clips, ru |
-| `whisper-turbo` | accurate, universal | 989 MiB | **0.042** | 0.469 | 12 clips, en/es/ru/uk |
-| `parakeet-tdt-0.6b-v3` | fast | 640 MiB | **0.054** | 0.032 | 12 clips, en/es/ru/uk |
-| `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | **0.062** | 0.014 | 3 clips, en |
-| `moonshine-tiny-en` | compact | 118 MiB | **0.092** | 0.0125 | 3 clips, en |
-| `sense-voice-small` | — | 228 MiB | *none* | — | its languages are not in the fixtures |
+| `gigaam-v3-ru` | fast, accurate | 221 MiB | **0.029** | 0.0165 | 3 clips, ru |
+| `whisper-turbo` | accurate, universal | 989 MiB | **0.042** | 0.1986 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-0.6b-v3` | fast | 640 MiB | **0.054** | 0.0347 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | **0.062** | 0.0095 | 3 clips, en |
+| `sense-voice-small` | — | 228 MiB | **0.062** | 0.0141 | 3 clips, en (of zh/ja/ko/yue/en) |
+| `qwen3-asr-0.6b` | — | 838 MiB | **0.071** | 0.1090 | 9 clips, en/es/ru |
+| `moonshine-tiny-en` | compact | 118 MiB | **0.092** | 0.0122 | 3 clips, en |
+
+`whisper-turbo`'s RTF was 0.469 in an earlier, separate run. The accuracy reproduced exactly; the
+speed did not, and the old figure was taken outside this sweep under conditions that were not
+written down. The number above is the one measured under the conditions stated.
+
+#### The same multilingual models, per language
+
+A single blended figure hides the thing that decides which one you want. On identical clips:
+
+| Model | en | es | ru | uk |
+|---|---|---|---|---|
+| `whisper-turbo` | 0.031 | **0.000** | **0.029** | **0.148** |
+| `qwen3-asr-0.6b` | **0.031** | 0.024 | 0.206 | *not claimed* (0.852) |
+| `parakeet-tdt-0.6b-v3` | 0.062 | 0.024 | 0.059 | 0.074 |
+| `gigaam-v3-ru` | — | — | **0.029** | — |
+
+Qwen3-ASR ties Whisper turbo on English at half the real-time factor, and is the worst Russian
+here of anything that claims Russian — 3.5× Parakeet and 7× GigaAM. That is why it carries no
+role: `accurate` reads as a general claim, and on the languages these fixtures can score,
+`whisper-turbo` matches or beats it everywhere. Its 0.852 on the Ukrainian clips is *not* in its
+total, because its model card does not claim Ukrainian; that exclusion is the whole point of
+scoring only claimed languages.
+
+#### What is still not measured, and cannot be yet
+
+Two entries exist for Chinese, Japanese, Korean and Cantonese, and **neither has a measurement in
+any of those languages**. That is not an oversight to be filled in with a quick run; two things
+are missing.
+
+1. **No CJK audio.** `tests/fixtures/audio` is twelve FLEURS clips in en/es/ru/uk. Chinese clips
+   can be added — `scripts/benchmarks/make_fixtures_fleurs.py` takes a language list — but the
+   FLEURS split has to be fetched first.
+2. **The metric is wrong for Chinese.** `word_error_rate` splits on whitespace. Written Chinese has
+   none, so every "word" would be a whole sentence and any imperfect transcript would score 1.0.
+   Scoring Chinese needs a **character** error rate, which this project does not implement.
+
+Until both exist, the English figures those two entries carry are what they say they are: their
+English.
 
 > **Read the "scored over" column before you compare two rows.** A 3-clip English figure and a
 > 12-clip four-language figure are not the same measurement. Twelve clips are indicative, three are
@@ -84,14 +128,24 @@ came from an upstream claim.
 > cannot tell them apart. Each entry's `measurements[].source` spells this out; `lw models info <id>`
 > prints it.
 
-One row needs its footnote read twice, and it is the row with no number. `sense-voice-small`
-covers Chinese, Japanese, Korean and Cantonese, and the fixture set contains none of them, so there
-is nothing here it could honestly be scored on. It is listed with an empty measurement rather than
-with a figure from its secondary language. That is not hypothetical: two Paraformer entries were
-removed from this catalog on 2026-09-17 partly because their only measurements *were* English
-figures for Chinese models — 0.277 and 0.169 — numbers that were real, and about the wrong thing.
-The same gap applies to `sense-voice-small` (zh/ja/ko/yue), which is why it carries no measurement
-at all.
+Two rows need their footnote read twice, and this section changed its mind about them, which is
+worth recording rather than smoothing over.
+
+On 2026-09-17 two Paraformer entries were removed partly *because* their only measurements were
+English figures for Chinese models — 0.277 and 0.169 — and this document argued that no number was
+better than a number about the wrong language. On 2026-09-18 `sense-voice-small` and
+`qwen3-asr-0.6b` were measured on English anyway, and both now carry a figure.
+
+The reversal is deliberate, and rests on one distinction. Those Paraformer rows presented their
+English as *the* accuracy of a Chinese model, with nothing next to the number saying otherwise. The
+two rows here name the languages they were scored on in the table itself, and their `notes` say in
+capitals that this catalog holds no measurement of the languages they exist for. A measured figure
+that is labelled as what it is beats a blank, because a blank is where a reader puts a guess — and
+0.062 on English is a real and useful fact about `sense-voice-small`, as long as nobody reads it as
+its Chinese.
+
+What has not changed is the rule that produced both decisions: never let a number stand where it
+could be read as describing something it does not describe.
 
 `lw bench` scores WER only on clips in languages the engine claims, so an English-only model is not
 punished for the Russian clips.
@@ -113,7 +167,7 @@ fixture directory; its `source` says so.
 
 ### 3.2 Picking one
 
-The catalog carries **six** entries, each with a job no other entry does better. Five of the six
+The catalog carries **seven** entries, each with a job no other entry does better. Five of the seven
 declare a `roles` list — `fast`, `accurate`, `universal`, `compact` — which is what the app's
 "pick by what you need" strip resolves against. Roles are editorial, like the quality and speed
 tiers; the measurement beside them is the evidence.
@@ -125,7 +179,8 @@ tiers; the measurement beside them is the evidence.
 | the best accuracy measured here, or a language nothing else covers | `whisper-turbo` | accurate, universal | 989 MiB | large-v3's encoder with a 4-layer decoder; WER 0.042 over 100 languages, but RTF 0.469 |
 | English, fastest at that accuracy | `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | WER 0.062 at RTF 0.014; punctuation and casing |
 | the smallest thing worth using | `moonshine-tiny-en` | compact | 118 MiB | WER 0.092 at RTF 0.0125, and no fixed 30 s padding, so cost scales with what you actually said |
-| Chinese, Japanese, Korean or Cantonese | `sense-voice-small` | — | 228 MiB | one non-autoregressive pass with punctuation; **no measurement here**, because the fixtures contain none of its languages |
+| Chinese, Japanese, Korean or Cantonese, compactly | `sense-voice-small` | — | 228 MiB | one non-autoregressive pass with punctuation; 0.062 on English at RTF 0.014, but English is its *secondary* language |
+| the widest language coverage, including Chinese dialects | `qwen3-asr-0.6b` | — | 838 MiB | 30 languages and 22 Chinese dialects; the joint best English here, and poor Russian — read the per-language table above |
 
 There is deliberately **no `live` role**. Live transcription means partial text appearing while you
 speak, and this application has no such path: the hotkey opens a capture, releasing it closes one,
@@ -153,8 +208,21 @@ has measured; if you want the fp32 graphs, they sit in the same upstream reposit
 second `artifacts` set with target `any` and the hashes you compute yourself. `gigaam-v3-ru` is
 int8 in its encoder only, which is how it is published. The exception is
 `parakeet-tdt-ctc-110m-en`, which is pinned at full precision because the upstream `-int8`
-repository publishes no loose files at all: its quantized weights exist only inside the `.tar.bz2`
-on the GitHub release, which the installer cannot unpack.
+repository publishes no loose files at all: its quantized weights exist only inside a `.tar.bz2`
+on the GitHub release. That is no longer a hard limit — see below — but the entry has not been
+re-pinned yet.
+
+#### Archives
+
+The installer can now fetch a `.tar.bz2` and unpack it, which is what unlocked `qwen3-asr-0.6b`:
+sherpa-onnx publishes 498 models on one GitHub release and mirrors almost none of them as loose
+files. A manifest entry carrying an `extract` block pins the **archive's** SHA-256, and the
+archive is opened only after that hash matches — never before. Extraction confines every entry to
+the model directory, refuses links, refuses any path with `..`, a root or a drive prefix, and caps
+the entry count and the unpacked size. `only_prefixes` keeps the test audio and shell scripts that
+ship beside the model out of the model directory. The rules, and why each one is there, are in
+`crates/lw-core/src/model/archive.rs`; two of its tests build deliberately hostile archives by
+hand, because `tar::Builder` will not write one.
 
 Rules of thumb the catalog encodes: **quality tier** is an editorial ranking of the model family,
 not a measurement; **speed tier** is the input to the RTF estimate; and neither tells you how the
@@ -162,7 +230,7 @@ model does on *your* audio, accent, or vocabulary. The only way to know that is 
 
 > **The installed application runs these. A default-built `lw` does not.** The shipping build
 > script passes `--features sherpa` to both binaries, but a plain `cargo build -p lw-cli` links
-> only `lw-engine-parakeet`, so `lw models install` will fetch and verify any of the five
+> only `lw-engine-parakeet`, so `lw models install` will fetch and verify any of the six
 > sherpa entries while `lw transcribe` and `lw bench` refuse to load one. Build the CLI with the
 > feature — the extra step is what keeps GPL-3.0 espeak-ng out of the binary, see
 > [build.md](build.md) and [licenses.md](licenses.md):

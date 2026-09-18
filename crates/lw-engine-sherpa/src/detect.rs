@@ -47,6 +47,8 @@ pub enum ModelKind {
     SenseVoice,
     /// Alibaba Paraformer.
     Paraformer,
+    /// Alibaba Qwen3-ASR, an LLM-style encoder-decoder.
+    Qwen3Asr,
 }
 
 impl ModelKind {
@@ -58,6 +60,7 @@ impl ModelKind {
             ModelKind::NemoTransducer => "nemo-transducer",
             ModelKind::SenseVoice => "sense-voice",
             ModelKind::Paraformer => "paraformer",
+            ModelKind::Qwen3Asr => "qwen3-asr",
         }
     }
 
@@ -68,6 +71,7 @@ impl ModelKind {
         ModelKind::NemoTransducer,
         ModelKind::SenseVoice,
         ModelKind::Paraformer,
+        ModelKind::Qwen3Asr,
     ];
 }
 
@@ -93,9 +97,10 @@ impl FromStr for ModelKind {
             "nemotransducer" | "transducer" | "parakeet" | "zipformer" => Ok(ModelKind::NemoTransducer),
             "sensevoice" => Ok(ModelKind::SenseVoice),
             "paraformer" => Ok(ModelKind::Paraformer),
+            "qwen3asr" | "qwen3" | "qwen" => Ok(ModelKind::Qwen3Asr),
             _ => Err(Error::Config(format!(
                 "unknown sherpa model kind {s:?}; expected one of: whisper, moonshine, \
-                 nemo-transducer, sense-voice, paraformer"
+                 nemo-transducer, sense-voice, paraformer, qwen3-asr"
             ))),
         }
     }
@@ -164,6 +169,18 @@ pub enum ModelFiles {
         /// `tokens.txt`.
         tokens: PathBuf,
     },
+    /// Qwen3-ASR: a convolutional frontend, an encoder, a decoder, and a **tokenizer directory**
+    /// rather than a token list — it is an LLM-style decoder and carries a BPE vocabulary.
+    Qwen3Asr {
+        /// `conv_frontend.onnx`.
+        conv_frontend: PathBuf,
+        /// `encoder[.int8].onnx`.
+        encoder: PathBuf,
+        /// `decoder[.int8].onnx`.
+        decoder: PathBuf,
+        /// The `tokenizer/` directory (`vocab.json`, `merges.txt`, `tokenizer_config.json`).
+        tokenizer: PathBuf,
+    },
 }
 
 impl ModelFiles {
@@ -175,6 +192,7 @@ impl ModelFiles {
             ModelFiles::NemoTransducer { .. } => ModelKind::NemoTransducer,
             ModelFiles::SenseVoice { .. } => ModelKind::SenseVoice,
             ModelFiles::Paraformer { .. } => ModelKind::Paraformer,
+            ModelFiles::Qwen3Asr { .. } => ModelKind::Qwen3Asr,
         }
     }
 
@@ -208,13 +226,23 @@ impl ModelFiles {
             ModelFiles::SenseVoice { model, tokens } | ModelFiles::Paraformer { model, tokens } => {
                 vec![model, tokens]
             }
+            ModelFiles::Qwen3Asr {
+                conv_frontend,
+                encoder,
+                decoder,
+                tokenizer,
+            } => vec![conv_frontend, encoder, decoder, tokenizer],
         }
     }
 
-    /// Fail if any referenced file is missing from disk.
+    /// Fail if any referenced path is missing from disk.
+    ///
+    /// "Exists", not "is a file": [`ModelFiles::Qwen3Asr`] references a tokenizer **directory**,
+    /// which is how sherpa-onnx takes a BPE vocabulary. Requiring a file rejected a model that
+    /// had installed perfectly, with a message naming a path that was plainly there.
     pub fn verify_exists(&self) -> Result<()> {
         for f in self.files() {
-            if !f.is_file() {
+            if !f.exists() {
                 return Err(Error::MissingFile(f.display().to_string()));
             }
         }
@@ -319,6 +347,28 @@ pub fn detect(
             reason,
         })
     };
+
+    // --- Qwen3-ASR: tested first because `conv_frontend.onnx` appears in no other layout, and
+    // because its `encoder`/`decoder` pair would otherwise be read as a Whisper or Moonshine
+    // export. It is the only family here whose vocabulary is a directory rather than a file. ---
+    if hint.is_none_or(|k| k == ModelKind::Qwen3Asr)
+        && let Some(conv_frontend) = pick_any(&["conv_frontend", "conv-frontend"])
+    {
+        let encoder =
+            pick("encoder").ok_or_else(|| Error::MissingFile(join("encoder.onnx").display().to_string()))?;
+        let decoder =
+            pick("decoder").ok_or_else(|| Error::MissingFile(join("decoder.onnx").display().to_string()))?;
+        let tokenizer = join("tokenizer");
+        if !tokenizer.is_dir() {
+            return Err(Error::MissingFile(tokenizer.display().to_string()));
+        }
+        return Ok(ModelFiles::Qwen3Asr {
+            conv_frontend,
+            encoder,
+            decoder,
+            tokenizer,
+        });
+    }
 
     // --- Moonshine v1: four graphs. The `*cached_decode` pair is unique to Moonshine, so testing
     // it first keeps `encode`/`encoder` from being confused with the transducer layout. ---
@@ -791,6 +841,51 @@ mod tests {
         let files = detect_in_dir(root.path(), false, None).unwrap();
         assert_eq!(files.kind(), ModelKind::Whisper);
         files.verify_exists().unwrap();
+    }
+
+    /// Qwen3-ASR is detected by `conv_frontend.onnx`, which no other family here has.
+    ///
+    /// Tested because its `encoder`/`decoder` pair is exactly what a Whisper or Moonshine export
+    /// looks like: without the frontend being checked first, a Qwen3 directory would be handed to
+    /// the wrong recognizer and fail with a confusing message about a missing token file.
+    #[test]
+    fn a_qwen3_layout_is_not_mistaken_for_whisper_or_moonshine() {
+        let dir = tempfile::tempdir().unwrap();
+        for f in ["conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx"] {
+            std::fs::write(dir.path().join(f), b"x").unwrap();
+        }
+        std::fs::create_dir(dir.path().join("tokenizer")).unwrap();
+        std::fs::write(dir.path().join("tokenizer/vocab.json"), b"{}").unwrap();
+
+        let files = detect_in_dir(dir.path(), true, None).unwrap();
+        assert_eq!(files.kind(), ModelKind::Qwen3Asr);
+        match &files {
+            ModelFiles::Qwen3Asr {
+                encoder, tokenizer, ..
+            } => {
+                assert!(
+                    encoder.ends_with("encoder.int8.onnx"),
+                    "the int8 graph is preferred"
+                );
+                assert!(tokenizer.is_dir(), "the tokenizer is a directory, not a file");
+            }
+            other => panic!("expected Qwen3Asr, got {other:?}"),
+        }
+        // The directory must satisfy the existence check, which is what a real install failed.
+        files.verify_exists().unwrap();
+    }
+
+    /// A Qwen3 directory without its tokenizer says which path is missing.
+    #[test]
+    fn a_qwen3_layout_without_a_tokenizer_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        for f in ["conv_frontend.onnx", "encoder.onnx", "decoder.onnx"] {
+            std::fs::write(dir.path().join(f), b"x").unwrap();
+        }
+        match detect_in_dir(dir.path(), true, None) {
+            Err(Error::MissingFile(f)) => assert!(f.ends_with("tokenizer"), "{f}"),
+            other => panic!("expected a missing tokenizer, got {other:?}"),
+        }
     }
 
     #[test]

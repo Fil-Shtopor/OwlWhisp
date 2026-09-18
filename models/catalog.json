@@ -349,6 +349,68 @@
           "source": "`lw bench tests/fixtures/audio --model-dir <models>/sense-voice-small --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.062 and mean RTF 0.0141 over 3 clip(s) in en. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. Three clips is indicative, not statistically meaningful, and must NOT be compared with the twelve-clip multilingual totals in this catalog. AND READ THIS ONE TWICE: SenseVoice covers zh/ja/ko/yue/en and the fixture set contains only the last of those, so 0.062 describes its English, which is its secondary language. This catalog holds NO measurement of the Chinese, Japanese, Korean or Cantonese it exists for."
         }
       ]
+    },
+    {
+      "id": "qwen3-asr-0.6b",
+      "name": "Qwen3-ASR 0.6B (int8, sherpa-onnx export)",
+      "engine": "sherpa",
+      "description": "Alibaba's LLM-style speech recogniser: a convolutional frontend and encoder feeding a Qwen decoder, covering 30 languages including Chinese, Russian and English.",
+      "multilingual": true,
+      "languages": [
+        "zh",
+        "en",
+        "yue",
+        "ar",
+        "de",
+        "fr",
+        "es",
+        "pt",
+        "id",
+        "it",
+        "ko",
+        "ru",
+        "th",
+        "vi",
+        "ja",
+        "tr",
+        "hi",
+        "ms",
+        "nl",
+        "sv",
+        "da",
+        "fi",
+        "pl",
+        "cs",
+        "fil",
+        "fa",
+        "el",
+        "hu",
+        "mk",
+        "ro"
+      ],
+      "download_bytes": 878702423,
+      "disk_bytes": 987015347,
+      "quality": "best",
+      "speed": "moderate",
+      "roles": [],
+      "hardware": [
+        "cpu"
+      ],
+      "requires_engine_feature": "sherpa",
+      "manifest": "qwen3-asr-0.6b.json",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
+      "license": "Apache-2.0",
+      "vendor": "Alibaba",
+      "notes": "MEASURED on this project's target machine, 2026-09-18, and the result is split enough to be worth stating per language rather than as one figure: en 0.031, es 0.024, ru 0.206 over three clips each. That makes it the joint best English in this catalog -- it ties whisper-turbo's 0.031 at roughly half the real-time factor, 0.109 against 0.199 -- and the worst Russian of anything here that claims Russian, 3.5x parakeet-tdt-0.6b-v3's 0.059 and 7x gigaam-v3-ru's 0.029. It therefore carries NO role: `accurate` would be read as a general claim, and on the languages this fixture set can actually score, whisper-turbo matches or beats it everywhere. Its place here is coverage -- 30 languages plus 22 Chinese dialects, including Chinese, Japanese and Korean -- and that coverage is exactly what this project cannot measure: the fixtures contain no CJK audio, and the WER implementation counts whitespace-separated words, which is meaningless for Chinese. Measuring it would need both Chinese fixtures and a character error rate. FIRST ARCHIVE ENTRY: published only as a .tar.bz2 on the sherpa-onnx release with no loose-file mirror, so the manifest pins the ARCHIVE's SHA-256 and the installer unpacks it only after that hash matches (see crates/lw-core/src/model/archive.rs). download_bytes is the archive; disk_bytes is what is kept -- the test audio, README and shell scripts in the archive are not written. VERIFIED: the SHA-256 was computed locally from the bytes downloaded, and the whole path was exercised by a real `lw models install`. LICENCE: Apache-2.0, from the Qwen/Qwen3-ASR-* model cards; the sherpa-onnx export script is Apache-2.0 too. LANGUAGES: the thirty the card names, NOT Ukrainian -- an earlier draft of the language table wrongly added it, which would have scored this model against the Ukrainian fixtures and reported 0.852 as its accuracy. SIZE: 838 MiB down and 941 MiB on disk, the largest entry here by a distance; the decoder alone is 756 MB, which is what an LLM decoder costs even at int8.",
+      "measurements": [
+        {
+          "hardware": "cpu",
+          "rtf": 0.109,
+          "wer": 0.071,
+          "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/qwen3-asr-0.6b --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy decoding, temperature 0, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.071 and mean RTF 0.1090 over 9 clip(s) in en/es/ru. ONE SWEEP: measured with the rest of the catalog on the same committed twelve-clip fixture set, on the CPU, which is the only accelerator every entry can use. The three Ukrainian clips were transcribed and timed but NOT scored, because this model's card does not claim Ukrainian; it scored 0.852 on them, which is what excluding an unclaimed language is for. Mean RTF over all twelve, scored or not, was 0.1135. PER LANGUAGE: en 0.031, es 0.024, ru 0.206."
+        }
+      ]
     }
   ]
 }

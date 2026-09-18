@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "qwen3-asr-0.6b",
+  "name": "Qwen3-ASR 0.6B (int8, sherpa-onnx export)",
+  "version": "sherpa-onnx-asr-models-2026-03-25",
+  "license": "Apache-2.0",
+  "attribution": "Qwen3-ASR by the Qwen team, Alibaba Cloud (Apache-2.0); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "qwen3-asr-0.6b",
+  "languages": ["zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro"],
+  "common": [],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {
+          "path": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+          "bytes": 878702423,
+          "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+          "extract": {
+            "format": "tar.bz2",
+            "strip_components": 1,
+            "only_prefixes": ["conv_frontend", "encoder", "decoder", "tokenizer/"]
+          }
+        }
+      ]
+    }
+  ]
+}

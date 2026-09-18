@@ -9,9 +9,9 @@ use lw_core::engine::{
     Transcript,
 };
 use sherpa_onnx::{
-    OfflineMoonshineModelConfig, OfflineParaformerModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
-    OfflineRecognizerResult, OfflineSenseVoiceModelConfig, OfflineTransducerModelConfig,
-    OfflineWhisperModelConfig,
+    OfflineMoonshineModelConfig, OfflineParaformerModelConfig, OfflineQwen3ASRModelConfig, OfflineRecognizer,
+    OfflineRecognizerConfig, OfflineRecognizerResult, OfflineSenseVoiceModelConfig,
+    OfflineTransducerModelConfig, OfflineWhisperModelConfig,
 };
 
 use crate::config::SherpaConfig;
@@ -379,6 +379,26 @@ fn build_recognizer(
                 model: Some(path_str(model)?),
             };
             c.model_config.tokens = Some(path_str(tokens)?);
+        }
+        ModelFiles::Qwen3Asr {
+            conv_frontend,
+            encoder,
+            decoder,
+            tokenizer,
+        } => {
+            c.model_config.qwen3_asr = OfflineQwen3ASRModelConfig {
+                conv_frontend: Some(path_str(conv_frontend)?),
+                encoder: Some(path_str(encoder)?),
+                decoder: Some(path_str(decoder)?),
+                tokenizer: Some(path_str(tokenizer)?),
+                // Greedy, to match every other family here: sampling would make the same audio
+                // transcribe differently between runs, which would make a benchmark meaningless
+                // and a dictation unpredictable.
+                temperature: 0.0,
+                top_p: 1.0,
+                ..OfflineQwen3ASRModelConfig::default()
+            };
+            // No `tokens`: this family carries a BPE vocabulary in its tokenizer directory.
         }
     }
 

@@ -91,6 +91,19 @@ fill it. There is no *live* role, because live transcription means partial text 
 speak and this app has no such path — the hotkey opens a capture, releasing it closes one, and the
 utterance is transcribed whole.
 
+Languages are shown by **name**, not by ISO code: the row says "25 languages: English, Spanish,
+French, …" and the expansion lists every one of them, because that is the only place the question
+"is mine in here?" can actually be answered. The language filter in *Pick by what you need* is
+sorted by name too. The codes are still there in the tooltip, since that is what `--languages` and
+the manifests take.
+
+**On your machine** is the last column. It is empty — "not yet" — until you run a benchmark;
+after that it holds the WER and RTF *your* hardware produced, kept in `measurements.json` beside
+your settings so it survives restarts. One record per model and accelerator, the newest winning.
+Open a row to see every local run you have made, listed separately from the catalog's own figures:
+they answer different questions, and reading one as a check on the other would be wrong when they
+were taken on different machines on different days.
+
 **What the numbers mean, and where they come from** answers the three questions the Accuracy
 column raises. **WER** (word error rate) is the share of words that came out wrong — *lower is
 better*, 5% being about one word in twenty, with casing and punctuation stripped before scoring.

@@ -168,6 +168,50 @@ pub const NEMO_TRANSDUCER: &[Language] = &[
     Language("uk"),
 ];
 
+/// Qwen3-ASR's published language list: the thirty the model card names, and no more.
+///
+/// Taken from the card rather than from the files, which carry no list. Transcribed
+/// carefully: an earlier draft of this table added Norwegian, Hebrew and **Ukrainian**,
+/// none of which the card claims. That would have been scored against the Ukrainian
+/// fixtures and reported as this model's accuracy, which is the same mistake the
+/// NeMo-transducer superset made and the reason `NO_CLAIM` exists.
+///
+/// The card also lists 22 Chinese dialects. They are not separate tags here because the
+/// model does not emit one, and inventing codes for them would claim a distinction the
+/// output cannot make.
+static QWEN3_ASR: &[Language] = &[
+    Language("zh"),
+    Language("en"),
+    Language("yue"),
+    Language("ar"),
+    Language("de"),
+    Language("fr"),
+    Language("es"),
+    Language("pt"),
+    Language("id"),
+    Language("it"),
+    Language("ko"),
+    Language("ru"),
+    Language("th"),
+    Language("vi"),
+    Language("ja"),
+    Language("tr"),
+    Language("hi"),
+    Language("ms"),
+    Language("nl"),
+    Language("sv"),
+    Language("da"),
+    Language("fi"),
+    Language("pl"),
+    Language("cs"),
+    Language("fil"),
+    Language("fa"),
+    Language("el"),
+    Language("hu"),
+    Language("mk"),
+    Language("ro"),
+];
+
 /// The languages the detected model can transcribe.
 pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
     match files {
@@ -192,6 +236,11 @@ pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
         ModelFiles::NemoTransducer { .. } => NO_CLAIM,
         ModelFiles::SenseVoice { .. } => SENSE_VOICE,
         ModelFiles::Paraformer { .. } => PARAFORMER,
+        // Qwen3-ASR advertises 30 languages plus 22 Chinese dialects, and the files carry no way
+        // to tell one export from another. `QWEN3_ASR` is the published list for the released
+        // model; if a narrower export ever appears, this is where it would go wrong, which is why
+        // the catalog states languages per entry and `--languages` can override.
+        ModelFiles::Qwen3Asr { .. } => QWEN3_ASR,
     }
 }
 
@@ -204,6 +253,7 @@ pub fn languages_for_kind(kind: ModelKind) -> &'static [Language] {
         ModelKind::NemoTransducer => NEMO_TRANSDUCER,
         ModelKind::SenseVoice => SENSE_VOICE,
         ModelKind::Paraformer => PARAFORMER,
+        ModelKind::Qwen3Asr => QWEN3_ASR,
     }
 }
 

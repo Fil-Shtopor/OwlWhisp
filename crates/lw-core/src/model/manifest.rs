@@ -14,6 +14,14 @@ pub struct FileEntry {
     pub bytes: u64,
     /// Expected lowercase-hex SHA-256.
     pub sha256: String,
+    /// When set, this download is an archive: once its hash matches it is unpacked into the model
+    /// directory and the archive itself is deleted.
+    ///
+    /// The hash is of the **archive**, which is the only thing the publisher signs. Its contents
+    /// are therefore verified exactly as far as the archive is, and not one step further — see
+    /// [`crate::model::archive`] for what extraction is allowed to do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract: Option<super::archive::Extract>,
 }
 
 impl FileEntry {
@@ -139,6 +147,7 @@ mod tests {
             url: "https://example.com/x".into(),
             bytes: 10,
             sha256: "a".repeat(64),
+            extract: None,
         }
     }
 

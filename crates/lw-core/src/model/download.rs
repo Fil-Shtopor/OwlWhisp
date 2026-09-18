@@ -128,6 +128,14 @@ impl ModelDownloader {
             // Verify size + hash in the staging dir.
             super::verify_file(staging_dir, f)?;
             on_event(DownloadEvent::FileVerified { path: f.path.clone() });
+
+            // Only now, with the bytes proven to be the ones the manifest pinned, is the archive
+            // opened. Unpacking first and verifying after would mean trusting whatever arrived.
+            if let Some(spec) = &f.extract {
+                super::archive::extract(&dest, staging_dir, spec)?;
+                // The archive is not part of the model; leaving it would double the install size.
+                std::fs::remove_file(&dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
+            }
         }
 
         // Atomic promote: replace final_dir with staging_dir.
