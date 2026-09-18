@@ -232,6 +232,24 @@ NPU RTF 0.0145 / WER 4.8 %; encoder-only on HTP 23 ms per 10 s window (RTF 0.002
   Linux platform layer (Wayland portal hotkeys, injection).
 - Code-signing/notarization; MSIX/Store packaging; the updater.
 - Streaming/partial results (a cache-aware or Nemotron streaming model) as a later engine.
+- **DEBT, accepted deliberately: a Python sidecar runner for models that ship no ONNX export.**
+  Principle 5 in [`architecture.md`](architecture.md) says no Python in the shipped runtime, and it
+  still holds for everything built so far. But the reason several interesting models are missing
+  from the catalog is not that they are bad -- it is that their only runner is a Python package
+  (HojoAI's `hojo-asr` on safetensors, the full Qwen3-ASR checkpoints, most research ASR). The
+  owner has allowed a Python sidecar for that case specifically, with a caveat, so it is recorded
+  here rather than done silently. What it would cost, so that nobody is surprised later:
+  - It will be SLOWER, and that is the part to say out loud in the UI, not only here. A sidecar
+    means a process boundary and a serialization hop per utterance on top of PyTorch's own startup;
+    an engine that loads in-process today would become an engine that has to be spawned, fed and
+    waited on.
+  - No NPU, and most likely no GPU. The QNN path is reached through ONNX Runtime EPs; a PyTorch
+    sidecar does not get there, so such a model is CPU-bound on this hardware by construction.
+  - It is a heavy runtime dependency to install, sign and ship, on a platform (Windows ARM64) where
+    wheels are the least available.
+  Therefore, if it is ever built: opt-in per model, never the default engine, never the fallback a
+  user lands on without choosing it, and labelled in the model list as slower with the reason --
+  the same rule the rest of this project applies to accelerators, applied to runners.
 
 ## 10. Build commands
 

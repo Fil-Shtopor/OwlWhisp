@@ -26,7 +26,10 @@ platforms and models can change without touching the rest._
 4. **Native ARM64 first.** The app's own code is native `aarch64-pc-windows-msvc`; no x86 emulation
    for our binary. Dependencies are native ARM64 wherever a build exists.
 5. **No Python in the shipped runtime.** Python is used only for model conversion / QNN compilation /
-   benchmarks under `scripts/`.
+   benchmarks under `scripts/`. This holds for every engine that exists today. One exception has
+   been *allowed but not built*: a Python sidecar for models published with no ONNX export at all,
+   which would be opt-in per model, CPU-only, and labelled as slower -- see
+   [`FINAL_REPORT.md` section 9](FINAL_REPORT.md) for what it costs.
 
 ## 2. Crate map (Rust workspace)
 
