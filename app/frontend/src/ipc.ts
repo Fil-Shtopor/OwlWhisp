@@ -388,7 +388,12 @@ export interface LocalMeasurement {
   wer: number | null;
   /** Clips the WER was computed over — a 3-clip figure is not a 12-clip one. */
   scored_clips: number;
+  /** Clips that ran. */
   clips: number;
+  /** Clips skipped because the model does not claim their language; 0 in older records. */
+  skipped_clips: number;
+  /** The languages these figures cover; empty in records written before it was stored. */
+  scored_languages: string[];
   /** RFC 3339 UTC. */
   measured_at: string;
 }
@@ -406,8 +411,34 @@ export function deleteModel(id: string): Promise<{ id: string; freed_bytes: numb
   return invoke<{ id: string; freed_bytes: number }>("delete_model", { id });
 }
 
-export function getLocalMeasurements(): Promise<LocalMeasurements> {
-  return invoke<LocalMeasurements>("local_measurements");
+/**
+ * What this machine has measured, with every optional field made explicit.
+ *
+ * The backend writes these with `skip_serializing_if = "Option::is_none"`, so a record with no
+ * error rate simply has no `wer` key -- which arrives here as `undefined`, not `null`. Every
+ * `x === null` check then reads false and the value flows on: `formatWer(undefined)` rendered
+ * "NaN%" in the model list, and `warm_rtf.toFixed()` on an absent field would have thrown while
+ * building a tooltip. Normalising once here is the only place that fixes both, and every consumer
+ * after it can trust the declared type.
+ */
+export async function getLocalMeasurements(): Promise<LocalMeasurements> {
+  const raw = await invoke<Record<string, Partial<LocalMeasurement>[]>>("local_measurements");
+  const out: LocalMeasurements = {};
+  for (const [id, records] of Object.entries(raw)) {
+    out[id] = records.map((r) => ({
+      accelerator: r.accelerator ?? "unknown",
+      accelerator_label: r.accelerator_label ?? "unknown",
+      cold_rtf: r.cold_rtf ?? 0,
+      warm_rtf: r.warm_rtf ?? null,
+      wer: r.wer ?? null,
+      scored_clips: r.scored_clips ?? 0,
+      clips: r.clips ?? 0,
+      skipped_clips: r.skipped_clips ?? 0,
+      scored_languages: r.scored_languages ?? [],
+      measured_at: r.measured_at ?? "",
+    }));
+  }
+  return out;
 }
 
 export interface ModelCatalog {
@@ -510,7 +541,20 @@ export interface BenchReport {
   warm_count: number;
   /** Word-weighted WER, or null when the clips had no reference transcripts. */
   wer: number | null;
+  /** Seconds of audio actually transcribed — skipped clips are not in it. */
   audio_secs: number;
+  /**
+   * Clips that were never run, because this model does not claim their language.
+   *
+   * They are absent from `clips` and from every figure above. That is deliberate: the model still
+   * emits something for audio it was not built for, and the time it takes doing so would otherwise
+   * be averaged into its RTF as if it were work anyone wanted.
+   */
+  skipped_clips: number;
+  /** The languages those skipped clips were in. */
+  skipped_languages: string[];
+  /** The languages `wer` actually covers. */
+  scored_languages: string[];
   /**
    * What the engine decided while selecting a backend, in order - including why it fell back.
    * A run that asked for the NPU and ended up on the CPU says so here; show them.

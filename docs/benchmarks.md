@@ -82,13 +82,15 @@ lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backen
 lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backend npu
 ```
 
-### 5.0 WER is only scored on languages a model claims
+### 5.0 A model is only run on the languages it claims
 
-`lw bench` transcribes and times **every** fixture clip, but scores WER only on the clips whose
-language the engine declares in `supported_languages()`. Clips in other languages print with
-`(not scored)` and a note.
+`lw bench` **skips** fixture clips whose language the engine does not declare in
+`supported_languages()`. They are not transcribed, not timed, and not scored; the result prints how
+many were skipped and in what languages.
 
-This is not a detail. Measured on the X2:
+This started as a scoring rule and became a running rule, in two steps.
+
+**Scoring.** Measured on the X2:
 
 | Model | scored as | WER |
 |---|---|---:|
@@ -101,8 +103,22 @@ headed "accuracy", where it reads as *this model is bad* rather than *this model
 wrong question*. Individual non-English clips exceed WER 1.0, because the model inserts more words
 than the reference contains.
 
-An engine that declares no languages has made no claim, so it is scored on everything. The
-"over N clip(s) in <languages>" line printed with every result is the provenance that belongs in
+**Timing.** Excluding those clips from the WER was not enough, because they were still being
+transcribed, and the time that took still landed in `cold_rtf`, `warm_rtf` and `audio_secs`. Nothing
+downstream could tell it apart from real work. So `moonshine-tiny-en`'s speed was three English
+clips plus nine clips of Spanish, Russian and Ukrainian it cannot speak — three quarters of its
+measured RTF describing a job nobody would ever give it. Since 2026-09-18 those clips do not run at
+all. `--include-unsupported` restores the old behaviour for the one case that wants it: asking what
+a model actually does with a language it never advertised.
+
+**Engines that declare nothing.** Several real exports carry no language metadata — a bare
+`encoder/decoder/joiner` transducer directory says nothing about what it speaks — so
+`supported_languages()` comes back empty and every clip counts again, by a different road. GigaAM v3
+(Russian) and Parakeet TDT-CTC 110M (English) are both like this. The app falls back to the
+catalog's language list for them, which is the same list it shows in the model row; `lw bench` has
+no catalog, so it needs an explicit `--languages ru`.
+
+The "over N clip(s) in <languages>" line printed with every result is the provenance that belongs in
 any recorded measurement: a 3-clip English figure and a 12-clip multilingual figure must never be
 compared as though they measured the same thing.
 

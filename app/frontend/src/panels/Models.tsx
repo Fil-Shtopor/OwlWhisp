@@ -340,15 +340,6 @@ function pickLocal(mine: readonly LocalMeasurement[], best: string | null): Loca
   return [...mine].sort((a, b) => (a.warm_rtf ?? a.cold_rtf) - (b.warm_rtf ?? b.cold_rtf))[0] ?? null;
 }
 
-/** The full support picture as one tooltip, so the compact chips do not have to carry it. */
-function runsOnTitle(accelerators: readonly ModelAccelerator[]): string {
-  const yes = accelerators.filter((a) => a.supported).map((a) => a.label);
-  const no = accelerators
-    .filter((a) => !a.supported)
-    .map((a) => `${a.label} — ${a.reason ?? "not supported"}`);
-  return [`Runs on: ${yes.length > 0 ? yes.join(", ") : "nothing on this machine"}`, ...no].join("\n");
-}
-
 /** A measured word-error rate the row can show, and whether it describes this machine's target. */
 interface AccuracyEvidence {
   readonly point: MeasuredPoint;
@@ -573,6 +564,188 @@ function MeasuredLine({ point }: { point: MeasuredPoint }) {
         {point.wer !== null && <> · WER {formatWer(point.wer)}</>}
       </span>
       <div className="sub">on {point.machine}</div>
+    </div>
+  );
+}
+
+/** Accelerator ids are spelled with either separator depending on which enum produced them. */
+function sameAccel(a: string, b: string): boolean {
+  return a.replace(/_/g, "-").toLowerCase() === b.replace(/_/g, "-").toLowerCase();
+}
+
+/**
+ * Every accelerator this build knows about, as one table: can this model use it, what has this
+ * machine measured on it, and what does the catalog hold for it.
+ *
+ * One table instead of chips on the row plus two blocks down here. The question a reader actually
+ * arrives with is "which of these has a number behind it and which is only a claim", and that is a
+ * comparison across three facts per accelerator -- a chip can carry one of them, so three chips
+ * carried the least useful third and took the row's width to do it.
+ *
+ * The columns are deliberately not merged. "Measured here" and "the catalog" were taken on
+ * different machines on different days, and a single column would invite reading one as a check on
+ * the other.
+ */
+function AcceleratorTable({
+  accelerators,
+  local,
+  catalog,
+}: {
+  accelerators: readonly ModelAccelerator[];
+  local: readonly LocalMeasurement[];
+  catalog: readonly MeasuredPoint[];
+}) {
+  const matched = new Set<number>();
+  accelerators.forEach((a) => {
+    catalog.forEach((m, i) => {
+      if (sameAccel(m.hardware, a.id)) matched.add(i);
+    });
+  });
+  // A catalog figure whose hardware string matches no accelerator this build knows about. Listed
+  // rather than dropped: it is still a real measurement, and silently hiding it would be the one
+  // thing this table exists to prevent.
+  const unmatched = catalog.filter((_, i) => !matched.has(i));
+  // The same for a run of our own. Records written before the sherpa engine reported an
+  // accelerator id are filed under "unknown": real measurements of the CPU that match no row.
+  const orphanLocal = local.filter((m) => !accelerators.some((a) => sameAccel(m.accelerator, a.id)));
+
+  const hasNumber = (a: ModelAccelerator) =>
+    local.some((m) => sameAccel(m.accelerator, a.id)) ||
+    catalog.some((m) => sameAccel(m.hardware, a.id));
+  // Rows are for accelerators there is something to say about: it runs, or something was measured
+  // on it. The rest would be eight rows of the same sentence -- a sherpa model cannot use any of
+  // the NPUs or GPUs, always for the one reason -- so they are summarised under the table instead,
+  // named but not given a row each.
+  const rows = accelerators.filter((a) => a.supported || hasNumber(a));
+  const blocked = accelerators.filter((a) => !a.supported && !hasNumber(a));
+  const byReason = new Map<string, string[]>();
+  for (const a of blocked) {
+    const reason = a.reason ?? "not supported";
+    const list = byReason.get(reason);
+    if (list === undefined) byReason.set(reason, [a.label]);
+    else list.push(a.label);
+  }
+
+  return (
+    <div className="accel-block">
+      <div className="accel-scroll">
+        <table className="diag-table accel-table">
+          <thead>
+            <tr>
+              <th>Accelerator</th>
+              <th>Runs this model</th>
+              <th>Measured on this machine</th>
+              <th>In the catalog</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => {
+              const here = local.find((m) => sameAccel(m.accelerator, a.id)) ?? null;
+              const there = catalog.find((m) => sameAccel(m.hardware, a.id)) ?? null;
+              return (
+                <tr key={a.id} className={a.supported ? "" : "accel-off"}>
+                  <td>{a.label}</td>
+                  <td>
+                    {a.supported ? (
+                      <span className="badge yes">
+                        <span aria-hidden="true">✓</span>
+                        <span className="badge-text"> yes</span>
+                      </span>
+                    ) : (
+                      <>
+                        <span className="badge no">
+                          <span aria-hidden="true">✕</span>
+                          <span className="badge-text"> no</span>
+                        </span>
+                        <div className="sub">{a.reason ?? "not supported"}</div>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {here === null ? (
+                      <span className="sub">{a.supported ? "not measured yet" : "—"}</span>
+                    ) : (
+                      <>
+                        <span className="mono">
+                          RTF {formatRtf(here.warm_rtf ?? here.cold_rtf)}
+                          {here.wer !== null && <> · WER {formatWer(here.wer)}</>}
+                        </span>
+                        <div className="sub">
+                          {here.wer === null
+                            ? "no clip could be scored"
+                            : `over ${here.scored_clips} clip${here.scored_clips === 1 ? "" : "s"}`}
+                          {here.scored_languages.length > 0 && (
+                            <> in {here.scored_languages.join("/")}</>
+                          )}
+                          {here.skipped_clips > 0 && (
+                            <>
+                              {" "}
+                              ({here.skipped_clips} skipped — not this model's languages)
+                            </>
+                          )}{" "}
+                          · {here.measured_at.slice(0, 10)}
+                        </div>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {there === null ? (
+                      <span className="sub">—</span>
+                    ) : (
+                      <span className="mono" title={`${there.machine} — ${there.source}`}>
+                        RTF {formatRtf(there.rtf)}
+                        {there.wer !== null && <> · WER {formatWer(there.wer)}</>}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {[...byReason.entries()].map(([reason, labels]) => (
+        <p key={reason} className="sub accel-blocked">
+          <span className="badge no">
+            <span aria-hidden="true">✕</span>
+            <span className="badge-text"> cannot run</span>
+          </span>{" "}
+          {labels.join(", ")} — {reason}.
+        </p>
+      ))}
+      <p className="sub accel-note">
+        <strong>Runs this model</strong> is the backend's own answer — the same one that decides
+        which accelerators a Compare-all sweep skips, so the table cannot promise a run the
+        benchmark then refuses. <strong>Measured on this machine</strong> is empty until you run a
+        benchmark; <strong>in the catalog</strong> was measured on the developer's machine, and the
+        two are kept in separate columns because neither checks the other.
+      </p>
+      {orphanLocal.length > 0 && (
+        <p className="sub">
+          Measured here, but filed under an accelerator this build does not recognise — older runs
+          recorded the backend but not which accelerator it was:{" "}
+          {orphanLocal.map((m, i) => (
+            <span key={`${m.accelerator}-${i}`} className="mono">
+              {i > 0 && "; "}
+              {m.accelerator_label}: RTF {formatRtf(m.warm_rtf ?? m.cold_rtf)}
+              {m.wer !== null && <> · WER {formatWer(m.wer)}</>}
+            </span>
+          ))}
+          . Re-run the benchmark to file them properly.
+        </p>
+      )}
+      {unmatched.length > 0 && (
+        <p className="sub">
+          Also in the catalog, on hardware this build has no accelerator for:{" "}
+          {unmatched.map((m, i) => (
+            <span key={`${m.hardware}-${i}`} className="mono" title={`${m.machine} — ${m.source}`}>
+              {i > 0 && "; "}
+              {m.hardware}: RTF {formatRtf(m.rtf)}
+              {m.wer !== null && <> · WER {formatWer(m.wer)}</>}
+            </span>
+          ))}
+        </p>
+      )}
     </div>
   );
 }
@@ -802,18 +975,7 @@ export function ModelsPanel() {
     const open = openIds.has(entry.id);
     const detailId = `model-detail-${entry.id}`;
     const family = familyLabel(entry.engine);
-    const reference = entry.measured_reference;
     const accuracy = measuredAccuracy(entry);
-    // What the "Measured elsewhere" block shows: the matching target when there is one, else any
-    // real measurement the catalog holds, labelled with the hardware it came from.
-    const measuredPoint: MeasuredPoint | null =
-      reference !== null
-        ? reference
-        : accuracy !== null
-          ? accuracy.point
-          : entry.measurements.length > 0
-            ? entry.measurements[0]
-            : null;
     const werEstimates = Object.entries(entry.wer_estimates);
     // The compact `~0.0145` in the column is only honest because the header says "estimates" and
     // this title spells it out in full, naming the hardware the estimate was computed for.
@@ -873,20 +1035,11 @@ export function ModelsPanel() {
               </span>
             ))}
             {/*
-              Which accelerators this model can use, from the backend's own answer -- the same one
-              that decides what a Compare-all sweep skips, so the table cannot promise a run the
-              benchmark then refuses. Only the supported ones are listed here; the expansion has
-              the rest with the reason.
+              No accelerator chips here. They cost a slice of every row's width -- worst on
+              Parakeet, which supports the most -- to say the least interesting third of what a
+              reader wants: what a model *can* use, with no room left for whether anything was
+              ever actually measured on it. The expansion answers all of that in one table.
             */}
-            <span className="runs-on" title={runsOnTitle(entry.accelerators)}>
-              {entry.accelerators
-                .filter((a) => a.supported)
-                .map((a) => (
-                  <span key={a.id} className="hw-chip">
-                    {shortHardware(a.id)}
-                  </span>
-                ))}
-            </span>
             {/* Stands in for the family column once the window is too narrow to keep it. */}
             <span className="mname-family sub" title={entry.engine}>
               {family}
@@ -1057,20 +1210,6 @@ export function ModelsPanel() {
                   {entry.language_names.length === 0 ? "—" : entry.language_names.join(", ")}
                 </dd>
               </div>
-              <div className="lang-cell">
-                <dt>Runs on</dt>
-                <dd className="runs-on-list">
-                  {entry.accelerators.map((a) => (
-                    <span
-                      key={a.id}
-                      className={a.supported ? "badge yes" : "badge no"}
-                      title={a.reason ?? `${a.label} can run this model`}
-                    >
-                      {a.label}
-                    </span>
-                  ))}
-                </dd>
-              </div>
               <div>
                 <dt>Quality</dt>
                 <dd title="Editorial ranking, not a measurement">{entry.quality_label}</dd>
@@ -1097,50 +1236,19 @@ export function ModelsPanel() {
                   <span className="sub"> for {entry.best_hardware}</span>
                 )}
               </div>
-              <div className="perf-block">
-                <span className="perf-label">Measured elsewhere</span>
-                {measuredPoint === null ? (
-                  <span className="sub">No measurement in the catalog for this model.</span>
-                ) : (
-                  <>
-                    <MeasuredLine point={measuredPoint} />
-                    {reference === null && (
-                      <span className="sub">
-                        Taken on {measuredPoint.hardware}, not the{" "}
-                        {entry.best_hardware ?? "target"} path this machine would use — it says
-                        nothing about the speed of that path.
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
             </div>
 
             {/*
-              Kept separate from the catalog's measurements above rather than merged into one list.
-              They answer different questions -- "what does this model do" against "what does it do
-              here" -- and a merged list would invite reading one as a check on the other when they
-              were taken on different hardware, different days and possibly different clip sets.
+              One table for the whole accelerator picture: what this model can use, what this
+              machine measured on it, and what the catalog holds. The three used to be a row of
+              chips, a perf block and a list, which meant reading three places to answer one
+              question -- and the chips were paying for their width in every row of the list.
             */}
-            {localAll.length > 0 && (
-              <div className="measured mine-block">
-                <span className="badge measured-badge">on your machine</span>{" "}
-                {localAll.map((m) => (
-                  <div key={m.accelerator} className="mine-line">
-                    <span className="mono">
-                      {m.accelerator_label}: RTF {(m.warm_rtf ?? m.cold_rtf).toFixed(4)}
-                      {m.wer !== null && <> · WER {formatWer(m.wer)}</>}
-                    </span>
-                    <span className="sub">
-                      {m.wer === null
-                        ? "no clip could be scored"
-                        : `over ${m.scored_clips} of ${m.clips} clips`}{" "}
-                      · {m.measured_at.slice(0, 10)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <AcceleratorTable
+              accelerators={entry.accelerators}
+              local={localAll}
+              catalog={entry.measurements}
+            />
 
             {entry.measurements.length > 1 && (
               <details className="model-more">
@@ -1160,7 +1268,20 @@ export function ModelsPanel() {
               </p>
             )}
 
-            <p className="sub model-reason">{entry.reason}</p>
+            {/*
+              The one-line verdict, kept only when it says something the accelerator table above
+              does not. For a sherpa entry it used to read "CPU only - this model ships no NPU
+              artifact" directly under a table already saying which accelerators are refused and
+              why - and less accurately, because such a model could not use an NPU artifact even if
+              it shipped one.
+
+              Keyed on `best_hardware`, a stable id, not on the wording of the sentence: matching
+              prose that a later edit can reword is exactly what this codebase refuses to do
+              elsewhere, and there is no reason to start here.
+            */}
+            {entry.runnable && entry.best_hardware !== "cpu" && (
+              <p className="sub model-reason">{entry.reason}</p>
+            )}
 
             {!entry.runnable && entry.blockers.length > 0 && (
               <div className="blockers">

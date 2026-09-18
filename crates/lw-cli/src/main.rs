@@ -127,6 +127,14 @@ enum Command {
         /// produces one meaningful figure instead of a blend across languages it cannot speak.
         #[arg(long, value_delimiter = ',')]
         languages: Vec<String>,
+        /// Also run the clips in languages this model does not claim.
+        ///
+        /// Off by default: those clips are skipped entirely, because transcribing them costs time
+        /// that lands in the RTF next to the real work with nothing to distinguish it. Switch this
+        /// on to ask what a model does with a language it never advertised -- a fair question whose
+        /// answer describes the question, so it has to be asked on purpose.
+        #[arg(long)]
+        include_unsupported: bool,
         /// Few-second self-measurement with per-stage timings; needs no fixtures directory.
         ///
         /// Uses `tests/fixtures/audio` if it can find one, otherwise synthesizes speech-like
@@ -231,6 +239,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             backend,
             threads,
             languages,
+            include_unsupported,
             quick,
         } => {
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
@@ -251,15 +260,16 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 )
             })?;
             let rt = init_runtime(&cli.runtime_dir)?;
-            bench(
+            bench(BenchArgs {
                 rt,
-                &fixtures,
-                &model_dir,
-                &cache,
-                backend.into(),
+                fixtures: &fixtures,
+                model_dir: &model_dir,
+                cache_dir: &cache,
+                backend: backend.into(),
                 threads,
-                &languages,
-            )
+                languages: &languages,
+                include_unsupported,
+            })
         }
         Command::Models { cmd } => models::run(cmd, &cli.runtime_dir),
         Command::Devices => {
@@ -478,16 +488,32 @@ fn selfcheck(runtime_dir: &Option<PathBuf>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn bench(
+/// Everything one `lw bench` run needs, gathered so the function does not take eight arguments.
+struct BenchArgs<'a> {
     rt: std::sync::Arc<OrtRuntime>,
-    fixtures: &std::path::Path,
-    model_dir: &std::path::Path,
-    cache_dir: &std::path::Path,
+    fixtures: &'a std::path::Path,
+    model_dir: &'a std::path::Path,
+    cache_dir: &'a std::path::Path,
     backend: BackendKind,
     threads: usize,
-    languages: &[String],
-) -> anyhow::Result<()> {
-    use lw_core::bench::{ClipResult, ClipSource, fixture_clips, measure};
+    /// Restrict the clips to these language tags; empty means the whole fixture set.
+    languages: &'a [String],
+    /// Run clips in languages the model does not claim, instead of skipping them.
+    include_unsupported: bool,
+}
+
+fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
+    let BenchArgs {
+        rt,
+        fixtures,
+        model_dir,
+        cache_dir,
+        backend,
+        threads,
+        languages,
+        include_unsupported,
+    } = args;
+    use lw_core::bench::{ClipResult, ClipSource, MeasureOptions, fixture_clips, measure_with};
 
     // usize::MAX: take the whole fixture set, not the 3-clip sample `--quick` uses.
     let mut clips = fixture_clips(fixtures, usize::MAX).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -524,11 +550,17 @@ fn bench(
         "file", "dur(s)", "time(ms)", "RTF"
     );
 
-    let m = measure(
+    let m = measure_with(
         engine.as_mut(),
         &clips,
         ClipSource::Fixtures {
             dir: fixtures.to_path_buf(),
+        },
+        MeasureOptions {
+            include_unclaimed: include_unsupported,
+            // The CLI's own `--languages` already restricts the clip set, which is the same
+            // control by a shorter route, so nothing is assumed on the engine's behalf here.
+            ..Default::default()
         },
         |c: &ClipResult| {
             println!(
@@ -624,10 +656,20 @@ fn bench(
             m.scored_languages.join("/")
         }
     );
+    if m.skipped_clips > 0 {
+        println!(
+            "note: {} clip(s) in {} were SKIPPED -- not transcribed at all.",
+            m.skipped_clips,
+            m.skipped_languages.join("/")
+        );
+        println!("      This model does not claim those languages, so running it on them would have");
+        println!("      added time to the RTF above without adding any work the model is actually for.");
+        println!("      Pass --include-unsupported to run them anyway and see what it does.");
+    }
     if !m.unscored_languages.is_empty() {
         let unscored = m.results.len() - scored.len();
         println!(
-            "note: {unscored} clip(s) in {} were transcribed but NOT scored.",
+            "note: {unscored} clip(s) in {} were transcribed but NOT scored (--include-unsupported).",
             m.unscored_languages.join("/")
         );
         println!("      This model does not claim those languages; a WER against them would describe");

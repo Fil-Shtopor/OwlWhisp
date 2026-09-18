@@ -140,7 +140,19 @@ pub struct Measurement {
     /// Languages the scored clips covered, sorted, for provenance.
     pub scored_languages: Vec<String>,
     /// Clips that were transcribed and timed but not scored, and the languages they were in.
+    ///
+    /// Empty unless [`MeasureOptions::include_unclaimed`] was set. By default such clips are not
+    /// run at all, and their languages appear in [`Measurement::skipped_languages`] instead.
     pub unscored_languages: Vec<String>,
+    /// Languages whose clips were **not run at all**, because the engine does not claim them.
+    ///
+    /// Different from `unscored_languages` in the way that matters: these never reached the
+    /// engine, so they consumed no time and entered no average. An English-only model asked to
+    /// transcribe Chinese still takes however long it takes to produce nonsense, and folding that
+    /// into its RTF reports a speed the user will never see on audio the model is for.
+    pub skipped_languages: Vec<String>,
+    /// How many clips `skipped_languages` accounts for.
+    pub skipped_clips: usize,
     /// WER broken down per language, over every clip that had a reference — claimed or not.
     ///
     /// This is what makes a misfit visible: a Russian-only model run against multilingual
@@ -161,14 +173,57 @@ pub struct Measurement {
     pub source: ClipSource,
 }
 
-/// Run every clip once (the first is the cold run) and collect honest timings.
+/// How a measurement treats clips in languages the engine never claimed.
+#[derive(Clone, Debug, Default)]
+pub struct MeasureOptions {
+    /// Languages to treat as the engine's claim when the engine itself declares none.
+    ///
+    /// Several real exports carry no language metadata at all -- a bare `encoder/decoder/joiner`
+    /// transducer directory says nothing about what it speaks -- so `supported_languages()` comes
+    /// back empty and every clip counts. For GigaAM v3 (Russian) and Parakeet TDT-CTC 110M
+    /// (English) that meant being timed on Chinese, Ukrainian and Spanish audio they were never
+    /// built for, which is the same corruption `include_unclaimed` exists to prevent, arriving by
+    /// a different road.
+    ///
+    /// The catalog does know their languages, and it is what the UI already shows the user, so a
+    /// caller holding a catalog entry passes them here. Empty means "no help available", and the
+    /// old behaviour stands: an engine that claims nothing is scored on everything.
+    pub assume_languages: Vec<String>,
+    /// Run the engine on clips whose language it does not claim, instead of skipping them.
+    ///
+    /// Off by default, because including them corrupts every timing in the report: the clips are
+    /// still transcribed at whatever speed the model manages on audio it was never built for, and
+    /// that time lands in `cold_rtf`, `warm_rtf` and `audio_secs` alongside the real work. A
+    /// caller comparing two models then compares them partly on languages neither is for.
+    ///
+    /// Worth switching on for exactly one purpose: seeing what a model actually does with a
+    /// language it does not advertise. That is a legitimate question, and the answer describes
+    /// the question rather than the model, so it has to be asked deliberately.
+    pub include_unclaimed: bool,
+}
+
+/// Run every clip the engine claims once (the first is the cold run) and collect honest timings.
 ///
 /// `per_clip` is called as each clip finishes so a caller can stream progress; it receives the
 /// same values that end up in [`Measurement::results`].
+///
+/// Clips in languages the engine does not claim are skipped -- see [`measure_with`] to include
+/// them.
 pub fn measure(
     engine: &mut dyn SpeechEngine,
     clips: &[Clip],
     source: ClipSource,
+    per_clip: impl FnMut(&ClipResult),
+) -> Result<Measurement> {
+    measure_with(engine, clips, source, MeasureOptions::default(), per_clip)
+}
+
+/// [`measure`], with control over the clips the engine does not claim.
+pub fn measure_with(
+    engine: &mut dyn SpeechEngine,
+    clips: &[Clip],
+    source: ClipSource,
+    opts: MeasureOptions,
     mut per_clip: impl FnMut(&ClipResult),
 ) -> Result<Measurement> {
     if clips.is_empty() {
@@ -181,14 +236,32 @@ pub fn measure(
     // the question. Moonshine tiny en scores WER 0.092 on English clips and 0.850 once Russian,
     // Spanish and Ukrainian are added -- individual clips exceed 1.0, because it inserts more
     // words than the reference holds. The first number describes the model; the second describes
-    // a mistake. Unclaimed clips are still transcribed and timed, so RTF covers real work.
+    // a mistake.
+    //
+    // Those clips are therefore not run at all, rather than run and left out of the WER. Running
+    // them costs time that lands in cold_rtf, warm_rtf and audio_secs, where nothing separates it
+    // from the real work afterwards -- so the speed figure would be part measurement of the model
+    // and part measurement of the model failing at something it never offered.
     //
     // An engine that declares no languages has made no claim, so everything counts.
-    let claimed: Vec<String> = engine
+    let engine_claimed: Vec<String> = engine
         .supported_languages()
         .iter()
         .map(|l| l.0.to_ascii_lowercase())
         .collect();
+    let engine_claimed_languages = !engine_claimed.is_empty();
+    // Fall back to what the caller knows only when the engine itself knows nothing. An engine
+    // that does declare its languages is the better authority: it was built from the files that
+    // are actually on disk, while a catalog entry is a description of them.
+    let claimed: Vec<String> = if engine_claimed.is_empty() {
+        opts.assume_languages
+            .iter()
+            .map(|l| l.trim().to_ascii_lowercase())
+            .filter(|l| !l.is_empty())
+            .collect()
+    } else {
+        engine_claimed
+    };
     let counts = |clip: &Clip| -> bool {
         match (&clip.language, claimed.is_empty()) {
             (_, true) | (None, _) => true,
@@ -199,13 +272,39 @@ pub fn measure(
         }
     };
 
+    // Decide the run set before timing anything, so the cold run is a clip that counts.
+    let (selected, skipped): (Vec<&Clip>, Vec<&Clip>) = if opts.include_unclaimed {
+        (clips.iter().collect(), Vec::new())
+    } else {
+        clips.iter().partition(|c| counts(c))
+    };
+    let mut skipped_languages: Vec<String> = Vec::new();
+    for clip in &skipped {
+        if let Some(lang) = &clip.language
+            && !skipped_languages.iter().any(|l| l == lang)
+        {
+            skipped_languages.push(lang.clone());
+        }
+    }
+    skipped_languages.sort();
+    if selected.is_empty() {
+        // Better to say why than to report an empty run or, worse, a number from clips the model
+        // never claimed.
+        return Err(Error::Other(format!(
+            "this model claims {}, and none of the {} clip(s) are in those languages -- they are in {}.              Nothing was measured: a figure from clips a model does not claim describes the fixtures, not the model.",
+            if claimed.is_empty() { "nothing".to_string() } else { claimed.join("/") },
+            clips.len(),
+            if skipped_languages.is_empty() { "no declared language".to_string() } else { skipped_languages.join("/") },
+        )));
+    }
+
     let mut cold_rtf = 0.0f32;
     let mut warm_ms = Vec::new();
     let mut warm_rtf_sum = 0.0f64;
     let mut total_err = 0.0f64;
     let mut total_words = 0usize;
     let mut audio_secs = 0.0f32;
-    let mut results = Vec::with_capacity(clips.len());
+    let mut results = Vec::with_capacity(selected.len());
     let mut scored_languages: Vec<String> = Vec::new();
     let mut unscored_languages: Vec<String> = Vec::new();
     // language -> (weighted error, tokens, clips, unit)
@@ -215,7 +314,7 @@ pub fn measure(
     // average of a word rate and a character rate, which is not a quantity.
     let mut scored_units: std::collections::BTreeSet<ErrorUnit> = std::collections::BTreeSet::new();
 
-    for (i, clip) in clips.iter().enumerate() {
+    for (i, clip) in selected.iter().copied().enumerate() {
         let scored = counts(clip);
         let t0 = Instant::now();
         let transcript = engine
@@ -323,8 +422,10 @@ pub fn measure(
         mixed_units,
         scored_languages,
         unscored_languages,
+        skipped_clips: skipped.len(),
+        skipped_languages,
         per_language,
-        engine_claimed_languages: !claimed.is_empty(),
+        engine_claimed_languages,
         results,
         audio_secs,
         source,
@@ -810,9 +911,10 @@ mod tests {
     }
 
     #[test]
-    fn a_clip_in_a_language_the_engine_does_not_claim_is_timed_but_not_scored() {
+    fn a_clip_in_a_language_the_engine_does_not_claim_is_not_run_at_all() {
         // The real case this guards: Moonshine tiny en scores 0.092 on English clips and 0.850
-        // once Russian is added. The second number measures the question, not the model.
+        // once Russian is added. The second number measures the question, not the model -- and
+        // the time spent producing it lands in the RTF, where nothing marks it as unreal.
         use crate::engine::Language;
         const EN: &[Language] = &[Language("en")];
         let clips = vec![
@@ -829,13 +931,112 @@ mod tests {
 
         assert_eq!(m.wer, Some(0.0), "the Russian clip must not drag the total down");
         assert_eq!(m.scored_languages, vec!["en".to_string()]);
-        assert_eq!(m.unscored_languages, vec!["ru".to_string()]);
-        // Both clips were still run, so RTF covers real work.
-        assert_eq!(m.results.len(), 2);
+        assert_eq!(m.skipped_languages, vec!["ru".to_string()]);
+        assert_eq!(m.skipped_clips, 1);
+        // The engine never saw it: one result, and the timings cover English only.
+        assert_eq!(m.results.len(), 1);
         assert!(m.results[0].scored);
+        assert_eq!(m.audio_secs, 1.0, "skipped audio must not inflate the total");
+        assert!(m.unscored_languages.is_empty());
+    }
+
+    #[test]
+    fn including_unclaimed_clips_runs_them_but_still_keeps_them_out_of_the_total() {
+        // The deliberate opposite: asking what a model does with a language it never offered.
+        use crate::engine::Language;
+        const EN: &[Language] = &[Language("en")];
+        let clips = vec![
+            clip_in("en.wav", 1.0, Some("a b c d"), Some("en")),
+            clip_in("ru.wav", 1.0, Some("а б в г"), Some("ru")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b c d".into(), "totally wrong words here".into()],
+            next: 0,
+            languages: EN,
+        };
+        let opts = MeasureOptions {
+            include_unclaimed: true,
+            ..Default::default()
+        };
+        let m = measure_with(&mut engine, &clips, ClipSource::Synthetic, opts, |_| {}).unwrap();
+
+        assert_eq!(m.results.len(), 2);
+        assert!(m.skipped_languages.is_empty());
+        assert_eq!(m.unscored_languages, vec!["ru".to_string()]);
         assert!(!m.results[1].scored);
-        // The unscored clip's own WER is still reported, just not counted.
+        // Its own rate is still reported -- that is the point of asking -- just not counted.
         assert!(m.results[1].wer.is_some());
+        assert_eq!(m.wer, Some(0.0));
+    }
+
+    #[test]
+    fn a_catalog_language_stands_in_when_the_engine_declares_none() {
+        // GigaAM v3 and Parakeet TDT-CTC 110M really do this: bare transducer exports with no
+        // language metadata, so the engine claims nothing and every clip counts. Before this, both
+        // were timed on Chinese and Ukrainian audio they were never built for.
+        let clips = vec![
+            clip_in("ru.wav", 1.0, Some("а б"), Some("ru")),
+            clip_in("zh.wav", 1.0, Some("中文"), Some("zh")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["а б".into(), "nonsense".into()],
+            next: 0,
+            languages: &[],
+        };
+        let opts = MeasureOptions {
+            assume_languages: vec!["ru".into()],
+            ..Default::default()
+        };
+        let m = measure_with(&mut engine, &clips, ClipSource::Synthetic, opts, |_| {}).unwrap();
+
+        assert_eq!(m.results.len(), 1, "only the Russian clip should have run");
+        assert_eq!(m.skipped_languages, vec!["zh".to_string()]);
+        assert_eq!(m.wer, Some(0.0));
+        assert!(
+            !m.engine_claimed_languages,
+            "the claim came from the catalog, not the engine, and the report must not pretend otherwise"
+        );
+    }
+
+    #[test]
+    fn an_engine_that_declares_its_own_languages_ignores_the_catalog_hint() {
+        use crate::engine::Language;
+        const RU: &[Language] = &[Language("ru")];
+        let clips = vec![
+            clip_in("ru.wav", 1.0, Some("а б"), Some("ru")),
+            clip_in("en.wav", 1.0, Some("a b"), Some("en")),
+        ];
+        let mut engine = ScriptedEngine {
+            replies: vec!["а б".into(), "a b".into()],
+            next: 0,
+            languages: RU,
+        };
+        // A stale or wrong catalog entry must not widen what the engine itself says it speaks.
+        let opts = MeasureOptions {
+            assume_languages: vec!["en".into(), "ru".into()],
+            ..Default::default()
+        };
+        let m = measure_with(&mut engine, &clips, ClipSource::Synthetic, opts, |_| {}).unwrap();
+        assert_eq!(m.results.len(), 1);
+        assert_eq!(m.scored_languages, vec!["ru".to_string()]);
+        assert!(m.engine_claimed_languages);
+    }
+
+    #[test]
+    fn a_model_that_claims_none_of_the_fixture_languages_measures_nothing_and_says_so() {
+        use crate::engine::Language;
+        const JA: &[Language] = &[Language("ja")];
+        let clips = vec![clip_in("ru.wav", 1.0, Some("а б"), Some("ru"))];
+        let mut engine = ScriptedEngine {
+            replies: vec!["whatever".into()],
+            next: 0,
+            languages: JA,
+        };
+        let err = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {})
+            .expect_err("nothing is measurable, so this must not return a number");
+        let msg = err.to_string();
+        assert!(msg.contains("ja"), "the message must name what the model claims: {msg}");
+        assert!(msg.contains("ru"), "and what the clips are: {msg}");
     }
 
     #[test]
@@ -877,7 +1078,13 @@ mod tests {
             next: 0,
             languages: EN,
         };
-        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+        // Deliberately includes the unclaimed clips: the breakdown is exactly what that mode is
+        // for, and it is the only way to see a wrong or missing claim for what it is.
+        let opts = MeasureOptions {
+            include_unclaimed: true,
+            ..Default::default()
+        };
+        let m = measure_with(&mut engine, &clips, ClipSource::Synthetic, opts, |_| {}).unwrap();
 
         assert!(m.engine_claimed_languages);
         let en = m.per_language.iter().find(|l| l.language == "en").unwrap();

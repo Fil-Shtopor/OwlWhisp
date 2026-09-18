@@ -37,6 +37,15 @@ pub struct LocalMeasurement {
     pub scored_clips: usize,
     /// How many clips ran in total.
     pub clips: usize,
+    /// How many clips were skipped because this model does not claim their language.
+    ///
+    /// `#[serde(default)]`: records written before skipping existed have no such field, and they
+    /// were taken over every clip, so zero is the honest reading of their absence.
+    #[serde(default)]
+    pub skipped_clips: usize,
+    /// The languages the figures above cover. Empty in records written before this was stored.
+    #[serde(default)]
+    pub scored_languages: Vec<String>,
     /// RFC 3339 UTC, so a stale measurement can be recognised as stale.
     pub measured_at: String,
 }
@@ -116,6 +125,8 @@ pub fn from_report(report: &crate::worker::BenchReport) -> Option<LocalMeasureme
         wer: report.wer,
         scored_clips: report.clips.iter().filter(|c| c.scored).count(),
         clips: report.clips.len(),
+        skipped_clips: report.skipped_clips,
+        scored_languages: report.scored_languages.clone(),
         measured_at: now_rfc3339(),
     })
 }
@@ -159,8 +170,23 @@ mod tests {
             wer: Some(wer),
             scored_clips: 12,
             clips: 12,
+            skipped_clips: 3,
+            scored_languages: vec!["en".into(), "ru".into()],
             measured_at: "2026-09-18T00:00:00Z".into(),
         }
+    }
+
+    #[test]
+    fn a_record_written_before_skipping_existed_still_loads() {
+        // Users have these on disk already. Dropping them on upgrade would silently empty the
+        // "on your machine" column, which reads exactly like "never benchmarked".
+        let older = r#"{"accelerator":"cpu","accelerator_label":"CPU","cold_rtf":0.1,
+            "warm_rtf":0.05,"wer":0.06,"scored_clips":3,"clips":12,
+            "measured_at":"2026-09-18T00:00:00Z"}"#;
+        let m: LocalMeasurement = serde_json::from_str(older).expect("older record must still load");
+        assert_eq!(m.clips, 12);
+        assert_eq!(m.skipped_clips, 0, "absence means it ran everything, which it did");
+        assert!(m.scored_languages.is_empty());
     }
 
     #[test]

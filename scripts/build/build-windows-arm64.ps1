@@ -51,7 +51,11 @@ if (-not $NoSherpa) {
         throw "clang is not on PATH, and the ``sherpa`` engine needs it to build (ring, a build-dependency of sherpa-onnx-sys). Install LLVM and put its bin directory on PATH, or pass -NoSherpa to build the Parakeet-only binary."
     }
     Write-Host "== Staging GPL-free sherpa-onnx libraries ==" -ForegroundColor Cyan
-    $env:SHERPA_ONNX_LIB_DIR = & pwsh -NoProfile -File (Join-Path $PSScriptRoot "fetch-sherpa.ps1") -Platform "win-arm64" -Quiet
+    # `pwsh` is PowerShell 7 and is not installed everywhere; Windows PowerShell 5.1 always is,
+    # and runs this script fine. Without the fallback the build dies inside fetch-sherpa with a
+    # "term 'pwsh' is not recognized" that names neither this line nor the fix.
+    $ps = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+    $env:SHERPA_ONNX_LIB_DIR = & $ps -NoProfile -File (Join-Path $PSScriptRoot "fetch-sherpa.ps1") -Platform "win-arm64" -Quiet
     if (-not $env:SHERPA_ONNX_LIB_DIR -or -not (Test-Path $env:SHERPA_ONNX_LIB_DIR)) {
         throw "fetch-sherpa.ps1 did not produce a library directory; refusing to build with the -no-tts libraries unverified"
     }

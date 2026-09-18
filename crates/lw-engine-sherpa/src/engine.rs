@@ -159,6 +159,16 @@ impl SpeechEngine for SherpaEngine {
         Acceleration::Cpu
     }
 
+    /// The CPU, stated as a stable id rather than left as `None`.
+    ///
+    /// Not a guess: sherpa-onnx links its own static ONNX Runtime built with the CPU provider
+    /// only, so this engine has no other path to choose from. Returning `None` meant every run it
+    /// recorded was filed under the accelerator id "unknown", which then matched no row in the
+    /// model list's accelerator table -- a real measurement of the CPU, invisible next to the CPU.
+    fn accelerator(&self) -> Option<lw_core::capabilities::Accelerator> {
+        Some(lw_core::capabilities::Accelerator::Cpu)
+    }
+
     fn supported_languages(&self) -> &[Language] {
         self.inner.as_ref().map_or(&[], |i| i.languages)
     }

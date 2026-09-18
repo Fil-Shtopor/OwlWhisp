@@ -288,8 +288,18 @@ pub struct BenchReport {
     /// figure exists. Chinese is not measured in words and Russian is not measured in characters,
     /// and averaging the two would produce a number with no unit.
     pub mixed_units: bool,
-    /// Total seconds of audio processed.
+    /// Total seconds of audio processed. Counts only the clips that were actually run.
     pub audio_secs: f32,
+    /// Clips that were not run at all, because this model does not claim their language.
+    ///
+    /// They are absent from `clips` and from every figure above, which is the point: an
+    /// English-only model still produces *something* for Chinese audio, and the time it spends
+    /// doing so would otherwise be averaged into its RTF as though it were real work.
+    pub skipped_clips: usize,
+    /// The languages `skipped_clips` were in, sorted.
+    pub skipped_languages: Vec<String>,
+    /// The languages the error rate above actually covers, sorted.
+    pub scored_languages: Vec<String>,
     /// What the engine decided while selecting a backend -- including why it fell back, if it did.
     pub notes: Vec<String>,
 }
@@ -469,10 +479,11 @@ fn run_benchmark_job(
     engine.initialize(&ctx).map_err(|e| e.to_string())?;
     let engine_load_ms = t0.elapsed().as_secs_f32() * 1000.0;
 
-    // The whole fixture set. Transcription is not what makes a sweep slow -- loading an engine
-    // is, and a first NPU run additionally prepares a context binary. At the measured rates,
-    // twelve clips instead of three costs a few seconds per backend and buys a WER over four
-    // languages instead of three English clips.
+    // The whole fixture set is offered; `measure` then runs only the clips whose language this
+    // model claims, so an English-only model is timed on English and a Russian-only model on
+    // Russian. Transcription is not what makes a sweep slow -- loading an engine is, and a first
+    // NPU run additionally prepares a context binary -- so offering the full set costs a few
+    // seconds per backend and buys a WER over five languages instead of three English clips.
     // Comparing backends is only meaningful on identical audio, so a suite loads the clips once
     // and hands the same set to every run.
     let owned;
@@ -484,7 +495,25 @@ fn run_benchmark_job(
         }
     };
     let clip_source = source.describe();
-    let m = lw_core::bench::measure(engine.as_mut(), clips, source, |_| {}).map_err(|e| e.to_string())?;
+    // What the catalog says this model speaks, for the engines whose files carry no language
+    // metadata of their own (GigaAM v3, Parakeet TDT-CTC 110M). Without it those two get timed on
+    // every fixture language, which is exactly the averaging-in of work they were never built for
+    // that skipping exists to stop. Ignored when the engine does declare its own languages.
+    let assume_languages = lw_core::model::Catalog::builtin()
+        .ok()
+        .and_then(|c| {
+            c.entries
+                .iter()
+                .find(|e| e.id == settings.model_id)
+                .map(|e| e.languages.clone())
+        })
+        .unwrap_or_default();
+    let opts = lw_core::bench::MeasureOptions {
+        assume_languages,
+        ..Default::default()
+    };
+    let m = lw_core::bench::measure_with(engine.as_mut(), clips, source, opts, |_| {})
+        .map_err(|e| e.to_string())?;
 
     let report = BenchReport {
         machine: crate::catalog::probe_capabilities().summary(),
@@ -504,6 +533,9 @@ fn run_benchmark_job(
         unit: m.unit.map(lw_core::bench::ErrorUnit::label),
         mixed_units: m.mixed_units,
         audio_secs: m.audio_secs,
+        skipped_clips: m.skipped_clips,
+        skipped_languages: m.skipped_languages.clone(),
+        scored_languages: m.scored_languages.clone(),
         notes: engine.notes().to_vec(),
     };
     engine.shutdown();

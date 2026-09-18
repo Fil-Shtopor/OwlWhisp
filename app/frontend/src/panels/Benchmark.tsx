@@ -117,13 +117,21 @@ function Methodology() {
 }
 
 /**
- * Every clip, timed — and, where it was left out of the accuracy total, why.
+ * Every clip the model actually ran, timed.
  *
- * A clip the model does not claim the language of still has a per-clip WER, and it is shown: an
- * English-only model scoring 0.85 on the Russian clips is exactly the evidence that excluding them
- * from the total was right. What must not happen is that number quietly joining the total.
+ * Clips in languages it does not claim are not here, because they were never transcribed — see the
+ * line under the table, which says how many and in what. Running them would put the model's speed
+ * at failing an unclaimed language into the same average as its speed at the job it is for.
  */
-function ClipTable({ clips }: { clips: readonly BenchClip[] }) {
+function ClipTable({
+  clips,
+  skipped,
+  skippedLanguages,
+}: {
+  clips: readonly BenchClip[];
+  skipped: number;
+  skippedLanguages: readonly string[];
+}) {
   if (clips.length === 0) {
     return <p className="hint">The run produced no clips.</p>;
   }
@@ -164,6 +172,19 @@ function ClipTable({ clips }: { clips: readonly BenchClip[] }) {
           ))}
         </tbody>
       </table>
+      {skipped > 0 && (
+        <p className="sub">
+          <strong>
+            {skipped} further clip{skipped === 1 ? "" : "s"}
+          </strong>{" "}
+          {skippedLanguages.length > 0 && <>in {skippedLanguages.join(", ")} </>}
+          {skipped === 1 ? "was" : "were"} <strong>not run</strong>: this model does not claim{" "}
+          {skipped === 1 ? "that language" : "those languages"}. Nothing above includes them —
+          neither the accuracy nor the timings — which is the point. A model asked to transcribe a
+          language it was never built for still takes time to produce something wrong, and averaging
+          that in would report a speed nobody will ever see on the audio the model is for.
+        </p>
+      )}
       {unscored > 0 && (
         <p className="sub">
           {unscored} of {clips.length} clips are marked <strong>not scored</strong>: this model does
@@ -648,7 +669,11 @@ export function BenchmarkPanel() {
           )}
 
           <h3 className="bench-heading">Per clip</h3>
-          <ClipTable clips={report.clips} />
+          <ClipTable
+            clips={report.clips}
+            skipped={report.skipped_clips}
+            skippedLanguages={report.skipped_languages}
+          />
 
           <h3 className="bench-heading">Measured on this machine</h3>
           <div className="bench-summary">

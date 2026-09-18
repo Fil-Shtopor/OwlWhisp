@@ -897,7 +897,23 @@ input[type="radio"] {
   color: var(--text-dim);
 }
 
+/*
+ * The name outranks the chips beside it.
+ *
+ * Both live in one flex row, and the chips are `flex: 0 0 auto` while the name was the only thing
+ * that could shrink -- so at the window's default width the name lost every pixel to them and
+ * "SenseVoice Small (int8, sherpa-onnx export)" rendered as "S". A minimum width stops that, and
+ * wrapping means the chips move to a second line rather than being clipped in half: nothing is
+ * hidden, the row just gets slightly taller on the few entries that carry two roles.
+ */
+.mcell-name {
+  flex-wrap: wrap;
+  row-gap: 3px;
+}
+
 .mname {
+  flex: 1 1 auto;
+  min-width: 11ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1932,28 +1948,56 @@ input[type="radio"] {
   font-style: italic;
 }
 
-.mine-block {
-  margin-top: 8px;
+/* The accelerator table: one place that answers what a model can use, what this machine measured
+   on it, and what the catalog holds. It replaced chips in the row, a perf block and a list. */
+.accel-block {
+  margin-top: 10px;
 }
 
-.mine-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: baseline;
+/* The only element allowed to scroll sideways. Four columns do not fit a narrow window, and
+   letting the table overflow its own box keeps the page from scrolling horizontally instead. */
+.accel-scroll {
+  overflow-x: auto;
 }
 
-/* Accelerator support, compact in the row and spelled out in the expansion. */
-.runs-on {
-  display: inline-flex;
-  gap: 4px;
-  flex: none;
+.accel-table {
+  min-width: 460px;
 }
 
-.runs-on-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* .diag-table pins every header to its content width, which is right for a two-column key/value
+   readout and wrong here: these four share the width. */
+.accel-table th {
+  width: auto;
+}
+
+.accel-table td {
+  font-family: inherit;
+  white-space: normal;
+}
+
+/* Dimmed, not hidden. An accelerator this model cannot use is part of the answer -- the reason is
+   in the cell beside it -- so it stays legible while reading as secondary. */
+.accel-off td {
+  opacity: 0.72;
+}
+
+.accel-table .sub {
+  display: block;
+  margin-top: 2px;
+}
+
+.accel-note {
+  margin-top: 6px;
+}
+
+/* One line per reason, not one row per accelerator that shares it. */
+.accel-blocked {
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.accel-blocked .badge {
+  margin-left: 0;
 }
 
 /* Deleting is irreversible, so the control that starts it looks different from the ones that do

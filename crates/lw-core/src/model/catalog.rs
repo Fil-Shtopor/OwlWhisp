@@ -411,11 +411,15 @@ impl CatalogEntry {
     pub fn unsupported_on(&self, accel: crate::capabilities::accel::Accelerator) -> Option<String> {
         use crate::capabilities::accel::AcceleratorKind;
 
+        // The reason deliberately does NOT name the accelerator it is about. A caller that has one
+        // reason per accelerator can group them -- and it wants to, because a sherpa entry produces
+        // the identical sentence eight times over, once per accelerator it cannot use. The
+        // accelerator's own name is already beside the reason wherever this is shown.
         if accel.kind() != AcceleratorKind::Cpu && self.requires_engine_feature.as_deref() == Some("sherpa") {
-            return Some(format!(
-                "the sherpa engine links its own ONNX Runtime with the CPU provider, so it cannot                  use {}",
-                accel.label()
-            ));
+            return Some(
+                "the sherpa engine links its own ONNX Runtime, built with the CPU provider only"
+                    .to_string(),
+            );
         }
         if accel.needs_dedicated_artifact() {
             let needed = match accel {
@@ -424,10 +428,10 @@ impl CatalogEntry {
             };
             let declared = needed.is_some_and(|t| self.supports(t));
             if !declared {
-                return Some(format!(
-                    "{} needs a model graph compiled for it, and this entry ships none",
-                    accel.label()
-                ));
+                return Some(
+                    "needs a model graph compiled for this accelerator, and this entry ships none"
+                        .to_string(),
+                );
             }
         }
         None
@@ -1156,6 +1160,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn an_unsupported_reason_never_names_the_accelerator_it_is_about() {
+        // The UI groups accelerators by identical reason, so a sherpa entry shows one line naming
+        // eight accelerators instead of eight rows repeating one sentence. Putting the label back
+        // into the reason would make every reason unique again and quietly undo that.
+        use crate::capabilities::accel::{ALL_ACCELERATORS, AcceleratorKind};
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        let mut seen_any = false;
+        for entry in &catalog.entries {
+            for accel in ALL_ACCELERATORS {
+                let Some(reason) = entry.unsupported_on(accel) else {
+                    continue;
+                };
+                seen_any = true;
+                assert!(
+                    !reason.contains(accel.label()),
+                    "{} on {}: the reason repeats the accelerator's own name, which is already                      beside it -- {reason}",
+                    entry.id,
+                    accel.label()
+                );
+                assert!(
+                    !reason.contains("  "),
+                    "{}: the reason has a run of spaces from a wrapped string literal -- {reason}",
+                    entry.id
+                );
+            }
+        }
+        assert!(seen_any, "no entry refused any accelerator, so this proved nothing");
+        // And the grouping actually collapses: one sherpa entry, one distinct reason.
+        let sherpa = catalog
+            .entries
+            .iter()
+            .find(|e| e.requires_engine_feature.as_deref() == Some("sherpa"))
+            .expect("a sherpa entry");
+        let reasons: std::collections::BTreeSet<String> = ALL_ACCELERATORS
+            .iter()
+            .filter(|a| a.kind() != AcceleratorKind::Cpu)
+            .filter_map(|a| sherpa.unsupported_on(*a))
+            .collect();
+        assert_eq!(
+            reasons.len(),
+            1,
+            "every non-CPU accelerator refuses a sherpa model for the same reason, so there should              be one line to show, not {}",
+            reasons.len()
+        );
     }
 
     #[test]
