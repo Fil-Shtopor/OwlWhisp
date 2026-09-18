@@ -392,14 +392,30 @@ impl CatalogEntry {
         self.hardware.contains(&hw)
     }
 
-    /// A short language summary, e.g. `"en"` or `"25 languages (en, es, fr, …)"`.
+    /// A short language summary, e.g. `"English"` or `"25: English, Spanish, French, …"`.
+    ///
+    /// Names, not codes. The summary is read to answer "is my language here?", and nobody scans
+    /// `af, am, ar, as, …` for `uk`.
     pub fn language_summary(&self) -> String {
-        match self.languages.len() {
+        let named: Vec<String> = self
+            .languages
+            .iter()
+            .map(|c| crate::languages::language_label(c))
+            .collect();
+        match named.len() {
             0 => "—".to_string(),
-            1 => self.languages[0].clone(),
-            n if n <= 3 => self.languages.join(", "),
-            n => format!("{n}: {}, …", self.languages[..3].join(", ")),
+            1 => named[0].clone(),
+            n if n <= 3 => named.join(", "),
+            n => format!("{n}: {}, …", named[..3].join(", ")),
         }
+    }
+
+    /// Every language this entry claims, as names where the table has one.
+    pub fn language_names(&self) -> Vec<String> {
+        self.languages
+            .iter()
+            .map(|c| crate::languages::language_label(c))
+            .collect()
     }
 }
 
@@ -1044,17 +1060,54 @@ mod tests {
         assert!(c.get("parakeet-tdt-0.6b-v3").is_some());
     }
 
+    /// The default entry is measured on both targets it can use, and the NPU is the faster one.
+    ///
+    /// Asserts the relationship rather than the digits. It used to pin `cpu.rtf == 0.032` exactly,
+    /// which meant re-measuring the model -- the thing this project asks people to do -- broke the
+    /// test. What matters is that both numbers exist, are plausible, name their machine, and rank
+    /// the way the hardware does.
     #[test]
     fn builtin_parakeet_carries_real_measurements() {
         let c = Catalog::builtin().unwrap();
         let e = c.get("parakeet-tdt-0.6b-v3").unwrap();
         let cpu = e.measurement_for(HardwareTarget::Cpu).unwrap();
         let npu = e.measurement_for(HardwareTarget::QnnNpu).unwrap();
-        // The numbers from docs/benchmarks.md §5.1.
-        assert!((cpu.rtf - 0.032).abs() < 1e-6);
-        assert!((npu.rtf - 0.0145).abs() < 1e-6);
-        assert!(npu.machine.contains("X2"));
-        assert!(!cpu.source.is_empty());
+        for m in [cpu, npu] {
+            assert!(m.rtf > 0.0 && m.rtf < 1.0, "implausible RTF {}", m.rtf);
+            assert!(m.machine.contains("X2"), "a measurement must name its machine");
+            assert!(!m.source.is_empty(), "a measurement must say how it was taken");
+        }
+        assert!(
+            npu.rtf < cpu.rtf,
+            "the NPU path measured slower than the CPU ({} vs {}) -- if that is real, the              recommendation order in `ALL_ACCELERATORS` is wrong too",
+            npu.rtf,
+            cpu.rtf
+        );
+    }
+
+    /// Every shipped entry carries a CPU measurement, and they were taken in one sweep.
+    ///
+    /// The CPU is the only accelerator every entry can use -- sherpa-onnx links its own static
+    /// ONNX Runtime with the CPU provider -- so it is the only basis on which the catalog's models
+    /// can be compared with each other at all. An entry without one leaves a hole in that table,
+    /// and a hole is exactly where a reader invents a number.
+    #[test]
+    fn every_entry_is_measured_on_the_cpu_in_the_same_sweep() {
+        let c = Catalog::builtin().unwrap();
+        let mut missing: Vec<&str> = Vec::new();
+        let mut not_in_sweep: Vec<&str> = Vec::new();
+        for e in c.iter() {
+            match e.measurement_for(HardwareTarget::Cpu) {
+                None => missing.push(&e.id),
+                Some(m) if !m.source.contains("ONE SWEEP") => not_in_sweep.push(&e.id),
+                Some(_) => {}
+            }
+        }
+        assert!(missing.is_empty(), "no CPU measurement for: {missing:?}");
+        assert!(
+            not_in_sweep.is_empty(),
+            "these CPU measurements are not from the comparable sweep: {not_in_sweep:?}"
+        );
     }
 
     #[test]
@@ -1349,10 +1402,14 @@ mod tests {
 
     #[test]
     fn language_summary_shapes() {
+        // Names, because the summary answers "is my language here?" and a code does not.
         let mut e = entry("a");
-        assert_eq!(e.language_summary(), "en");
+        assert_eq!(e.language_summary(), "English");
         e.languages = vec!["en".into(), "es".into(), "fr".into(), "de".into()];
-        assert_eq!(e.language_summary(), "4: en, es, fr, …");
+        assert_eq!(e.language_summary(), "4: English, Spanish, French, …");
+        // A code with no name still appears, rather than leaving a hole in the list.
+        e.languages = vec!["en".into(), "zz".into()];
+        assert_eq!(e.language_summary(), "English, zz");
     }
 
     #[test]

@@ -13,6 +13,7 @@
 
 pub mod catalog;
 pub mod commands;
+pub mod measurements;
 pub mod state;
 pub mod worker;
 
@@ -189,6 +190,7 @@ pub fn run() {
             catalog::cancel_install,
             catalog::run_benchmark,
             catalog::run_benchmark_all,
+            catalog::local_measurements,
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;

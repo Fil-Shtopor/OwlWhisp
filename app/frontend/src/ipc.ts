@@ -323,6 +323,8 @@ export interface ModelEntry {
   licence: string;
   upstream_url: string | null;
   languages: string[];
+  /** The same list as `languages`, as English names where one is known; a code where it is not. */
+  language_names: string[];
   language_summary: string;
   quality: QualityTier;
   quality_label: string;
@@ -355,6 +357,32 @@ export interface ModelRole {
   label: string;
   /** One line saying what picking this role gets you. */
   blurb: string;
+}
+
+/**
+ * A benchmark this machine ran, kept by the backend across restarts.
+ *
+ * Distinct from `ModelEntry.measurements`, which are the catalog's own figures from the
+ * developer's hardware. These are yours.
+ */
+export interface LocalMeasurement {
+  accelerator: string;
+  accelerator_label: string;
+  cold_rtf: number;
+  warm_rtf: number | null;
+  wer: number | null;
+  /** Clips the WER was computed over — a 3-clip figure is not a 12-clip one. */
+  scored_clips: number;
+  clips: number;
+  /** RFC 3339 UTC. */
+  measured_at: string;
+}
+
+/** Model id to what this machine has measured for it, one record per accelerator. */
+export type LocalMeasurements = Record<string, LocalMeasurement[]>;
+
+export function getLocalMeasurements(): Promise<LocalMeasurements> {
+  return invoke<LocalMeasurements>("local_measurements");
 }
 
 export interface ModelCatalog {

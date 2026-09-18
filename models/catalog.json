@@ -47,10 +47,10 @@
       "measurements": [
         {
           "hardware": "cpu",
-          "rtf": 0.032,
+          "rtf": 0.0347,
           "wer": 0.054,
           "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
-          "source": "docs/benchmarks.md 5.1 - `lw bench tests/fixtures/audio --backend cpu`, 12 FLEURS clips, 2026-08-27"
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-0.6b-v3 --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.054 and mean RTF 0.0347 over 12 clip(s) in en/es/ru/uk. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. All twelve fixture clips, three per language."
         },
         {
           "hardware": "qnn_npu",
@@ -89,10 +89,10 @@
       "measurements": [
         {
           "hardware": "cpu",
-          "rtf": 0.0141,
+          "rtf": 0.0095,
           "wer": 0.062,
           "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
-          "source": "`lw bench <en-only copy of tests/fixtures/audio> --model-dir <models>/parakeet-tdt-ctc-110m-en`, 2026-09-16, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.062 and mean RTF 0.0141 over 3 clip(s) in en. Three clips and 63 reference words is indicative, not statistically meaningful; it is NOT comparable with the 12-clip multilingual figures on whisper-medium / whisper-turbo / parakeet-tdt-0.6b-v3."
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/parakeet-tdt-ctc-110m-en --backend cpu --languages en`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.062 and mean RTF 0.0095 over 3 clip(s) in en. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. Three clips is indicative, not statistically meaningful, and must NOT be compared with the twelve-clip multilingual totals in this catalog."
         }
       ],
       "hardware": [
@@ -223,10 +223,10 @@
       "measurements": [
         {
           "hardware": "cpu",
-          "rtf": 0.469,
+          "rtf": 0.1986,
           "wer": 0.042,
           "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
-          "source": "`lw bench tests/fixtures/audio --model-dir <models>/whisper-turbo`, 2026-09-16, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.042 and mean RTF 0.4690 over 12 clip(s) in en/es/ru/uk - the whole tests/fixtures/audio set, 3 FLEURS clips per language, about 82 s of audio. 12 clips is indicative, not statistically meaningful, and this figure must not be compared with the 3-clip English figures carried by the English-only entries in this catalog."
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/whisper-turbo --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.042 and mean RTF 0.1986 over 12 clip(s) in en/es/ru/uk. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. All twelve fixture clips, three per language. SUPERSEDES an RTF of 0.469 recorded on 2026-09-16 for the same model on the same machine. The accuracy reproduced exactly (0.042); the speed did not, and the earlier figure was taken outside this sweep under conditions that were not recorded. The number here is the one measured under the conditions stated above."
         }
       ],
       "hardware": [
@@ -272,10 +272,10 @@
       "measurements": [
         {
           "hardware": "cpu",
-          "rtf": 0.0175,
+          "rtf": 0.0165,
           "wer": 0.029,
           "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
-          "source": "`lw bench tests/fixtures/audio --model-dir <models>/gigaam-v3-ru --languages ru`, 2026-09-17, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.029 and mean RTF 0.0175 over 3 clip(s) in ru (per clip: 0.00, 0.00, 0.07). The transducer layout carries no language metadata so the engine claims nothing and `--languages ru` supplies the fact the files do not - see docs/models.md 3.1. Three clips is indicative, not statistically meaningful, and this figure must NOT be compared with the 12-clip multilingual totals: the comparable number is parakeet-tdt-0.6b-v3's Russian breakdown on the same three clips, 0.059, which this halves at about half the RTF. Punctuation and casing are stripped before scoring, so the punctuation this export emits neither helps nor hurts the number."
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/gigaam-v3-ru --backend cpu --languages ru`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.029 and mean RTF 0.0165 over 3 clip(s) in ru. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. Three clips is indicative, not statistically meaningful, and must NOT be compared with the twelve-clip multilingual totals in this catalog."
         }
       ]
     },
@@ -295,10 +295,10 @@
       "measurements": [
         {
           "hardware": "cpu",
-          "rtf": 0.0125,
+          "rtf": 0.0122,
           "wer": 0.092,
           "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
-          "source": "`lw bench tests/fixtures/audio --model-dir <models>/moonshine-tiny-en`, 2026-09-16, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.092 and mean RTF 0.0125 over 3 clip(s) in en. bench transcribed and timed all 12 fixture clips but scored only the three English ones, because Moonshine claims English alone; mean RTF over all 12, scored or not, was 0.0119. REPLACES an earlier single-clip point (rtf 0.038, wer 0.200 on fleurs_en_1.wav alone) taken through the lw-engine-sherpa integration test before lw-cli had a sherpa feature: same model, same machine, a third of the data. Three clips and 63 reference words is still indicative rather than statistically meaningful, and is NOT comparable with the 12-clip multilingual figures on parakeet-tdt-0.6b-v3, whisper-medium or whisper-turbo."
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/moonshine-tiny-en --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.092 and mean RTF 0.0122 over 3 clip(s) in en. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. Three clips is indicative, not statistically meaningful, and must NOT be compared with the twelve-clip multilingual totals in this catalog."
         }
       ],
       "hardware": [
@@ -339,7 +339,16 @@
       "source_url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
       "license": "LicenseRef-FunASR-Model-1.1",
       "notes": "VERIFIED: download_bytes/disk_bytes are the exact sum of the two pinned file sizes in models/manifests/sense-voice-small.json (model.int8.onnx + tokens.txt); both SHA-256 values were computed locally on 2026-09-16 from the downloaded bytes, because upstream publishes none. SOURCE: the `asr-models` GitHub release only ships .tar.bz2 archives, which the installer cannot unpack, so the manifest pins the identical loose files from the sherpa-onnx author's Hugging Face mirror at a fixed commit revision. LICENCE - READ THIS: not an SPDX licence. The export repository's LICENSE file points at the FunASR Model Open Source License Agreement v1.1 (https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE), a custom Alibaba Group agreement which permits use, copying, modification and sharing but requires attribution and retention of model names, disclaims all liability, and terminates if you 'denigrate' the software. It is not OSI-approved and is more restrictive than the MIT/CC-BY terms of the other entries; check it before redistributing. NOT VERIFIED: no run of any kind on any machine, so no measurements. wer_estimates is empty: FunAudioLLM publishes comparisons against Whisper on AISHELL-1/Common Voice for the full-precision checkpoint, not for this int8 ONNX export, and we did not retrieve that table. The quality and speed tiers are EDITORIAL; 'very_fast' reflects that SenseVoice Small is non-autoregressive (one encoder pass, no token-by-token decode loop), not a timing. The engine string is `sense_voice`, which this build's EngineKind does not know - it round-trips as an unknown engine, which is intended for a catalog that may outlive the binary.",
-      "vendor": "Alibaba"
+      "vendor": "Alibaba",
+      "measurements": [
+        {
+          "hardware": "cpu",
+          "rtf": 0.0141,
+          "wer": 0.062,
+          "machine": "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB, Windows 11 build 28000 ARM64",
+          "source": "`lw bench tests/fixtures/audio --model-dir <models>/sense-voice-small --backend cpu`, 2026-09-18, lw-cli built with --features sherpa (sherpa-onnx 1.13.6, greedy search, 8 threads, bundled ONNX Runtime CPU provider). Word-weighted WER 0.062 and mean RTF 0.0141 over 3 clip(s) in en. ONE SWEEP: every entry in this catalog was measured back to back on the CPU on this date, over the same committed twelve-clip fixture set, so the figures are comparable with each other. The CPU is the only accelerator they can all use -- sherpa-onnx links its own static ONNX Runtime with the CPU provider, so nothing but parakeet-tdt-0.6b-v3 has any other path. Three clips is indicative, not statistically meaningful, and must NOT be compared with the twelve-clip multilingual totals in this catalog. AND READ THIS ONE TWICE: SenseVoice covers zh/ja/ko/yue/en and the fixture set contains only the last of those, so 0.062 describes its English, which is its secondary language. This catalog holds NO measurement of the Chinese, Japanese, Korean or Cantonese it exists for."
+        }
+      ]
     }
   ]
 }

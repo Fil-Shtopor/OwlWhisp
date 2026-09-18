@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getCapabilities,
+  getLocalMeasurements,
   getSettings,
   listModels,
   setSettings,
   type Capabilities,
   type InstallState,
+  type LocalMeasurement,
+  type LocalMeasurements,
   type MeasuredPoint,
   type ModelCatalog,
   type ModelEntry,
@@ -109,10 +112,10 @@ function familyLabel(engine: string): string {
  * catalog's own `language_summary` goes in the `title`; the full list is in the expansion.
  */
 function compactLanguages(entry: ModelEntry): string {
-  const langs = entry.languages;
+  const langs = entry.language_names;
   if (langs.length === 0) return "—";
   if (langs.length <= 2) return langs.join(", ");
-  return `${langs.length} langs`;
+  return `${langs.length} languages`;
 }
 
 /**
@@ -135,10 +138,16 @@ function RolePicks({
 }) {
   const [language, setLanguage] = useState<string>("");
 
+  // Sorted by name, not by code: the list is read alphabetically by a human looking for theirs,
+  // and by code "Ukrainian" sits under `uk`, between `tt` and `ur`.
   const languages = useMemo(() => {
-    const seen = new Set<string>();
-    for (const e of catalog.entries) for (const l of e.languages) seen.add(l);
-    return [...seen].sort();
+    const seen = new Map<string, string>();
+    for (const e of catalog.entries) {
+      e.languages.forEach((code, i) => seen.set(code, e.language_names[i] ?? code));
+    }
+    return [...seen.entries()]
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog.entries]);
 
   const eligible = useMemo(
@@ -160,8 +169,8 @@ function RolePicks({
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
             <option value="">Any</option>
             {languages.map((l) => (
-              <option key={l} value={l}>
-                {l}
+              <option key={l.code} value={l.code}>
+                {l.name}
               </option>
             ))}
           </select>
@@ -178,7 +187,9 @@ function RolePicks({
                 <span className="pick-none sub">
                   {language === ""
                     ? "Nothing in this catalog fills that role."
-                    : `Nothing here fills that role for ${language}.`}
+                    : `Nothing here fills that role for ${
+                        languages.find((l) => l.code === language)?.name ?? language
+                      }.`}
                 </span>
               ) : (
                 <button className="pick-name" type="button" onClick={() => onPick(winner.id)}>
@@ -288,6 +299,24 @@ function Glossary({ machine, entries }: { machine: string; entries: readonly Mod
       </div>
     </details>
   );
+}
+
+/**
+ * The local measurement worth putting in the row, out of however many accelerators were tried.
+ *
+ * Prefers the accelerator this machine would actually use for the model, because that is the run
+ * that predicts what the user will experience. Falls back to whichever is fastest, so a row is
+ * never blank when something was measured.
+ */
+function pickLocal(mine: readonly LocalMeasurement[], best: string | null): LocalMeasurement | null {
+  if (mine.length === 0) return null;
+  if (best !== null) {
+    // `best_hardware` is a hardware-target label ("qnn_npu", "cpu"); accelerator ids use hyphens.
+    const want = best.replace(/_/g, "-").toLowerCase();
+    const hit = mine.find((m) => m.accelerator.toLowerCase() === want);
+    if (hit !== undefined) return hit;
+  }
+  return [...mine].sort((a, b) => (a.warm_rtf ?? a.cold_rtf) - (b.warm_rtf ?? b.cold_rtf))[0] ?? null;
 }
 
 /** A measured word-error rate the row can show, and whether it describes this machine's target. */
@@ -526,6 +555,8 @@ export function ModelsPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectBusy, setSelectBusy] = useState<string | null>(null);
   const [selectError, setSelectError] = useState<string | null>(null);
+  /** What this machine has measured, by model id. Empty until a benchmark has been run. */
+  const [mine, setMine] = useState<LocalMeasurements>({});
   /**
    * The download, read from the module-level store rather than held here: a 989 MB fetch keeps
    * going when this panel unmounts on a tab change, so its progress — and the Cancel button that
@@ -557,6 +588,15 @@ export function ModelsPanel() {
       if (alive.current) {
         setCatalog(next);
         setLoadError(null);
+      }
+      // Fetched alongside the catalog, and therefore re-fetched whenever this panel is opened --
+      // which is how a benchmark run on the other tab shows up here without any wiring between
+      // the two. A failure here is not a catalog failure: the column simply stays empty.
+      try {
+        const local = await getLocalMeasurements();
+        if (alive.current) setMine(local);
+      } catch {
+        if (alive.current) setMine({});
       }
     } catch (e: unknown) {
       if (alive.current) setLoadError(String(e));
@@ -685,6 +725,8 @@ export function ModelsPanel() {
   };
 
   const renderRow = (entry: ModelEntry) => {
+    const localAll = mine[entry.id] ?? [];
+    const local = pickLocal(localAll, entry.best_hardware);
     const isRecommended = catalog.recommended === entry.id;
     const isSelected = selectedId === entry.id;
     const state = INSTALL_STATES[entry.install_state];
@@ -825,6 +867,35 @@ export function ModelsPanel() {
             )}
           </span>
 
+          {/*
+            What THIS machine measured, as opposed to the catalog's figures from the developer's.
+            Empty until the user runs a benchmark, and it says so rather than showing a dash that
+            could be read as "measured, and it was nothing".
+          */}
+          <span className="mcell mcell-mine">
+            <span className="vh">On your machine </span>
+            {local === null ? (
+              <span className="sub mine-empty" title="Run this model in the Benchmark tab to fill this in">
+                not yet
+              </span>
+            ) : (
+              <span
+                className="mono mine-value"
+                title={`Measured here on ${local.accelerator_label}: WER ${
+                  local.wer === null ? "not scored" : formatWer(local.wer)
+                } over ${local.scored_clips} of ${local.clips} clips, warm RTF ${
+                  local.warm_rtf === null ? "—" : local.warm_rtf.toFixed(4)
+                }, cold ${local.cold_rtf.toFixed(4)} — ${local.measured_at}`}
+              >
+                {local.wer === null ? "—" : formatWer(local.wer)}
+                <span className="sub mine-rtf">
+                  {" "}
+                  {(local.warm_rtf ?? local.cold_rtf).toFixed(3)}
+                </span>
+              </span>
+            )}
+          </span>
+
           <span className="mcell mcell-state">
             {isSelected ? (
               <span
@@ -894,9 +965,17 @@ export function ModelsPanel() {
                 <dt>On disk</dt>
                 <dd>{formatBytes(entry.disk_bytes)}</dd>
               </div>
-              <div>
+              {/*
+                The expansion lists every language by name, not a count. This is the one place a
+                reader can answer "is mine in here?", and for a hundred-language model the count in
+                the row above is exactly the number that does not answer it. The codes stay in the
+                title, because that is what --languages and the manifests take.
+              */}
+              <div className="lang-cell">
                 <dt>Languages</dt>
-                <dd>{entry.language_summary}</dd>
+                <dd className="lang-list" title={entry.languages.join(", ")}>
+                  {entry.language_names.length === 0 ? "—" : entry.language_names.join(", ")}
+                </dd>
               </div>
               <div>
                 <dt>Quality</dt>
@@ -942,6 +1021,32 @@ export function ModelsPanel() {
                 )}
               </div>
             </div>
+
+            {/*
+              Kept separate from the catalog's measurements above rather than merged into one list.
+              They answer different questions -- "what does this model do" against "what does it do
+              here" -- and a merged list would invite reading one as a check on the other when they
+              were taken on different hardware, different days and possibly different clip sets.
+            */}
+            {localAll.length > 0 && (
+              <div className="measured mine-block">
+                <span className="badge measured-badge">on your machine</span>{" "}
+                {localAll.map((m) => (
+                  <div key={m.accelerator} className="mine-line">
+                    <span className="mono">
+                      {m.accelerator_label}: RTF {(m.warm_rtf ?? m.cold_rtf).toFixed(4)}
+                      {m.wer !== null && <> · WER {formatWer(m.wer)}</>}
+                    </span>
+                    <span className="sub">
+                      {m.wer === null
+                        ? "no clip could be scored"
+                        : `over ${m.scored_clips} of ${m.clips} clips`}{" "}
+                      · {m.measured_at.slice(0, 10)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {entry.measurements.length > 1 && (
               <details className="model-more">
@@ -1112,6 +1217,10 @@ export function ModelsPanel() {
             </span>
             <span className="mcell mcell-acc">
               {sortHeader("accuracy", "Accuracy", "tier · measured WER, lower is better")}
+            </span>
+            <span className="mcell mcell-mine">
+              <span className="th-sort-static">On your machine</span>
+              <span className="th-note">WER · RTF from your benchmark</span>
             </span>
             <span className="mcell mcell-state">
               {sortHeader("state", "Status", "on disk")}

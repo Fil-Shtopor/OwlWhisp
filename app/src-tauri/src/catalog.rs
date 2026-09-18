@@ -192,6 +192,9 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
                 "licence": e.license,
                 "upstream_url": e.source_url,
                 "languages": e.languages,
+                // Names beside the codes rather than instead of them: the codes are what the
+                // manifests and the `--languages` flag use, so the expanded row still shows them.
+                "language_names": e.language_names(),
                 "language_summary": e.language_summary(),
                 "quality": e.quality,
                 "quality_label": e.quality.label(),
@@ -383,13 +386,23 @@ pub async fn run_benchmark_all(
     model_id: Option<String>,
 ) -> Result<crate::worker::BenchSuite, String> {
     let (tx, rx) = crossbeam_channel::bounded(1);
+    let settings_path = state.settings_path.clone();
     state.worker.send(WorkerCmd::BenchmarkAll { model_id, reply: tx });
-    tauri::async_runtime::spawn_blocking(move || {
+    let suite = tauri::async_runtime::spawn_blocking(move || {
         rx.recv()
             .unwrap_or_else(|_| Err("benchmark worker stopped".to_string()))
     })
     .await
-    .map_err(|e| format!("benchmark task failed: {e}"))?
+    .map_err(|e| format!("benchmark task failed: {e}"))?;
+
+    // A sweep measures one model on several accelerators, so it fills several records at once --
+    // which is the case the "on your machine" column is most useful for.
+    if let Ok(s) = &suite {
+        for run in &s.runs {
+            record_local_measurement(&settings_path, run);
+        }
+    }
+    suite
 }
 
 /// Measure a model on this machine.
@@ -403,17 +416,50 @@ pub async fn run_benchmark(
     backend: Option<BackendPreference>,
 ) -> Result<BenchReport, String> {
     let (tx, rx) = crossbeam_channel::bounded(1);
+    // Copied before the await: `State` is not held across it.
+    let settings_path = state.settings_path.clone();
     state.worker.send(WorkerCmd::Benchmark {
         model_id,
         backend,
         reply: tx,
     });
-    tauri::async_runtime::spawn_blocking(move || {
+    let report = tauri::async_runtime::spawn_blocking(move || {
         rx.recv()
             .unwrap_or_else(|_| Err("benchmark worker stopped".to_string()))
     })
     .await
-    .map_err(|e| format!("benchmark task failed: {e}"))?
+    .map_err(|e| format!("benchmark task failed: {e}"))?;
+
+    // Keep what this machine measured, beside the model it measured. Recorded here rather than in
+    // the frontend so a run started from anywhere is kept, and so closing the window does not lose
+    // a measurement that took minutes to produce.
+    if let Ok(r) = &report {
+        record_local_measurement(&settings_path, r);
+    }
+    report
+}
+
+/// Persist one benchmark result. Never fatal: a benchmark that ran is still a benchmark the user
+/// can read on screen, and failing the command because a cache file could not be written would
+/// throw away the thing they waited for.
+fn record_local_measurement(settings_path: &std::path::Path, report: &BenchReport) {
+    let Some(entry) = crate::measurements::from_report(report) else {
+        return;
+    };
+    let path = crate::measurements::path_for(settings_path);
+    let mut set = crate::measurements::LocalMeasurements::load(&path);
+    set.record(&report.model_id, entry);
+    if let Err(e) = set.save(&path) {
+        tracing::warn!("could not save local measurements: {e}");
+    }
+}
+
+/// Everything this machine has measured, for the model list.
+#[tauri::command]
+pub fn local_measurements(state: State<'_, AppState>) -> Value {
+    let path = crate::measurements::path_for(&state.settings_path);
+    serde_json::to_value(crate::measurements::LocalMeasurements::load(&path).models)
+        .unwrap_or_else(|_| json!({}))
 }
 
 #[cfg(test)]

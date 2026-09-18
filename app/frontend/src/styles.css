@@ -733,7 +733,7 @@ input[type="radio"] {
  * Columns: arrow | model | family | download | languages | speed (est.) | accuracy | on disk
  */
 .model-table {
-  --model-cols: 18px minmax(0, 1.4fr) 92px 72px 76px 108px 156px 92px;
+  --model-cols: 18px minmax(0, 1.4fr) 92px 72px 76px 108px 156px 108px 92px;
   --model-gap: 10px;
   --model-pad: 12px;
   border: 1px solid var(--border);
@@ -1031,7 +1031,7 @@ input[type="radio"] {
 /* Narrow: drop the languages column, which is the least load-bearing of the set. */
 @media (max-width: 1060px) {
   .model-table {
-    --model-cols: 18px minmax(0, 1fr) 92px 72px 108px 156px 92px;
+    --model-cols: 18px minmax(0, 1fr) 92px 72px 108px 156px 108px 92px;
   }
 
   .mcell-langs {
@@ -1057,7 +1057,8 @@ input[type="radio"] {
     letter-spacing: 0.03em;
   }
 
-  .mcell-family {
+  .mcell-family,
+  .mcell-mine {
     display: none;
   }
 
@@ -1088,7 +1089,7 @@ input[type="radio"] {
  */
 @media (min-width: 1440px) {
   .model-table {
-    --model-cols: 20px minmax(0, 2fr) 128px 96px minmax(0, 1fr) 140px 220px 116px;
+    --model-cols: 20px minmax(0, 2fr) 128px 96px minmax(0, 1fr) 140px 220px 150px 116px;
     --model-gap: 14px;
     --model-pad: 16px;
   }
@@ -1893,4 +1894,47 @@ input[type="radio"] {
 
 .model-count {
   margin-left: auto;
+}
+
+/* A hundred language names need the width of the expansion, not one column of its grid. */
+.lang-cell {
+  grid-column: 1 / -1;
+}
+
+.lang-list {
+  line-height: 1.6;
+}
+
+/* The user's own benchmark, beside the catalog's. */
+.th-sort-static {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.mine-value {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.mine-rtf {
+  font-size: 11px;
+}
+
+.mine-empty {
+  font-size: 11px;
+  font-style: italic;
+}
+
+.mine-block {
+  margin-top: 8px;
+}
+
+.mine-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
 }

@@ -17,6 +17,7 @@ pub mod diagnostics;
 pub mod dictionary;
 pub mod engine;
 pub mod error;
+pub mod languages;
 pub mod model;
 pub mod profiles;
 pub mod settings;
