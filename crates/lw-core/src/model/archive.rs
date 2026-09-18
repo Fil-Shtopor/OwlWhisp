@@ -58,6 +58,15 @@ pub struct Extract {
     /// directory should hold `encoder.onnx`, not `sherpa-onnx-whatever-2026-01-01/encoder.onnx`.
     #[serde(default)]
     pub strip_components: usize,
+    /// What the unpacked model directory is expected to contain afterwards.
+    ///
+    /// Needed because the archive itself is deleted once unpacked, so "is this model installed?"
+    /// cannot be answered by looking for the file the manifest names. Without it a perfectly
+    /// installed archive model reports as **Partial** forever. Each entry is a relative path and
+    /// its size; the bytes were already proven by the archive's hash, so this is a presence check,
+    /// not a second verification.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produces: Vec<Produced>,
     /// When non-empty, only unpack entries whose (stripped) path starts with one of these.
     ///
     /// Archives carry test audio, shell scripts and READMEs beside the model. Fetching them is
@@ -65,6 +74,15 @@ pub struct Extract {
     /// not, and a directory holding only what the engine loads is one a reader can check.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub only_prefixes: Vec<String>,
+}
+
+/// One file an archive is expected to leave behind.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Produced {
+    /// Relative path inside the model directory.
+    pub path: String,
+    /// Size in bytes.
+    pub bytes: u64,
 }
 
 /// Unpack `archive` into `dest`, returning the relative paths written.
@@ -256,8 +274,30 @@ mod tests {
         Extract {
             format: ArchiveFormat::TarBz2,
             strip_components: strip,
+            produces: Vec::new(),
             only_prefixes: Vec::new(),
         }
+    }
+
+    /// `produces` must describe what extraction actually leaves behind, or an installed model
+    /// reports as incomplete for ever -- which is exactly what happened to the first archive entry
+    /// before this field existed.
+    #[test]
+    fn what_is_written_is_what_produces_should_list() {
+        let dir = scratch("produces");
+        let archive = write_archive(
+            &dir,
+            &tar_bz2(&[("m/encoder.onnx", b"12345"), ("m/tokenizer/vocab.json", b"{}")]),
+        );
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+
+        let written = extract(&archive, &out, &spec(1)).unwrap();
+        for w in &written {
+            let meta = std::fs::metadata(out.join(w)).unwrap();
+            assert!(meta.is_file(), "{w} should be a file on disk");
+        }
+        assert_eq!(written, ["encoder.onnx", "tokenizer/vocab.json"]);
     }
 
     #[test]

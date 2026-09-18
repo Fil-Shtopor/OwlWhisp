@@ -6,7 +6,38 @@
   "license": "Apache-2.0",
   "attribution": "Qwen3-ASR by the Qwen team, Alibaba Cloud (Apache-2.0); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
   "local_dir": "qwen3-asr-0.6b",
-  "languages": ["zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro"],
+  "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ar",
+    "de",
+    "fr",
+    "es",
+    "pt",
+    "id",
+    "it",
+    "ko",
+    "ru",
+    "th",
+    "vi",
+    "ja",
+    "tr",
+    "hi",
+    "ms",
+    "nl",
+    "sv",
+    "da",
+    "fi",
+    "pl",
+    "cs",
+    "fil",
+    "fa",
+    "el",
+    "hu",
+    "mk",
+    "ro"
+  ],
   "common": [],
   "artifacts": [
     {
@@ -20,7 +51,38 @@
           "extract": {
             "format": "tar.bz2",
             "strip_components": 1,
-            "only_prefixes": ["conv_frontend", "encoder", "decoder", "tokenizer/"]
+            "only_prefixes": [
+              "conv_frontend",
+              "encoder",
+              "decoder",
+              "tokenizer/"
+            ],
+            "produces": [
+              {
+                "path": "conv_frontend.onnx",
+                "bytes": 44148281
+              },
+              {
+                "path": "decoder.int8.onnx",
+                "bytes": 755914231
+              },
+              {
+                "path": "encoder.int8.onnx",
+                "bytes": 182491662
+              },
+              {
+                "path": "tokenizer/merges.txt",
+                "bytes": 1671853
+              },
+              {
+                "path": "tokenizer/tokenizer_config.json",
+                "bytes": 12487
+              },
+              {
+                "path": "tokenizer/vocab.json",
+                "bytes": 2776833
+              }
+            ]
           }
         }
       ]

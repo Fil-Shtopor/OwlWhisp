@@ -1091,6 +1091,32 @@ mod tests {
     /// ONNX Runtime with the CPU provider -- so it is the only basis on which the catalog's models
     /// can be compared with each other at all. An entry without one leaves a hole in that table,
     /// and a hole is exactly where a reader invents a number.
+    /// An archive entry must say what it unpacks to, or the model reports as incomplete for ever.
+    #[test]
+    fn an_archive_manifest_declares_what_it_produces() {
+        let manifests = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../models/manifests")
+            .canonicalize()
+            .expect("models/manifests");
+        for e in Catalog::builtin().unwrap().iter() {
+            let Some(name) = &e.manifest else { continue };
+            let text = std::fs::read_to_string(manifests.join(name)).unwrap();
+            let m: crate::model::ModelManifest = serde_json::from_str(&text).unwrap();
+            for set in &m.artifacts {
+                for f in &set.files {
+                    if let Some(spec) = &f.extract {
+                        assert!(
+                            !spec.produces.is_empty(),
+                            "{}: {} is an archive but does not declare what it produces",
+                            e.id,
+                            f.path
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn every_entry_is_measured_on_the_cpu_in_the_same_sweep() {
         let c = Catalog::builtin().unwrap();

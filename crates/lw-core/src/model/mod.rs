@@ -15,7 +15,7 @@ mod download;
 mod manifest;
 pub mod paths;
 
-pub use archive::{ArchiveFormat, Extract};
+pub use archive::{ArchiveFormat, Extract, Produced};
 pub use catalog::{
     BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
     MeasuredPoint, ModelRole, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf,
@@ -115,6 +115,18 @@ impl ModelRegistry {
         let mut any = false;
         for f in files {
             any = true;
+            // An archive entry is gone after a successful install -- it is unpacked and deleted --
+            // so what it *produced* is what proves the model is there. Checking for the archive
+            // instead left an installed model reporting Partial for ever.
+            if let Some(spec) = &f.extract {
+                for produced in &spec.produces {
+                    match std::fs::metadata(dir.join(&produced.path)) {
+                        Ok(m) if m.len() == produced.bytes => {}
+                        _ => return CacheState::Incomplete,
+                    }
+                }
+                continue;
+            }
             match std::fs::metadata(dir.join(&f.path)) {
                 Ok(m) if m.len() == f.bytes => {}
                 _ => return CacheState::Incomplete,
