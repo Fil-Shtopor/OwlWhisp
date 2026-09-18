@@ -83,8 +83,10 @@ Rows are grouped by who made the model — a heading, a count, and a gap, in one
 The recommended model's maker leads, then makers by how many models they have, with anything
 whose maker is unknown under *Other*. Sorting by a column drops the grouping, and says so.
 
-**Pick by what you need** sits above the table: choose a language, and each role — *fast*,
-*accurate*, *universal*, *compact* — names the entry that fills it. Roles are editorial judgements
+**Which one should you use?** sits above the table: choose a language, and each role — *fast*,
+*accurate*, *universal*, *compact* — names the entry that fills it. It is a suggestion and not a
+control: nothing there changes which model runs, and clicking a name just opens its row. Choosing
+a model is still **Use this model** in a row. Roles are editorial judgements
 about why a model earns its place next to the others; the numbers in its row are the evidence. A
 role with no model for the language you chose says so rather than offering something that does not
 fill it. There is no *live* role, because live transcription means partial text appearing while you
@@ -108,11 +110,16 @@ were taken on different machines on different days.
 column raises. **WER** (word error rate) is the share of words that came out wrong — *lower is
 better*, 5% being about one word in twenty, with casing and punctuation stripped before scoring.
 **RTF** (real-time factor) is seconds of computing per second of audio — *lower is faster*, 1.0
-meaning transcription takes as long as the recording. And the WER shown in the table is neither
-the publisher's published figure nor a measurement of your machine: it was measured by this
-project with `lw bench` over the same committed fixtures, on the machine the block names. When
-that is not your machine, the block says so in as many words. **Benchmark** is how you get a
-number from the hardware in front of you.
+meaning transcription takes as long as the recording. And the WER in the table is not the
+publisher's published figure: it was produced with `lw bench` over the same committed fixtures,
+**on the CPU**, on a machine the block names outright — rather than describing it as "ours" or
+"not yours", since whoever reads it is on some other computer. The block also names the computer
+running the app, and leaves the comparison to you. The CPU because it is the only accelerator
+every model in the catalog can use; each measured WER in the table carries a chip naming the
+accelerator it was taken on, so the one entry with an NPU figure is visible as such.
+
+**Benchmark** measures the computer running the app, and what it finds lands in the **On your
+machine** column beside the catalog's figures.
 
 Two kinds of number appear there, and the app never mixes them up:
 

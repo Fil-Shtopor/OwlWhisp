@@ -163,7 +163,18 @@ function RolePicks({
   return (
     <section className="picks">
       <div className="picks-head">
-        <h3>Pick by what you need</h3>
+        <div className="picks-title">
+          <h3>Which one should you use?</h3>
+          {/*
+            Said outright because the block looks like a control and is not one. Nothing here
+            selects a model: the names are shortcuts to the rows below, and choosing a model is
+            still Use this model in a row, or the Model setting.
+          */}
+          <p className="sub">
+            A suggestion, not a switch — nothing here changes which model runs. Clicking a name
+            opens its row.
+          </p>
+        </div>
         <label className="picks-lang">
           <span className="sub">Language</span>
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -203,8 +214,8 @@ function RolePicks({
       </ul>
       <p className="sub picks-note">
         These are editorial roles, not measurements — the row below each name carries the numbers.
-        The pick is the highest-ranked model for this machine that carries the role and claims the
-        language.
+        The suggestion is the highest-ranked model for this machine that carries the role and
+        claims the language.
       </p>
     </section>
   );
@@ -219,7 +230,11 @@ function RolePicks({
  * measured live on the machine reading this page. They were measured by this project with
  * `lw bench` on the machine named here, and committed to the catalog.
  *
- * The block names that machine and leaves the comparison to the reader. An earlier version tried
+ * The block names the measuring machine outright rather than calling it "yours" or "not yours".
+ * Whoever reads this is on some other computer than the one the catalog was measured on, and
+ * second-person wording made a fact about a specific machine read as a claim about theirs.
+ *
+ * It also leaves the comparison to the reader. An earlier version tried
  * to decide it — `measurement.machine === catalog.machine` — and got it backwards on the very
  * machine the numbers came from: the catalog's `machine` is the capability summary
  * ("Snapdragon(R) X2 Elite Extreme - X2E94100 - … · 18 cores · NPU Hexagon V81 via QNN EP") while
@@ -266,21 +281,25 @@ function Glossary({ machine, entries }: { machine: string; entries: readonly Mod
                 "No entry in this catalog carries a measurement yet."
               ) : (
                 <>
-                  Not from the model's publisher, and not measured live on your machine. Every WER
-                  shown here was measured by this project with <code>lw bench</code> over the same
-                  twelve committed speech fixtures, on{" "}
+                  They are not the model publisher's published figures. Every WER in the table was
+                  produced with <code>lw bench</code> over the same twelve committed speech
+                  fixtures, on the CPU, on this machine:{" "}
                   {measured.map((m, i) => (
                     <span key={m}>
                       {i > 0 ? "; " : ""}
                       <span className="mono">{m}</span>
                     </span>
                   ))}
-                  . This app is running on <span className="mono">{machine}</span>.{" "}
+                  . The computer running this app reports itself as{" "}
+                  <span className="mono">{machine}</span>.{" "}
                   <strong>
-                    Where those differ, treat every WER and RTF here as indicative for yours
+                    Where the two differ, the figures are indicative rather than a description of
+                    what this computer will do
                   </strong>{" "}
                   — a real number from different silicon is still a number about different silicon.
-                  Run <b>Benchmark</b> for numbers measured on the machine you are using now.
+                  The CPU, not an NPU or GPU, because the CPU is the only accelerator every model
+                  here can use. <b>Benchmark</b> measures the computer running this app, and fills
+                  in the <b>On your machine</b> column.
                 </>
               )}
             </dd>
@@ -853,16 +872,20 @@ export function ModelsPanel() {
                 className="mono acc-wer"
                 title={
                   accuracy.onBestHardware
-                    ? `Measured: WER ${formatWer(accuracy.wer)} on ${accuracy.point.hardware} — ${accuracy.point.machine} (${accuracy.point.source})`
+                    ? `Measured on ${accuracy.point.hardware}: WER ${formatWer(accuracy.wer)} — ${accuracy.point.machine} (${accuracy.point.source})`
                     : `Measured on ${accuracy.point.hardware}, not the ${entry.best_hardware ?? "target"} path this machine would use: WER ${formatWer(accuracy.wer)} — ${accuracy.point.machine} (${accuracy.point.source})`
                 }
               >
                 <span className="vh">measured </span>
-                {/* Naming the hardware is not decoration: a WER taken on another target must not
-                    read as one taken on the path this machine would use. */}
-                {accuracy.onBestHardware
-                  ? `WER ${formatWer(accuracy.wer)}`
-                  : `${shortHardware(accuracy.point.hardware)}: ${formatWer(accuracy.wer)}`}
+                {`WER ${formatWer(accuracy.wer)}`}
+                {/*
+                  The accelerator is shown whether or not it matches the one this machine would
+                  use, mirroring the Speed column. It used to appear only on a mismatch, so a
+                  figure measured on the CPU for a model that can only use the CPU looked like a
+                  figure with no hardware at all — and the whole catalog is measured on the CPU,
+                  because that is the only accelerator every model here can use.
+                */}
+                <span className="hw-chip">{shortHardware(accuracy.point.hardware)}</span>
               </span>
             )}
           </span>
@@ -1216,11 +1239,13 @@ export function ModelsPanel() {
               {sortHeader("speed", "Speed", "estimated RTF, lower is faster")}
             </span>
             <span className="mcell mcell-acc">
-              {sortHeader("accuracy", "Accuracy", "tier · measured WER, lower is better")}
+              {/* "catalog", paired with the "On your machine" column, so the two provenances are
+                  distinguishable at a glance rather than only in the tooltip. */}
+              {sortHeader("accuracy", "Accuracy", "tier · catalog WER, lower is better")}
             </span>
             <span className="mcell mcell-mine">
               <span className="th-sort-static">On your machine</span>
-              <span className="th-note">WER · RTF from your benchmark</span>
+              <span className="th-note">WER · RTF from your own benchmark run</span>
             </span>
             <span className="mcell mcell-state">
               {sortHeader("state", "Status", "on disk")}

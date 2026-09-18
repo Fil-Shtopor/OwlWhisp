@@ -1780,9 +1780,13 @@ input[type="radio"] {
   flex-wrap: wrap;
 }
 
-.picks-head h3 {
+.picks-title h3 {
   margin: 0;
   font-size: 14px;
+}
+
+.picks-title .sub {
+  margin: 2px 0 0;
 }
 
 .picks-lang {
