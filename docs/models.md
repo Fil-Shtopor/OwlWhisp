@@ -65,7 +65,7 @@ of this section). They are marked
 
 Every one of the seven entries carries a `measurements` point taken on this project's target machine
 (Snapdragon X2 Elite Extreme X2E94100, CPU only, 8 threads) with `lw bench` over
-`tests/fixtures/audio` — 12 FLEURS clips, three each in **en, es, ru, uk**. Nothing in this table
+`tests/fixtures/audio` — 15 FLEURS clips, three each in **en, es, ru, uk, zh**. Nothing in this table
 came from an upstream claim.
 
 Every figure below comes from **one sweep on 2026-09-18**: each model in turn, on the CPU, over
@@ -105,21 +105,21 @@ role: `accurate` reads as a general claim, and on the languages these fixtures c
 total, because its model card does not claim Ukrainian; that exclusion is the whole point of
 scoring only claimed languages.
 
-#### What is still not measured, and cannot be yet
+#### Chinese
 
-Two entries exist for Chinese, Japanese, Korean and Cantonese, and **neither has a measurement in
-any of those languages**. That is not an oversight to be filled in with a quick run; two things
-are missing.
+Both blockers named in the previous version of this section are gone.
 
-1. **No CJK audio.** `tests/fixtures/audio` is twelve FLEURS clips in en/es/ru/uk. Chinese clips
-   can be added — `scripts/benchmarks/make_fixtures_fleurs.py` takes a language list — but the
-   FLEURS split has to be fetched first.
-2. **The metric is wrong for Chinese.** `word_error_rate` splits on whitespace. Written Chinese has
-   none, so every "word" would be a whole sentence and any imperfect transcript would score 1.0.
-   Scoring Chinese needs a **character** error rate, which this project does not implement.
+1. **Chinese audio** — three FLEURS `cmn_Hans` clips were added on 2026-09-18 by
+   `scripts/benchmarks/add_fixtures_language.py`, which appends rather than regenerating: the
+   twelve existing clips are untouched, because every measurement in this catalog was taken over
+   them.
+2. **A metric that works** — `lw bench` now scores languages written without word delimiters by
+   **character** (CER) rather than by word. See
+   [benchmarks.md](benchmarks.md#words-or-characters) for why a word rate on Chinese has only two
+   possible values.
 
-Until both exist, the English figures those two entries carry are what they say they are: their
-English.
+The Chinese figures are in each entry's `notes`, measured with `--languages zh`, kept out of the
+blended totals above because a word rate and a character rate cannot be averaged.
 
 > **Read the "scored over" column before you compare two rows.** A 3-clip English figure and a
 > 12-clip four-language figure are not the same measurement. Twelve clips are indicative, three are

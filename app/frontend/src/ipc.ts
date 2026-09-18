@@ -396,6 +396,16 @@ export interface LocalMeasurement {
 /** Model id to what this machine has measured for it, one record per accelerator. */
 export type LocalMeasurements = Record<string, LocalMeasurement[]>;
 
+/**
+ * Delete an installed model's files. Takes the catalog id, never a path: the backend resolves the
+ * directory itself and checks it really is inside the models root before removing anything.
+ *
+ * Rejects when the model is the one dictation is set to use.
+ */
+export function deleteModel(id: string): Promise<{ id: string; freed_bytes: number }> {
+  return invoke<{ id: string; freed_bytes: number }>("delete_model", { id });
+}
+
 export function getLocalMeasurements(): Promise<LocalMeasurements> {
   return invoke<LocalMeasurements>("local_measurements");
 }
@@ -485,6 +495,14 @@ export interface BenchReport {
   clip_source: string;
   engine_load_ms: number;
   clips: BenchClip[];
+  /** `"WER"` or `"CER"`, when a single figure exists. */
+  unit: string | null;
+  /**
+   * True when the run spanned languages scored in different units — words for most, characters for
+   * the ones written without spaces. There is then no single accuracy figure, and the per-language
+   * breakdown is the answer.
+   */
+  mixed_units: boolean;
   /** First run - includes one-time warm-up. */
   cold_rtf: number;
   /** Mean over the runs after the first, or null when there was no second run. */

@@ -247,11 +247,11 @@ pub struct ActiveBackend {
 
 /// How many fixture clips a benchmark uses.
 ///
-/// The whole committed set is twelve (three each in en/ru/es/uk). Taking all of them costs a few
+/// The whole committed set is fifteen (three each in en/ru/es/uk/zh). Taking all of them costs a few
 /// seconds per backend -- engine load dominates a run, not transcription -- and in exchange the
 /// WER covers four languages rather than only English. `measure` scores only the languages the
 /// model claims, so an English-only model is still judged on English alone.
-const BENCH_CLIPS: usize = 12;
+const BENCH_CLIPS: usize = 15;
 
 /// A benchmark report: every number in it was measured on this machine by this run.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -279,8 +279,15 @@ pub struct BenchReport {
     pub warm_rtf: Option<f32>,
     /// How many runs contributed to `warm_rtf`.
     pub warm_count: usize,
-    /// Word-weighted WER, or `None` when the clips carried no reference transcripts.
+    /// Token-weighted error rate, or `None` when the clips carried no reference transcripts **or**
+    /// they spanned both words and characters -- see `mixed_units`.
     pub wer: Option<f32>,
+    /// What `wer` is measured in: `"word"` or `"character"`, when there is a figure.
+    pub unit: Option<&'static str>,
+    /// True when the scored clips mixed word-scored and character-scored languages, so no single
+    /// figure exists. Chinese is not measured in words and Russian is not measured in characters,
+    /// and averaging the two would produce a number with no unit.
+    pub mixed_units: bool,
     /// Total seconds of audio processed.
     pub audio_secs: f32,
     /// What the engine decided while selecting a backend -- including why it fell back, if it did.
@@ -494,6 +501,8 @@ fn run_benchmark_job(
         warm_rtf: (m.warm_count > 0).then_some(m.warm_rtf),
         warm_count: m.warm_count,
         wer: m.wer,
+        unit: m.unit.map(lw_core::bench::ErrorUnit::label),
+        mixed_units: m.mixed_units,
         audio_secs: m.audio_secs,
         notes: engine.notes().to_vec(),
     };

@@ -191,6 +191,7 @@ pub fn run() {
             catalog::run_benchmark,
             catalog::run_benchmark_all,
             catalog::local_measurements,
+            catalog::delete_model,
         ])
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;

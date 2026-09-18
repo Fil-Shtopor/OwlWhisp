@@ -471,6 +471,88 @@ fn record_local_measurement(settings_path: &std::path::Path, report: &BenchRepor
     }
 }
 
+/// Delete an installed model's files, freeing the disk space.
+///
+/// Destructive and irreversible, so the path is never taken from the caller: the frontend sends a
+/// catalog **id**, this resolves the directory through the same manifest the installer used, and
+/// then checks the result really does sit inside the models root before removing anything. A
+/// frontend bug, or a call from anywhere else, cannot turn into "delete this directory".
+///
+/// Refuses to delete the model dictation is currently set to use. The confirmation dialog guards
+/// against a mis-click; this guards against a choice whose consequence appears later, at the worst
+/// moment — the next time the hotkey is pressed, with no model to load.
+#[tauri::command]
+pub async fn delete_model(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    let root = models_root(&state);
+    let settings = lw_core::settings::Settings::load(&state.settings_path).map_err(|e| e.to_string())?;
+    if settings.model_id == id {
+        return Err(format!(
+            "'{id}' is the model dictation is set to use. Choose another model first, then delete this one."
+        ));
+    }
+
+    let catalog = Catalog::builtin().map_err(|e| e.to_string())?;
+    let entry = catalog
+        .get(&id)
+        .ok_or_else(|| format!("unknown model id '{id}'"))?;
+    let manifest_name = entry
+        .manifest
+        .as_ref()
+        .ok_or_else(|| format!("'{id}' has no manifest, so nothing was installed for it"))?;
+    let mdir = manifests_dir(None).ok_or_else(|| "manifest directory not found".to_string())?;
+    let text = std::fs::read_to_string(mdir.join(manifest_name)).map_err(|e| e.to_string())?;
+    let manifest: ModelManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    manifest.validate().map_err(|e| e.to_string())?;
+
+    let dir = ModelRegistry::new(&root).model_dir(&manifest);
+    let freed = tauri::async_runtime::spawn_blocking(move || remove_model_dir(&root, &dir))
+        .await
+        .map_err(|e| format!("delete task failed: {e}"))??;
+
+    Ok(json!({ "id": id, "freed_bytes": freed }))
+}
+
+/// Remove `dir`, having proved it is inside `root`. Returns the bytes freed.
+fn remove_model_dir(root: &std::path::Path, dir: &std::path::Path) -> Result<u64, String> {
+    if !dir.exists() {
+        return Ok(0);
+    }
+    // Compare canonical paths: `..` in either would otherwise let a directory outside the models
+    // root pass a textual check.
+    let root_real = root
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", root.display()))?;
+    let dir_real = dir
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !dir_real.starts_with(&root_real) || dir_real == root_real {
+        return Err(format!(
+            "refusing to delete {}: it is not a model directory inside {}",
+            dir_real.display(),
+            root_real.display()
+        ));
+    }
+    let freed = dir_size(&dir_real);
+    std::fs::remove_dir_all(&dir_real).map_err(|e| format!("{}: {e}", dir_real.display()))?;
+    tracing::info!("deleted model directory {} ({freed} bytes)", dir_real.display());
+    Ok(freed)
+}
+
+/// Total size of a directory tree, for reporting what a delete freed.
+fn dir_size(dir: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(_) => e.metadata().map(|m| m.len()).unwrap_or(0),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
 /// Everything this machine has measured, for the model list.
 #[tauri::command]
 pub fn local_measurements(state: State<'_, AppState>) -> Value {
@@ -514,6 +596,64 @@ mod tests {
         ] {
             assert!(v.get(key).is_some(), "missing {key}");
         }
+    }
+
+    /// The guard that matters: a directory outside the models root is never removed, whatever the
+    /// manifest says, because `remove_dir_all` on the wrong path is not something a confirmation
+    /// dialog can take back.
+    #[test]
+    fn deleting_refuses_a_directory_outside_the_models_root() {
+        let base = std::env::temp_dir().join("lw-delete-guard");
+        let root = base.join("models");
+        let outside = base.join("not-models");
+        std::fs::create_dir_all(root.join("keep")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("precious.txt"), b"x").unwrap();
+
+        let err = remove_model_dir(&root, &outside).unwrap_err();
+        assert!(err.contains("refusing to delete"), "{err}");
+        assert!(
+            outside.join("precious.txt").exists(),
+            "nothing outside may be touched"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The models root itself is not a model directory.
+    #[test]
+    fn deleting_refuses_the_models_root_itself() {
+        let root = std::env::temp_dir().join("lw-delete-root");
+        std::fs::create_dir_all(&root).unwrap();
+        let err = remove_model_dir(&root, &root).unwrap_err();
+        assert!(err.contains("refusing to delete"), "{err}");
+        assert!(root.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn deleting_a_model_directory_removes_it_and_reports_the_space() {
+        let root = std::env::temp_dir().join("lw-delete-ok");
+        let model = root.join("some-model");
+        std::fs::create_dir_all(model.join("nested")).unwrap();
+        std::fs::write(model.join("a.onnx"), vec![0u8; 100]).unwrap();
+        std::fs::write(model.join("nested/b.txt"), vec![0u8; 23]).unwrap();
+
+        let freed = remove_model_dir(&root, &model).unwrap();
+        assert_eq!(freed, 123, "the whole tree is counted");
+        assert!(!model.exists());
+        assert!(root.exists(), "only the model directory goes");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Deleting something already gone is success, not an error: the end state is what was asked.
+    #[test]
+    fn deleting_a_missing_directory_is_not_an_error() {
+        let root = std::env::temp_dir().join("lw-delete-missing");
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(remove_model_dir(&root, &root.join("nope")).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -673,18 +673,33 @@ export function BenchmarkPanel() {
               </span>
             </div>
             <div className="stat">
-              <span className="perf-label" title="Word error rate: the share of words that came out wrong. Lower is better.">
-                WER <span className="sub">word error rate, lower is better</span>
+              <span
+                className="perf-label"
+                title="The share of words — or, for languages written without spaces, characters — that came out wrong. Lower is better."
+              >
+                {report.unit ?? "Accuracy"}{" "}
+                <span className="sub">
+                  {report.unit === "CER"
+                    ? "character error rate, lower is better"
+                    : "word error rate, lower is better"}
+                </span>
               </span>
               <span className="mono stat-value">
                 {report.wer === null ? "—" : formatWer(report.wer)}
               </span>
               <span className="sub">
-                {report.wer === null
-                  ? "No clip contributed a reference this model could be scored against, so accuracy could not be computed."
-                  : report.clips.every((c) => c.scored)
-                    ? "Word-weighted across all clips."
-                    : `Word-weighted across the ${report.clips.filter((c) => c.scored).length} clips in languages this model claims.`}
+                {/*
+                  Three different reasons for having no figure, and they are not the same thing.
+                  Mixing units is the newest: a run covering Russian and Chinese has no single
+                  number, because a word rate and a character rate cannot be averaged.
+                */}
+                {report.mixed_units
+                  ? "No single figure: these clips span languages scored in different units — words for most, characters for the ones written without spaces — and the two cannot be averaged. The per-language breakdown above is the answer."
+                  : report.wer === null
+                    ? "No clip contributed a reference this model could be scored against, so accuracy could not be computed."
+                    : report.clips.every((c) => c.scored)
+                      ? "Token-weighted across all clips."
+                      : `Token-weighted across the ${report.clips.filter((c) => c.scored).length} clips in languages this model claims.`}
               </span>
             </div>
           </div>

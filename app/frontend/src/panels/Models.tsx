@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  deleteModel,
   getCapabilities,
   getLocalMeasurements,
   getSettings,
@@ -586,6 +587,10 @@ export function ModelsPanel() {
   const [selectError, setSelectError] = useState<string | null>(null);
   /** What this machine has measured, by model id. Empty until a benchmark has been run. */
   const [mine, setMine] = useState<LocalMeasurements>({});
+  /** The model whose delete confirmation is open, if any. */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   /**
    * The download, read from the module-level store rather than held here: a 989 MB fetch keeps
    * going when this panel unmounts on a tab change, so its progress — and the Cancel button that
@@ -603,12 +608,38 @@ export function ModelsPanel() {
 
   // Mirrors App.tsx's `disposed` flag, for callbacks that outlive a render.
   const alive = useRef(true);
+  /// `removeModel` is declared before `refresh` and needs to call it; a ref breaks the cycle
+  /// without making either depend on the other's identity.
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
     };
   }, []);
+
+  /**
+   * Delete one model's files. The backend takes the catalog **id**, never a path, and refuses the
+   * model dictation is set to use — so this only has to report what it is told.
+   */
+  const removeModel = useCallback(
+    async (id: string) => {
+      setDeleting(id);
+      setDeleteError(null);
+      try {
+        await deleteModel(id);
+        if (alive.current) {
+          setConfirmDelete(null);
+          await refreshRef.current?.();
+        }
+      } catch (e: unknown) {
+        if (alive.current) setDeleteError(String(e));
+      } finally {
+        if (alive.current) setDeleting(null);
+      }
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -635,6 +666,7 @@ export function ModelsPanel() {
   }, []);
 
   useEffect(() => {
+    refreshRef.current = refresh;
     void refresh();
   }, [refresh]);
 
@@ -1198,7 +1230,56 @@ export function ModelsPanel() {
               >
                 {isSelected ? "In use" : selectBusy === entry.id ? "Saving…" : "Use this model"}
               </button>
+              {entry.install_state !== "missing" && entry.install_state !== "unpinned" && (
+                <button
+                  className="btn secondary danger"
+                  onClick={() => setConfirmDelete(entry.id)}
+                  disabled={isSelected || deleting !== null || installing}
+                  title={
+                    isSelected
+                      ? "This is the model dictation uses. Choose another one first."
+                      : `Remove the downloaded files and free ${formatBytes(entry.disk_bytes)}`
+                  }
+                >
+                  {deleting === entry.id ? "Deleting…" : "Delete"}
+                </button>
+              )}
             </div>
+
+            {/*
+              A confirmation step, because the button sits one click away from Download and the
+              action cannot be undone — the files would have to be fetched again. It names the
+              model and the space it frees so the dialog answers "which one, and what do I get",
+              rather than only "are you sure".
+            */}
+            {confirmDelete === entry.id && (
+              <div className="confirm" role="alertdialog" aria-label={`Delete ${entry.name}?`}>
+                <p>
+                  <b>Delete {entry.name}?</b> This removes the downloaded files and frees{" "}
+                  {formatBytes(entry.disk_bytes)}. It cannot be undone — getting the model back
+                  means downloading it again.
+                </p>
+                <div className="confirm-actions">
+                  <button
+                    className="btn secondary danger"
+                    onClick={() => void removeModel(entry.id)}
+                    disabled={deleting !== null}
+                  >
+                    {deleting === entry.id ? "Deleting…" : "Delete it"}
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => setConfirmDelete(null)}
+                    disabled={deleting !== null}
+                  >
+                    Keep it
+                  </button>
+                </div>
+              </div>
+            )}
+            {deleteError !== null && confirmDelete === entry.id && (
+              <p className="status-err">{deleteError}</p>
+            )}
           </div>
         )}
       </li>

@@ -130,5 +130,38 @@
     "source": "google/fleurs uk_ua dev 10854629782263985341.wav",
     "license": "CC-BY-4.0",
     "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_zh_1.wav",
+    "language": "zh",
+    "duration_s": 4.92,
+    "sample_rate": 16000,
+    "transcript": "西班牙人开始了长达三个世纪的殖民时期。",
+    "transcript_normalized": "西 班 牙 人 开 始 了 长 达 三 个 世 纪 的 殖 民 时 期",
+    "source": "google/fleurs cmn_hans_cn dev 15119654797764315030.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_zh_2.wav",
+    "language": "zh",
+    "duration_s": 4.02,
+    "sample_rate": 16000,
+    "transcript": "摩尔多瓦 (Moldova) 的主要宗教是东正教。",
+    "transcript_normalized": "摩 尔 多 瓦 moldova 的 主 要 宗 教 是 东 正 教",
+    "source": "google/fleurs cmn_hans_cn dev 6493646763526361467.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
+  },
+  {
+    "file": "fleurs_zh_3.wav",
+    "language": "zh",
+    "duration_s": 7.26,
+    "sample_rate": 16000,
+    "transcript": "伤员被送往医院后，打斗平息下来，剩下的约 40 名囚犯留在院子里，拒绝回牢房。",
+    "transcript_normalized": "伤 员 被 送 往 医 院 后 打 斗 平 息 下 来 剩 下 的 约 40 名 囚 犯 留 在 院 子 里 拒 绝 回 牢 房",
+    "source": "google/fleurs cmn_hans_cn dev 2830734425933881879.wav",
+    "license": "CC-BY-4.0",
+    "attribution": "FLEURS (Conneau et al., 2022), https://huggingface.co/datasets/google/fleurs"
   }
 ]

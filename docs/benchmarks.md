@@ -9,13 +9,31 @@ loads._
 
 - **Model:** NVIDIA Parakeet TDT 0.6B v3, istupakov ONNX export (encoder fp32/int8, fused
   `decoder_joint` int8, `nemo128.onnx` mel, `vocab.txt`).
-- **Fixtures:** 12 FLEURS dev clips (CC-BY-4.0), 3 each for en / ru / es / uk, 5–8 s, 16 kHz mono.
+- **Fixtures:** 15 FLEURS dev clips (CC-BY-4.0), 3 each for en / ru / es / uk / **zh**, 4–8 s,
+  16 kHz mono. The Chinese three were added on 2026-09-18; every measurement recorded before that
+  date was taken over the first twelve and says so in its own source line.
   Stored in `tests/fixtures/audio/` with reference transcripts in `fixtures.json`.
 - **RTF** = processing wall-time ÷ audio duration (lower is faster; < 1 is faster than real time).
 - **WER** = Levenshtein over lowercased, punctuation-stripped words; "word-weighted" averages by
   reference word count. Note FLEURS references keep punctuation/casing/spelled-out numbers, so a few
   points of WER are normalization, not recognition error.
 - Timings exclude one-time model load and (for NPU) the one-time context-binary prepare.
+
+### Words or characters
+
+Accuracy is a Levenshtein error rate, and **the unit depends on the language**. Languages that
+write spaces are scored by word (**WER**); Chinese, Cantonese, Japanese, Thai, Lao, Khmer, Burmese
+and Tibetan are scored by character (**CER**), because they are written without word delimiters.
+Korean is scored by word — it spaces its eojeol.
+
+This is not a refinement, it is the difference between a metric and a coin flip. Against a Chinese
+reference, a transcript with one wrong character and a transcript of unrelated nonsense both score
+exactly **1.0** by word: the whole sentence is one token either way. `lw-core`'s test
+`a_word_rate_is_meaningless_for_chinese_and_a_character_rate_is_not` pins both halves of that.
+
+A run whose scored clips span both units has **no single total**. A word rate and a character rate
+are different quantities and averaging them yields a number with no unit; `lw bench` prints the
+per-language breakdown and says why instead.
 
 ## 2. Encoder microbenchmark (Parakeet FastConformer encoder)
 

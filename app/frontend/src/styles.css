@@ -1955,3 +1955,33 @@ input[type="radio"] {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Deleting is irreversible, so the control that starts it looks different from the ones that do
+   not, and the confirmation sits inline where the row is rather than over the whole window. */
+.btn.danger {
+  color: #f87171;
+  border-color: color-mix(in srgb, #f87171 45%, transparent);
+}
+
+.btn.danger:hover:not(:disabled) {
+  border-color: #f87171;
+  background: color-mix(in srgb, #f87171 12%, transparent);
+}
+
+.confirm {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #f87171 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #f87171 8%, var(--bg-raised));
+}
+
+.confirm p {
+  margin: 0 0 10px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
