@@ -88,11 +88,14 @@ pub struct ClipResult {
     pub wer: Option<f32>,
     /// The clip's language, when known.
     pub language: Option<String>,
-    /// Whether this clip's WER contributed to [`Measurement::wer`].
+    /// Whether this clip's error rate contributed to [`Measurement::wer`].
     ///
     /// False when the engine does not claim the clip's language — the clip was still transcribed
     /// and timed, but scoring it would measure the wrong thing.
     pub scored: bool,
+    /// What `wer` is measured in, chosen from the clip's language. A character rate must never be
+    /// displayed as a word rate.
+    pub unit: ErrorUnit,
 }
 
 /// WER over the clips of one language.
@@ -108,6 +111,8 @@ pub struct LanguageScore {
     pub words: usize,
     /// Whether the engine claimed this language.
     pub claimed: bool,
+    /// What this language's rate is measured in.
+    pub unit: ErrorUnit,
 }
 
 /// The result of one measured run. Every field was genuinely timed on the running machine.
@@ -121,8 +126,17 @@ pub struct Measurement {
     pub warm_count: usize,
     /// Per-clip warm wall time in ms.
     pub warm_ms: Vec<f32>,
-    /// Word-weighted WER over the **scored** clips, when any had reference transcripts.
+    /// Token-weighted error rate over the **scored** clips, when any had reference transcripts
+    /// **and** they all use the same unit. See [`Measurement::unit`] and
+    /// [`Measurement::mixed_units`].
     pub wer: Option<f32>,
+    /// What [`Measurement::wer`] is measured in, when there is one.
+    pub unit: Option<ErrorUnit>,
+    /// True when the scored clips spanned both words and characters, so no single total exists.
+    ///
+    /// Not an error: it means the run covered, say, Russian and Chinese at once. The per-language
+    /// breakdown is the honest answer, and a caller must print that instead of inventing a total.
+    pub mixed_units: bool,
     /// Languages the scored clips covered, sorted, for provenance.
     pub scored_languages: Vec<String>,
     /// Clips that were transcribed and timed but not scored, and the languages they were in.
@@ -194,9 +208,12 @@ pub fn measure(
     let mut results = Vec::with_capacity(clips.len());
     let mut scored_languages: Vec<String> = Vec::new();
     let mut unscored_languages: Vec<String> = Vec::new();
-    // language -> (weighted error, words, clips)
-    let mut by_language: std::collections::BTreeMap<String, (f64, usize, usize)> =
+    // language -> (weighted error, tokens, clips, unit)
+    let mut by_language: std::collections::BTreeMap<String, (f64, usize, usize, ErrorUnit)> =
         std::collections::BTreeMap::new();
+    // Every unit that contributed to the blended total. More than one means the total would be an
+    // average of a word rate and a character rate, which is not a quantity.
+    let mut scored_units: std::collections::BTreeSet<ErrorUnit> = std::collections::BTreeSet::new();
 
     for (i, clip) in clips.iter().enumerate() {
         let scored = counts(clip);
@@ -208,21 +225,28 @@ pub fn measure(
         let rtf = (ms / 1000.0) / clip.duration_s.max(1e-6);
         audio_secs += clip.duration_s;
 
-        // The per-clip WER is always computed and reported; only the weighted total is restricted,
+        // Chinese is not scored in words, Russian is not scored in characters, and the two rates
+        // are not the same quantity — so the unit is chosen per clip from its language and carried
+        // with the number everywhere it goes.
+        let unit = clip.language.as_deref().map_or(ErrorUnit::Word, scoring_unit);
+
+        // The per-clip rate is always computed and reported; only the weighted total is restricted,
         // so a curious caller can still see what an unclaimed language looked like.
         let wer = clip.reference.as_ref().map(|r| {
-            let (w, n) = word_error_rate(r, &transcript.text);
+            let (w, n) = error_rate(r, &transcript.text, unit);
             if scored {
                 total_err += w as f64 * n as f64;
                 total_words += n;
+                scored_units.insert(unit);
             }
             // The per-language tally counts every clip that has a reference, claimed or not:
             // seeing what an unclaimed language actually scored is the point of the breakdown.
             let key = clip.language.clone().unwrap_or_else(|| "unknown".to_string());
-            let slot = by_language.entry(key).or_insert((0.0, 0, 0));
+            let slot = by_language.entry(key).or_insert((0.0, 0, 0, unit));
             slot.0 += w as f64 * n as f64;
             slot.1 += n;
             slot.2 += 1;
+            slot.3 = unit;
             w
         });
         if let Some(lang) = &clip.language {
@@ -242,6 +266,7 @@ pub fn measure(
             ms,
             rtf,
             wer,
+            unit,
             language: clip.language.clone(),
             scored,
         };
@@ -265,7 +290,7 @@ pub fn measure(
     unscored_languages.sort();
     let per_language = by_language
         .into_iter()
-        .map(|(language, (err, words, clips))| LanguageScore {
+        .map(|(language, (err, words, clips, unit))| LanguageScore {
             wer: if words > 0 {
                 (err / words as f64) as f32
             } else {
@@ -275,14 +300,27 @@ pub fn measure(
             language,
             clips,
             words,
+            unit,
         })
         .collect();
+
+    // A blended total exists only when everything in it is the same quantity. Mixing Chinese
+    // characters with Russian words would produce a number with no unit and no meaning, so the
+    // total is withheld and the per-language breakdown is the answer instead.
+    let mixed_units = scored_units.len() > 1;
+    let total_unit = if mixed_units {
+        None
+    } else {
+        scored_units.iter().next().copied()
+    };
     Ok(Measurement {
         warm_rtf,
         cold_rtf,
         warm_count,
         warm_ms,
-        wer: (total_words > 0).then(|| (total_err / total_words as f64) as f32),
+        wer: (total_words > 0 && !mixed_units).then(|| (total_err / total_words as f64) as f32),
+        unit: total_unit,
+        mixed_units,
         scored_languages,
         unscored_languages,
         per_language,
@@ -293,14 +331,69 @@ pub fn measure(
     })
 }
 
+/// What a transcript is compared in.
+///
+/// Splitting on whitespace is the right unit for languages that write it, and meaningless for the
+/// ones that do not. Scoring Chinese by "words" makes every sentence one token, so any imperfect
+/// transcript scores 1.0 and a perfect one scores 0.0 — a metric with two values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ErrorUnit {
+    /// Whitespace-separated words. Reported as **WER**.
+    Word,
+    /// Individual characters. Reported as **CER**, and never averaged with a WER.
+    Character,
+}
+
+impl ErrorUnit {
+    /// The abbreviation to print, so a character rate is never labelled as a word rate.
+    pub fn label(self) -> &'static str {
+        match self {
+            ErrorUnit::Word => "WER",
+            ErrorUnit::Character => "CER",
+        }
+    }
+}
+
+/// The unit a language should be scored in.
+///
+/// Character-scored: Chinese and Cantonese (no spaces at all), Japanese (kana and kanji run
+/// together), Thai, Lao, Khmer, Burmese and Tibetan (no word delimiter). Korean is **not** in the
+/// list: it writes spaces between eojeol, so words are a real unit there.
+///
+/// An unknown tag scores by word, which is the right default — it is what every European language
+/// needs, and a wrong guess here is visible in the number rather than silent.
+pub fn scoring_unit(language: &str) -> ErrorUnit {
+    let base = language
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(language)
+        .to_ascii_lowercase();
+    match base.as_str() {
+        "zh" | "yue" | "cmn" | "wuu" | "nan" | "hak" | "ja" | "th" | "lo" | "my" | "km" | "bo" => {
+            ErrorUnit::Character
+        }
+        _ => ErrorUnit::Word,
+    }
+}
+
 /// Word error rate (Levenshtein over normalized words) and the reference word count.
 ///
 /// Normalization lowercases and replaces every non-alphanumeric character with a space, so
 /// punctuation and casing never count as errors. Number words still do: a reference reading
 /// "2" against a transcript reading "two" scores as a substitution.
 pub fn word_error_rate(reference: &str, hypothesis: &str) -> (f32, usize) {
+    error_rate(reference, hypothesis, ErrorUnit::Word)
+}
+
+/// Levenshtein error rate in `unit`, and the size of the reference in that unit.
+///
+/// Both units normalize the same way — lowercase, punctuation to whitespace — so casing and
+/// commas never count as errors in either. They differ only in what a token is.
+pub fn error_rate(reference: &str, hypothesis: &str, unit: ErrorUnit) -> (f32, usize) {
     let norm = |s: &str| -> Vec<String> {
-        s.to_lowercase()
+        let cleaned: String = s
+            .to_lowercase()
             .chars()
             .map(|c| {
                 if c.is_alphanumeric() || c.is_whitespace() {
@@ -309,10 +402,17 @@ pub fn word_error_rate(reference: &str, hypothesis: &str) -> (f32, usize) {
                     ' '
                 }
             })
-            .collect::<String>()
-            .split_whitespace()
-            .map(|w| w.to_string())
-            .collect()
+            .collect();
+        match unit {
+            ErrorUnit::Word => cleaned.split_whitespace().map(str::to_string).collect(),
+            // Whitespace is dropped rather than counted: how a transcript spaces CJK text is a
+            // formatting choice, not a recognition error.
+            ErrorUnit::Character => cleaned
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .map(|c| c.to_string())
+                .collect(),
+        }
     };
     let r = norm(reference);
     let h = norm(hypothesis);
@@ -462,6 +562,59 @@ pub fn synth_clip(index: usize, seconds: f32) -> AudioBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reason `ErrorUnit` exists, demonstrated on one sentence.
+    ///
+    /// Chinese is written without spaces, so a word-level metric sees the whole sentence as one
+    /// token: get one character wrong and the "WER" is 1.0 — the same score as transcribing
+    /// nothing recognisable at all. Scored by character, the same transcript is 1 error in 9.
+    #[test]
+    fn a_word_rate_is_meaningless_for_chinese_and_a_character_rate_is_not() {
+        let reference = "今天天气非常好";
+        let almost_right = "今天天气非常号"; // last character wrong
+        let nonsense = "我不知道你在说什么";
+
+        let (word_close, _) = error_rate(reference, almost_right, ErrorUnit::Word);
+        let (word_wrong, _) = error_rate(reference, nonsense, ErrorUnit::Word);
+        assert_eq!(word_close, 1.0, "one wrong character reads as a total miss");
+        assert_eq!(
+            word_close, word_wrong,
+            "by word, a near-perfect transcript and nonsense score the same --              a metric with two values is not a metric"
+        );
+
+        let (char_close, n) = error_rate(reference, almost_right, ErrorUnit::Character);
+        let (char_wrong, _) = error_rate(reference, nonsense, ErrorUnit::Character);
+        assert_eq!(n, 7, "seven characters in the reference");
+        assert!(
+            (char_close - 1.0 / 7.0).abs() < 1e-6,
+            "one error in seven: {char_close}"
+        );
+        assert!(char_wrong > char_close, "and nonsense still scores worse");
+    }
+
+    #[test]
+    fn languages_without_word_boundaries_are_scored_by_character() {
+        for lang in ["zh", "zh-CN", "cmn", "yue", "ja", "th", "lo", "km", "my", "bo"] {
+            assert_eq!(scoring_unit(lang), ErrorUnit::Character, "{lang}");
+        }
+        // Korean writes spaces between eojeol, so words are a real unit there.
+        for lang in ["en", "ru", "es", "uk", "ko", "vi", "tr", "unknown-tag"] {
+            assert_eq!(scoring_unit(lang), ErrorUnit::Word, "{lang}");
+        }
+    }
+
+    /// Whitespace in a CJK transcript is a formatting choice, not a recognition error.
+    #[test]
+    fn spacing_does_not_count_against_a_character_rate() {
+        let (r, _) = error_rate("今天天气", "今 天 天 气", ErrorUnit::Character);
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn a_character_rate_still_ignores_case_and_punctuation() {
+        let (r, _) = error_rate("Hello, world!", "hello world", ErrorUnit::Character);
+        assert_eq!(r, 0.0);
+    }
 
     #[test]
     fn wer_identical_is_zero() {

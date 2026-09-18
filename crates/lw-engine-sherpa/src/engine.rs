@@ -9,9 +9,9 @@ use lw_core::engine::{
     Transcript,
 };
 use sherpa_onnx::{
-    OfflineMoonshineModelConfig, OfflineParaformerModelConfig, OfflineQwen3ASRModelConfig, OfflineRecognizer,
-    OfflineRecognizerConfig, OfflineRecognizerResult, OfflineSenseVoiceModelConfig,
-    OfflineTransducerModelConfig, OfflineWhisperModelConfig,
+    OfflineMoonshineModelConfig, OfflineOmnilingualAsrCtcModelConfig, OfflineParaformerModelConfig,
+    OfflineQwen3ASRModelConfig, OfflineRecognizer, OfflineRecognizerConfig, OfflineRecognizerResult,
+    OfflineSenseVoiceModelConfig, OfflineTransducerModelConfig, OfflineWhisperModelConfig,
 };
 
 use crate::config::SherpaConfig;
@@ -376,6 +376,12 @@ fn build_recognizer(
         }
         ModelFiles::Paraformer { model, tokens } => {
             c.model_config.paraformer = OfflineParaformerModelConfig {
+                model: Some(path_str(model)?),
+            };
+            c.model_config.tokens = Some(path_str(tokens)?);
+        }
+        ModelFiles::Omnilingual { model, tokens } => {
+            c.model_config.omnilingual = OfflineOmnilingualAsrCtcModelConfig {
                 model: Some(path_str(model)?),
             };
             c.model_config.tokens = Some(path_str(tokens)?);

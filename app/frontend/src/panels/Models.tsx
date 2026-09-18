@@ -9,6 +9,7 @@ import {
   type InstallState,
   type LocalMeasurement,
   type LocalMeasurements,
+  type ModelAccelerator,
   type MeasuredPoint,
   type ModelCatalog,
   type ModelEntry,
@@ -336,6 +337,15 @@ function pickLocal(mine: readonly LocalMeasurement[], best: string | null): Loca
     if (hit !== undefined) return hit;
   }
   return [...mine].sort((a, b) => (a.warm_rtf ?? a.cold_rtf) - (b.warm_rtf ?? b.cold_rtf))[0] ?? null;
+}
+
+/** The full support picture as one tooltip, so the compact chips do not have to carry it. */
+function runsOnTitle(accelerators: readonly ModelAccelerator[]): string {
+  const yes = accelerators.filter((a) => a.supported).map((a) => a.label);
+  const no = accelerators
+    .filter((a) => !a.supported)
+    .map((a) => `${a.label} — ${a.reason ?? "not supported"}`);
+  return [`Runs on: ${yes.length > 0 ? yes.join(", ") : "nothing on this machine"}`, ...no].join("\n");
 }
 
 /** A measured word-error rate the row can show, and whether it describes this machine's target. */
@@ -830,6 +840,21 @@ export function ModelsPanel() {
                 {role.label}
               </span>
             ))}
+            {/*
+              Which accelerators this model can use, from the backend's own answer -- the same one
+              that decides what a Compare-all sweep skips, so the table cannot promise a run the
+              benchmark then refuses. Only the supported ones are listed here; the expansion has
+              the rest with the reason.
+            */}
+            <span className="runs-on" title={runsOnTitle(entry.accelerators)}>
+              {entry.accelerators
+                .filter((a) => a.supported)
+                .map((a) => (
+                  <span key={a.id} className="hw-chip">
+                    {shortHardware(a.id)}
+                  </span>
+                ))}
+            </span>
             {/* Stands in for the family column once the window is too narrow to keep it. */}
             <span className="mname-family sub" title={entry.engine}>
               {family}
@@ -998,6 +1023,20 @@ export function ModelsPanel() {
                 <dt>Languages</dt>
                 <dd className="lang-list" title={entry.languages.join(", ")}>
                   {entry.language_names.length === 0 ? "—" : entry.language_names.join(", ")}
+                </dd>
+              </div>
+              <div className="lang-cell">
+                <dt>Runs on</dt>
+                <dd className="runs-on-list">
+                  {entry.accelerators.map((a) => (
+                    <span
+                      key={a.id}
+                      className={a.supported ? "badge yes" : "badge no"}
+                      title={a.reason ?? `${a.label} can run this model`}
+                    >
+                      {a.label}
+                    </span>
+                  ))}
                 </dd>
               </div>
               <div>

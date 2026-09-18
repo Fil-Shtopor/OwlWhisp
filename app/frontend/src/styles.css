@@ -1942,3 +1942,16 @@ input[type="radio"] {
   gap: 4px 10px;
   align-items: baseline;
 }
+
+/* Accelerator support, compact in the row and spelled out in the expansion. */
+.runs-on {
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+
+.runs-on-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

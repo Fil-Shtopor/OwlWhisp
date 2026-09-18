@@ -203,6 +203,23 @@ fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
                 "download_bytes": e.download_bytes,
                 "disk_bytes": e.disk_bytes,
                 "hardware": e.hardware.iter().map(|h| h.label()).collect::<Vec<_>>(),
+                // Which accelerators this entry could run on, answered from the catalog rather
+                // than by trying. The same call decides what a Compare-all sweep skips, so the
+                // table and the benchmark can never disagree about it.
+                "accelerators": lw_core::capabilities::accel::ALL_ACCELERATORS
+                    .iter()
+                    .filter(|a| a.supported_on_this_platform())
+                    .map(|a| {
+                        let why = e.unsupported_on(*a);
+                        json!({
+                            "id": a.id(),
+                            "label": a.label(),
+                            "kind": a.kind().label(),
+                            "supported": why.is_none(),
+                            "reason": why,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
                 "runnable": r.runnable,
                 "best_hardware": r.best_hardware.map(|h| h.label()),
                 "estimated_rtf": r.estimated_rtf,

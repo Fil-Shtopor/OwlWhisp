@@ -15,6 +15,7 @@
 //! | [`ModelKind::NemoTransducer`] | `encoder.onnx`, `decoder.onnx`, `joiner.onnx`, `tokens.txt` (Parakeet TDT / Zipformer transducer) |
 //! | [`ModelKind::SenseVoice`] | `model.onnx`, `tokens.txt`, in a directory whose name mentions `sense-voice` |
 //! | [`ModelKind::Paraformer`] | `model.onnx`, `tokens.txt`, in a directory whose name mentions `paraformer` |
+//! | [`ModelKind::Omnilingual`] | `model.onnx`, `tokens.txt`, in a directory whose name mentions `omnilingual` |
 //!
 //! Any `.onnx` file may instead (or additionally) appear as `<stem>.int8.onnx`, `.fp16.onnx`,
 //! `.q8.onnx`, `.int4.onnx` or `.quant.onnx`; [`detect`] picks between the full-precision and the
@@ -49,6 +50,8 @@ pub enum ModelKind {
     Paraformer,
     /// Alibaba Qwen3-ASR, an LLM-style encoder-decoder.
     Qwen3Asr,
+    /// Meta Omnilingual ASR, a CTC model covering 1600+ languages.
+    Omnilingual,
 }
 
 impl ModelKind {
@@ -61,6 +64,7 @@ impl ModelKind {
             ModelKind::SenseVoice => "sense-voice",
             ModelKind::Paraformer => "paraformer",
             ModelKind::Qwen3Asr => "qwen3-asr",
+            ModelKind::Omnilingual => "omnilingual",
         }
     }
 
@@ -72,6 +76,7 @@ impl ModelKind {
         ModelKind::SenseVoice,
         ModelKind::Paraformer,
         ModelKind::Qwen3Asr,
+        ModelKind::Omnilingual,
     ];
 }
 
@@ -98,9 +103,10 @@ impl FromStr for ModelKind {
             "sensevoice" => Ok(ModelKind::SenseVoice),
             "paraformer" => Ok(ModelKind::Paraformer),
             "qwen3asr" | "qwen3" | "qwen" => Ok(ModelKind::Qwen3Asr),
+            "omnilingual" | "omniasr" => Ok(ModelKind::Omnilingual),
             _ => Err(Error::Config(format!(
                 "unknown sherpa model kind {s:?}; expected one of: whisper, moonshine, \
-                 nemo-transducer, sense-voice, paraformer, qwen3-asr"
+                 nemo-transducer, sense-voice, paraformer, qwen3-asr, omnilingual"
             ))),
         }
     }
@@ -169,6 +175,14 @@ pub enum ModelFiles {
         /// `tokens.txt`.
         tokens: PathBuf,
     },
+    /// Meta Omnilingual ASR: one CTC graph and a token list -- the same shape as SenseVoice and
+    /// Paraformer, so the three are told apart by the directory name (see `detect`).
+    Omnilingual {
+        /// `model[.int8].onnx`.
+        model: PathBuf,
+        /// `tokens.txt`.
+        tokens: PathBuf,
+    },
     /// Qwen3-ASR: a convolutional frontend, an encoder, a decoder, and a **tokenizer directory**
     /// rather than a token list — it is an LLM-style decoder and carries a BPE vocabulary.
     Qwen3Asr {
@@ -193,6 +207,7 @@ impl ModelFiles {
             ModelFiles::SenseVoice { .. } => ModelKind::SenseVoice,
             ModelFiles::Paraformer { .. } => ModelKind::Paraformer,
             ModelFiles::Qwen3Asr { .. } => ModelKind::Qwen3Asr,
+            ModelFiles::Omnilingual { .. } => ModelKind::Omnilingual,
         }
     }
 
@@ -223,7 +238,9 @@ impl ModelFiles {
                 joiner,
                 tokens,
             } => vec![encoder, decoder, joiner, tokens],
-            ModelFiles::SenseVoice { model, tokens } | ModelFiles::Paraformer { model, tokens } => {
+            ModelFiles::SenseVoice { model, tokens }
+            | ModelFiles::Paraformer { model, tokens }
+            | ModelFiles::Omnilingual { model, tokens } => {
                 vec![model, tokens]
             }
             ModelFiles::Qwen3Asr {
@@ -460,9 +477,14 @@ pub fn detect(
         let kind = match hint {
             Some(ModelKind::SenseVoice) => Some(ModelKind::SenseVoice),
             Some(ModelKind::Paraformer) => Some(ModelKind::Paraformer),
+            Some(ModelKind::Omnilingual) => Some(ModelKind::Omnilingual),
             Some(_) => None,
+            // Order matters only in that each test is specific enough not to catch the others.
             None if dir_name.contains("sense") => Some(ModelKind::SenseVoice),
             None if dir_name.contains("paraformer") => Some(ModelKind::Paraformer),
+            None if dir_name.contains("omnilingual") || dir_name.contains("omniasr") => {
+                Some(ModelKind::Omnilingual)
+            }
             None => None,
         };
         let tokens = require_tokens(&listing, dir, None);
@@ -475,6 +497,12 @@ pub fn detect(
             }
             Some(ModelKind::Paraformer) => {
                 return Ok(ModelFiles::Paraformer {
+                    model,
+                    tokens: tokens?,
+                });
+            }
+            Some(ModelKind::Omnilingual) => {
+                return Ok(ModelFiles::Omnilingual {
                     model,
                     tokens: tokens?,
                 });

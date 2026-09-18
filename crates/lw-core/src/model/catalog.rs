@@ -392,6 +392,47 @@ impl CatalogEntry {
         self.hardware.contains(&hw)
     }
 
+    /// Why this entry cannot run on `accel`, or `None` when it can be tried.
+    ///
+    /// Answered from the catalog instead of by trying and failing. A comparison sweep that loads
+    /// an engine per accelerator just to watch it fall over spends seconds on each one and then
+    /// reports a **failure**, when the honest word is *skipped*: nothing went wrong, the
+    /// combination never existed.
+    ///
+    /// Two independent reasons, and they are different in kind:
+    ///
+    /// 1. **The engine.** Anything behind the `sherpa` feature links sherpa-onnx's own statically
+    ///    built ONNX Runtime, which has the CPU provider and nothing else. No artifact can change
+    ///    that — the accelerator is not reachable from that runtime at all.
+    /// 2. **The artifact.** An NPU consumes a graph compiled and quantized for that silicon, so an
+    ///    entry must declare the matching target. A GPU consumes the ordinary graph, which is why
+    ///    no entry declares a GPU target and none needs to — see
+    ///    [`Accelerator::needs_dedicated_artifact`].
+    pub fn unsupported_on(&self, accel: crate::capabilities::accel::Accelerator) -> Option<String> {
+        use crate::capabilities::accel::AcceleratorKind;
+
+        if accel.kind() != AcceleratorKind::Cpu && self.requires_engine_feature.as_deref() == Some("sherpa") {
+            return Some(format!(
+                "the sherpa engine links its own ONNX Runtime with the CPU provider, so it cannot                  use {}",
+                accel.label()
+            ));
+        }
+        if accel.needs_dedicated_artifact() {
+            let needed = match accel {
+                crate::capabilities::accel::Accelerator::QnnNpu => Some(HardwareTarget::QnnNpu),
+                _ => None,
+            };
+            let declared = needed.is_some_and(|t| self.supports(t));
+            if !declared {
+                return Some(format!(
+                    "{} needs a model graph compiled for it, and this entry ships none",
+                    accel.label()
+                ));
+            }
+        }
+        None
+    }
+
     /// A short language summary, e.g. `"English"` or `"25: English, Spanish, French, …"`.
     ///
     /// Names, not codes. The summary is read to answer "is my language here?", and nobody scans

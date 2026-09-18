@@ -517,8 +517,10 @@ fn bench(
 
     let mut engine = build_engine(rt, model_dir, cache_dir, backend, threads)?;
     println!("backend: {} on {}", engine.provider(), engine.device().name);
+    // "err" rather than "WER": the column can hold either a word rate or a character rate, and
+    // each row says which. A fixed WER header would mislabel every Chinese line under it.
     println!(
-        "{:<22} {:>7} {:>8} {:>7}  WER",
+        "{:<22} {:>7} {:>8} {:>7}  err",
         "file", "dur(s)", "time(ms)", "RTF"
     );
 
@@ -530,11 +532,12 @@ fn bench(
         },
         |c: &ClipResult| {
             println!(
-                "{:<22} {:>7.2} {:>8.0} {:>7.3}  {:.2} [{}]{}",
+                "{:<22} {:>7.2} {:>8.0} {:>7.3}  {} {:.2} [{}]{}",
                 c.name,
                 c.duration_s,
                 c.ms,
                 c.rtf,
+                c.unit.label(),
                 c.wer.unwrap_or(0.0),
                 c.language.as_deref().unwrap_or("?"),
                 if c.scored { "" } else { " (not scored)" }
@@ -550,11 +553,16 @@ fn bench(
         println!("per language:");
         for l in &m.per_language {
             println!(
-                "  {:<4} WER {:.3}   over {} clip(s), {} word(s){}",
+                "  {:<4} {} {:.3}   over {} clip(s), {} {}{}",
                 l.language,
+                l.unit.label(),
                 l.wer,
                 l.clips,
                 l.words,
+                match l.unit {
+                    lw_core::bench::ErrorUnit::Word => "word(s)",
+                    lw_core::bench::ErrorUnit::Character => "character(s)",
+                },
                 if l.claimed {
                     ""
                 } else {
@@ -589,9 +597,25 @@ fn bench(
         return Ok(());
     }
 
+    // A run spanning, say, Russian and Chinese has no single total: averaging a word rate with a
+    // character rate produces a number with no unit. The breakdown above is the answer.
+    if m.mixed_units {
+        println!(
+            "mean RTF: {:.4}   over {} clip(s) in {}",
+            scored_rtf / scored.len().max(1) as f64,
+            scored.len(),
+            m.scored_languages.join("/")
+        );
+        println!(
+            "no single accuracy figure: these clips are scored in different units (words for some              languages, characters for the ones written without spaces), and the two cannot be              averaged. Read the per-language breakdown above."
+        );
+        return Ok(());
+    }
+
     println!(
-        "mean RTF: {:.4}   word-weighted WER: {:.3}   over {} clip(s) in {}",
+        "mean RTF: {:.4}   token-weighted {}: {:.3}   over {} clip(s) in {}",
         scored_rtf / scored.len().max(1) as f64,
+        m.unit.map_or("WER", lw_core::bench::ErrorUnit::label),
         m.wer.unwrap_or(0.0),
         scored.len(),
         if m.scored_languages.is_empty() {

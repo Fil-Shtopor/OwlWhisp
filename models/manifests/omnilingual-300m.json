@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "omnilingual-300m",
+  "name": "Omnilingual ASR 300M CTC v2 (int8, sherpa-onnx export)",
+  "version": "sherpa-onnx-asr-models-2026-02-05",
+  "license": "Apache-2.0",
+  "attribution": "Omnilingual ASR by Meta Platforms, Inc. (Apache-2.0, Copyright 2025); ONNX export by Fangjun Kuang for k2-fsa/sherpa-onnx (Apache-2.0)",
+  "local_dir": "omnilingual-300m",
+  "languages": ["af", "am", "ar", "as", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "ceb", "cs", "cy", "da", "de", "el", "en", "es", "eu", "fi", "fil", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "ig", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "ky", "la", "lb", "lg", "ln", "lo", "lt", "mg", "mi", "mk", "ml", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "ny", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tn", "tr", "tt", "uk", "ur", "uz", "vi", "wo", "xh", "yi", "yo", "yue", "zh", "zu"],
+  "common": [],
+  "artifacts": [
+    {
+      "target": "cpu_int8",
+      "files": [
+        {
+          "path": "sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-v2-int8-2026-02-05.tar.bz2",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-v2-int8-2026-02-05.tar.bz2",
+          "bytes": 292313120,
+          "sha256": "951b32409aade32bd525310bb39e9666773ba3fc611a39e817f620936d76c631",
+          "extract": {
+            "format": "tar.bz2",
+            "strip_components": 1,
+            "only_prefixes": ["model", "tokens.txt"],
+            "produces": [
+              { "path": "model.int8.onnx", "bytes": 365841453 },
+              { "path": "tokens.txt", "bytes": 90630 }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

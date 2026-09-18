@@ -334,6 +334,11 @@ export interface ModelEntry {
   disk_bytes: number | null;
   /** Hardware targets this model has artifacts for, as human labels. */
   hardware: string[];
+  /**
+   * Every accelerator this build knows about, and whether this model could run on it — decided by
+   * the backend from the catalog, so the table and a Compare-all sweep never disagree.
+   */
+  accelerators: ModelAccelerator[];
   /** Whether THIS build on THIS machine could run it today. */
   runnable: boolean;
   best_hardware: string | null;
@@ -349,6 +354,16 @@ export interface ModelEntry {
   install_dir: string | null;
   manifest_error: string | null;
   notes: string | null;
+}
+
+/** Whether one accelerator can run one model, and why not when it cannot. */
+export interface ModelAccelerator {
+  id: string;
+  label: string;
+  kind: string;
+  supported: boolean;
+  /** Present exactly when `supported` is false. */
+  reason: string | null;
 }
 
 /** One of the jobs an entry can be tagged with; the vocabulary comes from the backend. */

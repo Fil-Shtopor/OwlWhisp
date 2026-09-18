@@ -212,6 +212,121 @@ static QWEN3_ASR: &[Language] = &[
     Language("ro"),
 ];
 
+/// The languages Meta's Omnilingual ASR covers, **restricted to the ones this project can
+/// name**.
+///
+/// Upstream claims 1600+, and publishes the full list as ISO-639-3 plus script
+/// (`rus_Cyrl`, `cmn_Hans`) in `per_language_results_table_7B_llm_asr.csv`. These 103 are
+/// the intersection of that file with `lw_core::languages`, computed rather than guessed:
+/// every code here was checked to be in Meta's table. The other ~1580 are real, and are
+/// left out only because a claim the rest of this program cannot name or score would be a
+/// claim nobody could check.
+static OMNILINGUAL: &[Language] = &[
+    Language("af"),
+    Language("am"),
+    Language("ar"),
+    Language("as"),
+    Language("ba"),
+    Language("be"),
+    Language("bg"),
+    Language("bn"),
+    Language("bo"),
+    Language("br"),
+    Language("bs"),
+    Language("ca"),
+    Language("ceb"),
+    Language("cs"),
+    Language("cy"),
+    Language("da"),
+    Language("de"),
+    Language("el"),
+    Language("en"),
+    Language("es"),
+    Language("eu"),
+    Language("fi"),
+    Language("fil"),
+    Language("fo"),
+    Language("fr"),
+    Language("gl"),
+    Language("gu"),
+    Language("ha"),
+    Language("haw"),
+    Language("he"),
+    Language("hi"),
+    Language("hr"),
+    Language("ht"),
+    Language("hu"),
+    Language("hy"),
+    Language("id"),
+    Language("ig"),
+    Language("is"),
+    Language("it"),
+    Language("ja"),
+    Language("jw"),
+    Language("ka"),
+    Language("kk"),
+    Language("km"),
+    Language("kn"),
+    Language("ko"),
+    Language("ky"),
+    Language("la"),
+    Language("lb"),
+    Language("lg"),
+    Language("ln"),
+    Language("lo"),
+    Language("lt"),
+    Language("mg"),
+    Language("mi"),
+    Language("mk"),
+    Language("ml"),
+    Language("mr"),
+    Language("ms"),
+    Language("mt"),
+    Language("my"),
+    Language("ne"),
+    Language("nl"),
+    Language("nn"),
+    Language("no"),
+    Language("ny"),
+    Language("oc"),
+    Language("pa"),
+    Language("pl"),
+    Language("ps"),
+    Language("pt"),
+    Language("ro"),
+    Language("ru"),
+    Language("sd"),
+    Language("si"),
+    Language("sk"),
+    Language("sl"),
+    Language("sn"),
+    Language("so"),
+    Language("sq"),
+    Language("sr"),
+    Language("su"),
+    Language("sv"),
+    Language("sw"),
+    Language("ta"),
+    Language("te"),
+    Language("tg"),
+    Language("th"),
+    Language("tk"),
+    Language("tn"),
+    Language("tr"),
+    Language("tt"),
+    Language("uk"),
+    Language("ur"),
+    Language("uz"),
+    Language("vi"),
+    Language("wo"),
+    Language("xh"),
+    Language("yi"),
+    Language("yo"),
+    Language("yue"),
+    Language("zh"),
+    Language("zu"),
+];
+
 /// The languages the detected model can transcribe.
 pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
     match files {
@@ -241,6 +356,7 @@ pub fn languages_for(files: &ModelFiles) -> &'static [Language] {
         // model; if a narrower export ever appears, this is where it would go wrong, which is why
         // the catalog states languages per entry and `--languages` can override.
         ModelFiles::Qwen3Asr { .. } => QWEN3_ASR,
+        ModelFiles::Omnilingual { .. } => OMNILINGUAL,
     }
 }
 
@@ -254,6 +370,7 @@ pub fn languages_for_kind(kind: ModelKind) -> &'static [Language] {
         ModelKind::SenseVoice => SENSE_VOICE,
         ModelKind::Paraformer => PARAFORMER,
         ModelKind::Qwen3Asr => QWEN3_ASR,
+        ModelKind::Omnilingual => OMNILINGUAL,
     }
 }
 

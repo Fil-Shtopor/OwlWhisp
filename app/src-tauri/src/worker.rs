@@ -342,9 +342,30 @@ fn run_benchmark_suite(
     let clip_source = clips.1.describe();
     let total = usable.len();
 
+    // What the catalog says about this model, so an accelerator it cannot possibly use is skipped
+    // rather than attempted. Without the entry we try everything, which is the old behaviour and
+    // the right fallback: guessing "unsupported" from a missing catalog row would hide a model
+    // that works.
+    let entry = lw_core::model::Catalog::builtin()
+        .ok()
+        .and_then(|c| c.get(&model).cloned());
+
     let mut runs = Vec::new();
     let mut skipped = Vec::new();
     for (i, accel) in usable.iter().enumerate() {
+        if let Some(reason) = entry.as_ref().and_then(|e| e.unsupported_on(*accel)) {
+            on_progress(serde_json::json!({
+                "index": i, "total": total,
+                "accelerator": accel.id(), "label": accel.label(),
+                "stage": "skipped", "reason": reason.clone(),
+            }));
+            skipped.push(BenchSkipped {
+                accelerator: accel.id().to_string(),
+                label: accel.label().to_string(),
+                reason,
+            });
+            continue;
+        }
         on_progress(serde_json::json!({
             "index": i, "total": total,
             "accelerator": accel.id(), "label": accel.label(),
