@@ -8,13 +8,11 @@ import {
   onHotkeyChanged,
   onTranscript,
   onWorkerError,
-  setRecordingState,
   type AcceleratorReport,
   type ActiveBackend,
   type BackendOption,
   type BackendPreference,
   type HotkeyConfig,
-  type RecordingState,
   type TranscriptPayload,
 } from "../ipc";
 import { hotkeyParts, hotkeyTrigger } from "../format";
@@ -27,21 +25,58 @@ import {
   type LastRun,
 } from "../backend";
 import { STATE_VISUALS, type UiState } from "../stateVisuals";
-import { MicCheck } from "../MicCheck";
 
-/// The states the display can be forced into, with what each one means when it appears for real.
-///
-/// Forcing a state is a display test, not a dictation: no microphone is opened and nothing is
-/// transcribed. It does move the app's real state, though, so the overlay and the start/stop
-/// sounds follow along -- which is the point, since those are the parts hardest to check by
-/// dictating at the exact moment you want to look at them.
-const SIMULATED: readonly { readonly state: RecordingState; readonly means: string }[] = [
-  { state: "idle", means: "Waiting for the hotkey. Nothing is being captured." },
-  { state: "listening", means: "The microphone is open and your speech is being captured." },
-  { state: "processing", means: "Capture has ended and the model is turning it into text." },
-  { state: "done", means: "The text was produced and typed or copied. Returns to idle shortly." },
-  { state: "error", means: "Something failed; the banner above carries the worker's reason." },
-];
+/**
+ * Readable ink for a solid fill, chosen from the fill's own luminance.
+ *
+ * The state colours span a bright amber and a dark red, so one fixed text colour is unreadable on
+ * one end or the other. sRGB relative luminance with the usual coefficients, thresholded at 0.55.
+ */
+function inkOn(hex: string): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? "#101218" : "#ffffff";
+}
+
+/**
+ * The state, as the same pill the recording overlay shows — solid colour, pulsing while something
+ * is happening, and the binding on the same line.
+ *
+ * It replaces a 180px circle with a 44px bar. The circle was the tallest thing on the first screen
+ * by a wide margin and said exactly one word; at the default 920x660 window it pushed the
+ * scratchpad and everything under it below the fold. Matching the overlay is not only for space:
+ * the overlay is what the user sees while actually dictating, so the same shape and the same
+ * colours mean one thing has to be learned rather than two.
+ */
+function StatusPill({
+  state,
+  hotkey,
+  failed,
+  registration,
+}: {
+  state: UiState;
+  hotkey: HotkeyConfig | null;
+  failed: boolean;
+  registration: Registration;
+}) {
+  const visual = STATE_VISUALS[state];
+  return (
+    <div
+      className="status-pill"
+      style={{ backgroundColor: visual.color, color: inkOn(visual.color) }}
+      role="status"
+    >
+      <span className={visual.pulse ? "status-pill-dot pulsing" : "status-pill-dot"} />
+      <span className="status-pill-label">{visual.label}</span>
+      <span className="status-pill-hint">
+        <HotkeyHint hotkey={hotkey} failed={failed} registration={registration} />
+      </span>
+    </div>
+  );
+}
 
 /** What the OS shortcut registry answered. `unknown` covers "not asked yet" and "did not answer". */
 type Registration = "unknown" | "held" | "none";
@@ -282,7 +317,6 @@ export function DictatePanel({ state }: { state: UiState }) {
   const [lastTranscript, setLastTranscript] = useState<TranscriptPayload | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
-  const visual = STATE_VISUALS[state];
 
   useEffect(() => {
     let disposed = false;
@@ -434,28 +468,22 @@ export function DictatePanel({ state }: { state: UiState }) {
       ? backendLine.detail
       : `${backendLine.detail} (The worker could not be asked what is running: ${activeError})`;
 
-  // Which input the test stream will open. Read from the saved settings, because that is what the
-  // backend reads too — the picker in Settings only takes effect once it has been saved.
+  // Which input dictation will open, read from the saved settings because that is what the worker
+  // reads too. Only worth a sentence when a specific device is configured: "uses the system
+  // default" adds nothing to a line that already says to go and pick one.
   const deviceNote =
-    inputDevice === null
+    inputDevice === null || inputDevice.trim() === ""
       ? null
-      : inputDevice.trim() === ""
-        ? "Uses the system default input. Change it under Microphone in Settings."
-        : `Uses the input matching “${inputDevice.trim()}”, from Settings.`;
-
-  const dictating = state === "listening" || state === "processing";
+      : `It is currently set to the input matching “${inputDevice.trim()}”.`;
 
   return (
     <div className="dictate">
-      <div
-        className={visual.pulse ? "state-orb pulse" : "state-orb"}
-        style={{
-          backgroundColor: visual.color,
-          boxShadow: `0 0 48px ${visual.color}55`,
-        }}
+      <StatusPill
+        state={state}
+        hotkey={hotkey}
+        failed={settingsFailed}
+        registration={registration}
       />
-      <div className="state-label">{visual.label}</div>
-      <HotkeyHint hotkey={hotkey} failed={settingsFailed} registration={registration} />
       <BackendHint line={backendLine} detail={backendDetail} />
 
       {failure !== null && (
@@ -468,43 +496,21 @@ export function DictatePanel({ state }: { state: UiState }) {
         </p>
       )}
 
-      <div className="dictate-tools">
-        <MicCheck busyElsewhere={dictating} deviceNote={deviceNote} />
-        <Scratchpad last={lastTranscript} />
-      </div>
+      <Scratchpad last={lastTranscript} />
 
-      <section className="card simulate-card">
-        <div className="simulate-head">
-          <h3>Test displaying statuses</h3>
-          <p className="sub">
-            Puts the display into each state without dictating, so the orb, its wording, the
-            overlay and the start/stop sounds can be seen and heard on demand. No microphone is
-            opened and nothing is transcribed — but this does set the app's real state, so the
-            overlay and the sounds follow it.
-          </p>
-        </div>
-        <div className="simulate">
-          {SIMULATED.map(({ state: s, means }) => {
-            const current = s === state;
-            return (
-              <button
-                key={s}
-                type="button"
-                className={current ? "simulate-btn current" : "simulate-btn"}
-                aria-pressed={current}
-                onClick={() => void setRecordingState(s)}
-              >
-                <span className="simulate-dot" style={{ backgroundColor: STATE_VISUALS[s].color }} />
-                <span className="simulate-text">
-                  <span className="simulate-name">{STATE_VISUALS[s].label}</span>
-                  <span className="simulate-means">{means}</span>
-                </span>
-                {current && <span className="badge">showing now</span>}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {/*
+        No microphone meter here any more. The same control lives in Settings, next to the device
+        picker that fixes the problem it reports, and duplicating it cost most of the first
+        screen's height. What is left is the sentence that sends you there, which is the only part
+        a user needs on this tab -- and it names the device the worker will actually open.
+      */}
+      <p className="sub dictate-mic-note">
+        If the bar above does not turn red when you press the hotkey, or nothing is transcribed,
+        check the microphone: <b>Settings</b> has the input picker and a <b>Test microphone</b>{" "}
+        switch that shows whether sound is reaching the app.
+        {deviceNote !== null && <> {deviceNote}</>}
+      </p>
+
     </div>
   );
 }

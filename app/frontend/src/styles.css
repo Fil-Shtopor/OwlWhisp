@@ -106,55 +106,91 @@ body {
   width: 100%;
 }
 
+/*
+ * Left, not centred. The panel used to be built around a 132px circle, and centred captions under
+ * it read as captions. With the pill spanning the width, these are paragraphs beside it.
+ *
+ * `align-self` as well as `text-align`: the column centres its children, and prose keeps the 78ch
+ * measure, so text-align alone left a left-aligned paragraph sitting in the middle of the panel.
+ */
 .dictate > p {
-  text-align: center;
+  text-align: left;
+  align-self: flex-start;
 }
 
 /*
- * The two things you actually do on this screen: check the microphone, and try dictating into
- * something. Side by side once there is room for both to stay usable, stacked below that.
+ * The state, as the pill the recording overlay shows: the same shape and the same colours, so
+ * what you learn from the thing on screen while dictating is the thing you already know from this
+ * tab. It replaced a 132px circle plus a 22px caption plus a separate hint line -- about 210px of
+ * the 590px this panel gets in the default 920x660 window, spent saying one word.
  */
-.dictate-tools {
+.status-pill {
   width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 14px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 22px;
+  transition: background-color 160ms ease;
 }
 
-@media (min-width: 1080px) {
-  .dictate-tools {
-    grid-template-columns: minmax(300px, 1fr) minmax(380px, 1.5fr);
-  }
-}
-
-.state-orb {
-  width: 132px;
-  height: 132px;
+.status-pill-dot {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  transition: background-color 160ms ease, box-shadow 160ms ease;
+  flex: none;
+  background: currentColor;
 }
 
-.state-orb.pulse {
-  animation: orb-pulse 1.4s ease-in-out infinite;
+.status-pill-dot.pulsing {
+  animation: pill-dot-pulse 1.4s ease-in-out infinite;
 }
 
-@keyframes orb-pulse {
+@keyframes pill-dot-pulse {
   0%,
   100% {
     transform: scale(1);
     opacity: 1;
   }
   50% {
-    transform: scale(0.93);
-    opacity: 0.75;
+    transform: scale(0.6);
+    opacity: 0.45;
   }
 }
 
-.state-label {
-  font-size: 22px;
-  font-weight: 600;
+.status-pill-label {
+  font-size: 15px;
+  font-weight: 700;
   letter-spacing: 0.02em;
+  flex: none;
+}
+
+/* The binding shares the pill's line rather than taking one of its own. */
+.status-pill-hint {
+  margin-left: auto;
+  min-width: 0;
+  text-align: right;
+}
+
+.status-pill-hint .hint {
+  margin: 0;
+  color: inherit;
+  opacity: 0.85;
+  font-size: 12px;
+}
+
+.status-pill-hint .kbd {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(0, 0, 0, 0.28);
+  color: inherit;
+}
+
+/* Left-aligned: it is a paragraph of instructions, not a caption under a hero image. */
+.dictate-mic-note {
+  width: 100%;
+  margin: 0;
+  text-align: left;
 }
 
 .hint {
@@ -317,28 +353,6 @@ body {
   align-self: center;
 }
 
-.simulate {
-  display: flex;
-  gap: 6px;
-  margin-top: 14px;
-}
-
-.simulate button {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-raised);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.simulate button:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
 /* ---------- Forms (Settings) ---------- */
 
 .form {
@@ -349,29 +363,55 @@ body {
 }
 
 /*
- * Wide windows: the sections tile into two columns instead of stacking into one very long, very
- * wide ribbon. 620px is the width the hotkey editor and the accelerator picker need before their
- * own rows start wrapping, so two columns only appear once both can have it.
- *
- * The Save button and the lines that report on it keep a full row: they end the form, and reading
- * "Settings saved" beside some unrelated field would be nonsense.
+ * The two column groups are wrappers in the markup, not auto-flow: which setting lands where must
+ * not depend on how tall the accelerator card happens to be on this machine. Below the breakpoint
+ * they are `display: contents`, so their children stack in the form exactly as if the wrappers
+ * were not there.
  */
-@media (min-width: 1300px) {
+.form-col {
+  display: contents;
+}
+
+/* Save and its result share a row -- see the comment where it is rendered. */
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.save-row .btn {
+  flex: none;
+}
+
+.save-row .status-ok,
+.save-row .status-err {
+  margin: 0;
+}
+
+/*
+ * Wide windows: one narrow column for what you adjust, one twice as wide for what describes the
+ * hardware. 1:2 rather than 1:1 because the accelerator picker's rows are the widest thing in the
+ * form and the hotkey editor's are the narrowest, so an even split wasted space on one side and
+ * wrapped rows on the other.
+ */
+@media (min-width: 1200px) {
   .form {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     align-items: start;
     gap: 16px 20px;
   }
 
-  .form > .btn,
-  .form > .status-ok,
-  .form > .status-err {
-    grid-column: 1 / -1;
+  .form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
   }
 
-  .form > .btn {
-    justify-self: start;
+  .save-row {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1667,7 +1707,9 @@ input[type="radio"] {
   /* The sound themes use this class too -- both are radio lists of the same shape. */
   .accel-group-block {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+    /* 420px, so the wide column fits exactly two options per row rather than three cramped
+       ones, and the narrow column keeps one. */
+    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
     gap: 8px 14px;
     align-items: start;
   }
@@ -1681,108 +1723,7 @@ input[type="radio"] {
   }
 }
 
-/*
- * 1560px, not 1700px. The target machine is a 2880px display at 175% scaling, which is 1645 CSS
- * pixels maximised -- a 1700px rule is unreachable there, so the third column would have been
- * dead code on the one machine this is built for. At 1560 the three columns are about 490px each,
- * which every section here fits without its own rows wrapping.
- */
-@media (min-width: 1560px) {
-  .form {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 
-  /*
-   * The accelerator picker is the tallest section by a wide margin and its rows are the widest,
-   * so it takes two of the three columns; everything else stays one column wide and tiles around
-   * it. Without this the third column is mostly empty space beside one very tall card.
-   */
-  .form > .accel-picker {
-    grid-column: span 2;
-  }
-}
-
-/* ---------- Status test (Dictate) ---------- */
-
-/*
- * The five state buttons used to be an unlabelled row of lowercase words under the orb. They read
- * as debug leftovers, and nothing said what they did or that pressing one is a display test rather
- * than a recording. Now they are a titled card where each button says what its state means when it
- * turns up for real, and the one currently showing is marked.
- */
-.simulate-card {
-  width: 100%;
-  margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-raised);
-  text-align: left;
-}
-
-.simulate-head h3 {
-  margin: 0 0 4px;
-  font-size: 14px;
-}
-
-.simulate-head .sub {
-  margin: 0 0 12px;
-}
-
-.simulate {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-  gap: 8px;
-  margin-top: 0;
-}
-
-.simulate-btn {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font: inherit;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.simulate-btn:hover {
-  border-color: var(--accent);
-}
-
-.simulate-btn.current {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-}
-
-.simulate-dot {
-  width: 10px;
-  height: 10px;
-  margin-top: 5px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.simulate-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.simulate-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.simulate-means {
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
 /* ---------- Roles, picks and the glossary (Models) ---------- */
 
@@ -1939,4 +1880,17 @@ input[type="radio"] {
   margin: 0;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* The list's own controls, sitting on the list they act on rather than up beside Refresh. */
+.model-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-count {
+  margin-left: auto;
 }

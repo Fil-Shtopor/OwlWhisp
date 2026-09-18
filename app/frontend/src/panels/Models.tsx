@@ -1058,25 +1058,15 @@ export function ModelsPanel() {
         </div>
       </section>
 
+      {/*
+        Refresh acts on the catalog as a whole, so it stays up here with the install directory it
+        re-reads. The controls that only rearrange the list moved down to sit on top of the list --
+        three cards away from the rows they affected, they read as page-level actions.
+      */}
       <div className="toolbar">
-        <button className="btn secondary" onClick={() => void refresh()} disabled={refreshing}>
+        <button className="btn secondary small" onClick={() => void refresh()} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
-        {catalog.entries.length > 0 && (
-          <button
-            className="btn secondary small"
-            onClick={() =>
-              setOpenIds(allOpen ? new Set<string>() : new Set(entries.map((e) => e.id)))
-            }
-          >
-            {allOpen ? "Collapse all" : "Expand all"}
-          </button>
-        )}
-        {sort !== null && (
-          <button className="btn secondary small" onClick={() => setSort(null)}>
-            Catalog order
-          </button>
-        )}
         <span className="sub hint mono">{catalog.models_root}</span>
       </div>
 
@@ -1093,6 +1083,24 @@ export function ModelsPanel() {
         <p className="hint">The catalog is empty — no models to show.</p>
       ) : (
         <div className="model-table">
+          <div className="model-tools">
+            <button
+              className="btn secondary small"
+              onClick={() =>
+                setOpenIds(allOpen ? new Set<string>() : new Set(entries.map((e) => e.id)))
+              }
+            >
+              {allOpen ? "Collapse all" : "Expand all"}
+            </button>
+            {sort !== null && (
+              <button className="btn secondary small" onClick={() => setSort(null)}>
+                Catalog order
+              </button>
+            )}
+            <span className="sub model-count">
+              {catalog.entries.length} model{catalog.entries.length === 1 ? "" : "s"}
+            </span>
+          </div>
           <div className="model-thead">
             <span className="mcell mcell-arrow" />
             <span className="mcell mcell-name">{sortHeader("name", "Model", null)}</span>

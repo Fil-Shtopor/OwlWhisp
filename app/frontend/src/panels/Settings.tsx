@@ -974,6 +974,15 @@ export function SettingsPanel({ state }: { state: UiState }) {
 
   return (
     <div className="form">
+      {/*
+        Two deliberate columns rather than auto-flow. Auto-flow packed the sections by height, so
+        which setting landed where changed with the window and with how many accelerators this
+        machine reports -- and the accelerator picker, by far the tallest and widest card, dragged
+        the rest around it. Grouping is fixed instead: what you adjust often on the left, what
+        describes the hardware on the right. Below the breakpoint both wrappers are
+        `display: contents`, so the sections stack in one column exactly as before.
+      */}
+      <div className="form-col form-col-main">
       <section className="field hotkey-editor">
         <label>Hotkey</label>
         <div className="hotkey-preview">
@@ -1081,6 +1090,24 @@ export function SettingsPanel({ state }: { state: UiState }) {
         </div>
       </section>
 
+      <SoundCues settings={settings} disabled={saving} onChange={update} />
+
+      <div className="field">
+        <div className="field-row">
+          <label htmlFor="overlay-enabled">Show recording overlay</label>
+          <input
+            id="overlay-enabled"
+            type="checkbox"
+            checked={settings.overlay_enabled}
+            onChange={(e) => update({ overlay_enabled: e.currentTarget.checked })}
+          />
+        </div>
+      </div>
+
+      <AutostartField mirror={settings.autostart} onVerified={mirrorAutostart} />
+      </div>
+
+      <div className="form-col form-col-wide">
       <section className="field accel-picker">
         <label>Accelerator</label>
         <span className="sub">
@@ -1212,29 +1239,20 @@ export function SettingsPanel({ state }: { state: UiState }) {
         />
         <span className="sub">Higher values require louder/clearer speech to trigger.</span>
       </div>
-
-      <div className="field">
-        <div className="field-row">
-          <label htmlFor="overlay-enabled">Show recording overlay</label>
-          <input
-            id="overlay-enabled"
-            type="checkbox"
-            checked={settings.overlay_enabled}
-            onChange={(e) => update({ overlay_enabled: e.currentTarget.checked })}
-          />
-        </div>
       </div>
 
-      <SoundCues settings={settings} disabled={saving} onChange={update} />
-
-      <AutostartField mirror={settings.autostart} onVerified={mirrorAutostart} />
-
-      <button className="btn" onClick={() => void save()} disabled={saving || hotkeyErr !== null}>
-        {saving ? "Saving…" : "Save"}
-      </button>
-
-      {status.kind === "saved" && <p className="status-ok">Settings saved.</p>}
-      {status.kind === "error" && <p className="status-err">Save failed: {status.message}</p>}
+      {/*
+        Save and its result on one row. The result used to sit under the button, which on a page
+        this tall meant the one line confirming the save was below the fold at the moment it
+        appeared -- the user pressed Save and saw nothing happen.
+      */}
+      <div className="save-row">
+        <button className="btn" onClick={() => void save()} disabled={saving || hotkeyErr !== null}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {status.kind === "saved" && <p className="status-ok">Settings saved.</p>}
+        {status.kind === "error" && <p className="status-err">Save failed: {status.message}</p>}
+      </div>
     </div>
   );
 }
