@@ -474,11 +474,14 @@ pub const REFERENCE_CPU_CORES: f32 = 8.0;
 
 /// Ratio applied to the CPU estimate when the encoder can run on a Qualcomm NPU.
 ///
-/// Anchored on the single measured pair we have: Parakeet TDT 0.6B v3 end-to-end on the Snapdragon
-/// X2 Elite, CPU RTF 0.032 vs NPU RTF 0.0145 (`docs/benchmarks.md` §5.1) → 0.45. It has **not**
-/// been validated for any other model, and end-to-end speedup is capped by the CPU-side mel and
-/// TDT decode stages, so it is far smaller than the encoder-only speedup.
-pub const NPU_RTF_RATIO: f32 = 0.45;
+/// Anchored on the one measured pair we have, taken **in a single session on identical clips** on
+/// 2026-09-18: Parakeet TDT 0.6B v3 end-to-end on the Snapdragon X2 Elite, warm CPU RTF 0.0401 vs
+/// warm NPU RTF 0.0141 → 0.35. The previous 0.45 came from a CPU figure and an NPU figure taken
+/// three weeks apart under unrecorded machine load, which is not a pair.
+///
+/// It has **not** been validated for any other model, and end-to-end speedup is capped by the
+/// CPU-side mel and TDT decode stages, so it is far smaller than the encoder-only speedup.
+pub const NPU_RTF_RATIO: f32 = 0.35;
 
 /// Ratio applied to the CPU estimate when CoreML is available.
 ///
@@ -497,14 +500,34 @@ pub const MAX_CORE_SCALE: f32 = 4.0;
 
 /// Base real-time factor for a speed tier on [`REFERENCE_CPU_CORES`].
 ///
-/// The `VeryFast` anchor (0.035) is set from the measured Parakeet CPU RTF of 0.032 on a 12-core
-/// Snapdragon X2 Elite; the other tiers are ordinal steps away from it, not measurements.
+/// CALIBRATED 2026-09-18 from the warm CPU RTF of all eight catalog entries, measured back to back
+/// on an idle Snapdragon X2 Elite (18 cores, so `core_scale` = [`MIN_CORE_SCALE`] = 0.75). Each
+/// base is the tier's **median** measurement divided by that scale, so the estimate lands on the
+/// middle of its tier rather than on one member of it:
+///
+/// | tier        | measured warm CPU RTF                 | median  | base   |
+/// |-------------|---------------------------------------|---------|--------|
+/// | `VeryFast`  | 0.0099, 0.0102, 0.0125, 0.0149        | 0.01135 | 0.0151 |
+/// | `Fast`      | 0.0297, 0.0401                        | 0.0349  | 0.0465 |
+/// | `Moderate`  | 0.0901, 0.1844                        | 0.1373  | 0.183  |
+/// | `Slow`      | nothing in the catalog is this slow   | —       | 0.44   |
+///
+/// The previous values were ordinal guesses hung off one Parakeet measurement, and they ran about
+/// 2× pessimistic: the `VeryFast` estimate read 0.0263 on this machine where four `VeryFast`
+/// entries actually measure 0.0099 to 0.0149.
+///
+/// `Slow` has no measurement behind it -- no entry here is that slow -- so it keeps its ordinal
+/// step of 2.4× `Moderate` rather than inventing a number. Say so if one is ever added.
+///
+/// A median over two or four samples is a weak statistic and these are one machine's numbers. The
+/// output is still an estimate, marked as one everywhere it is shown, and is not a substitute for
+/// `lw bench`.
 pub fn base_rtf(tier: SpeedTier) -> f32 {
     match tier {
-        SpeedTier::Slow => 0.60,
-        SpeedTier::Moderate => 0.25,
-        SpeedTier::Fast => 0.08,
-        SpeedTier::VeryFast => 0.035,
+        SpeedTier::Slow => 0.44,
+        SpeedTier::Moderate => 0.183,
+        SpeedTier::Fast => 0.0465,
+        SpeedTier::VeryFast => 0.0151,
     }
 }
 
@@ -583,15 +606,32 @@ pub struct Recommendation<'a> {
 
 impl Recommendation<'_> {
     /// Sort key: runnable first, then better quality, then lower estimated RTF, then id.
-    fn sort_key(&self) -> (u8, std::cmp::Reverse<QualityTier>, u32, &str) {
-        let rtf_bits = self
+    fn sort_key(&self) -> (u8, std::cmp::Reverse<QualityTier>, u32, std::cmp::Reverse<usize>, &str) {
+        // The estimate is bucketed before it is compared, because it cannot support a finer
+        // ordering than that. It is a tier median scaled by a core count, accurate to about a
+        // factor of two -- so ranking one model above another on a 0.001 difference in it is
+        // ranking them on nothing. That is not hypothetical: calibrating the tiers on 2026-09-18
+        // put gigaam-v3-ru at 0.0113 and parakeet-tdt-0.6b-v3 at 0.0122, and the top
+        // recommendation for every user became a model that speaks only Russian.
+        //
+        // Quarter-decade buckets are about 1.8x wide, just under the estimate's own tolerance.
+        let rtf_bucket = self
             .estimated_rtf
-            .map(|r| (r.max(0.0) * 1e6) as u32)
+            .map(|r| {
+                let b = (r.max(1e-6).log10() * 4.0).round() as i32;
+                // Shifted into u32 so an entry with no estimate still sorts last.
+                (b + 1000) as u32
+            })
             .unwrap_or(u32::MAX);
         (
             u8::from(!self.runnable),
             std::cmp::Reverse(self.entry.quality),
-            rtf_bits,
+            rtf_bucket,
+            // Within a bucket, more languages first. This is a general recommendation made before
+            // anyone has said what they speak, so the model that covers more of them is the safer
+            // default; a reader who has said what they speak gets the per-language role picks
+            // instead, which filter on exactly that.
+            std::cmp::Reverse(self.entry.languages.len()),
             self.entry.id.as_str(),
         )
     }
@@ -1311,27 +1351,96 @@ mod tests {
             estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 16),
             estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 128)
         );
-        // The reference machine itself gets the unscaled base RTF.
-        assert!((estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 8) - 0.08).abs() < 1e-6);
+        // The reference machine itself gets the unscaled base RTF. Written against `base_rtf`
+        // rather than a literal: this test is about the scaling, and hard-coding the calibration
+        // here only means editing two places every time the tiers are re-measured.
+        let base = base_rtf(SpeedTier::Fast);
+        assert!((estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 8) - base).abs() < 1e-6);
         // Asymmetry: at most 1.33x faster, but up to 4x slower.
         let fastest = estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 64);
         let slowest = estimate_rtf(SpeedTier::Fast, HardwareTarget::Cpu, 1);
-        assert!((fastest - 0.08 * MIN_CORE_SCALE).abs() < 1e-6, "{fastest}");
-        assert!((slowest - 0.08 * MAX_CORE_SCALE).abs() < 1e-6, "{slowest}");
+        assert!((fastest - base * MIN_CORE_SCALE).abs() < 1e-6, "{fastest}");
+        assert!((slowest - base * MAX_CORE_SCALE).abs() < 1e-6, "{slowest}");
     }
 
     #[test]
-    fn estimate_of_parakeet_cpu_is_within_2x_of_the_measured_value() {
-        // Sanity-check the heuristic against the one end-to-end pair we actually measured
-        // (docs/benchmarks.md §5.1: CPU 0.032, NPU 0.0145 on a 12-core X2 Elite). We only assert
-        // an order-of-magnitude match — that is all an estimate is worth.
-        let est_cpu = estimate_rtf(SpeedTier::VeryFast, HardwareTarget::Cpu, 12);
-        let est_npu = estimate_rtf(SpeedTier::VeryFast, HardwareTarget::QnnNpu, 12);
-        assert!((0.5..2.0).contains(&(est_cpu / 0.032)), "cpu estimate {est_cpu}");
-        assert!((0.5..2.0).contains(&(est_npu / 0.0145)), "npu estimate {est_npu}");
+    fn every_measured_entry_is_estimated_within_2x_of_its_own_measurement() {
+        // This is what calibrating the tiers bought, and the thing most likely to rot: someone
+        // adds an entry, picks a tier by eye, measures it later and never revisits the tier. The
+        // estimate is coarse on purpose, but one that is 2x out on the tier holding half the
+        // catalog is not an estimate, it is a wrong number with a tilde in front of it -- which is
+        // exactly what the pre-2026-09-18 values were.
+        //
+        // 18 cores: the machine every measurement in the catalog was taken on. The estimate is
+        // scaled for the reader's machine, so it can only be checked against its own.
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        let mut checked = 0;
+        for entry in &catalog.entries {
+            for m in &entry.measurements {
+                let est = estimate_rtf(entry.speed, m.hardware, 18);
+                let ratio = est / m.rtf;
+                assert!(
+                    (0.5..2.0).contains(&ratio),
+                    "{}: {} tier estimates {est:.4} on {:?} but it measured {:.4} ({ratio:.2}x).                      Either the tier is wrong for this entry or base_rtf needs re-measuring.",
+                    entry.id,
+                    entry.speed,
+                    m.hardware,
+                    m.rtf
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 8, "only {checked} measurements checked; the catalog lost some");
     }
 
     // ----- recommendation -----
+
+    #[test]
+    fn a_hair_of_estimated_speed_does_not_outrank_language_coverage() {
+        // The exact case that appeared when the tiers were calibrated: two entries of equal
+        // quality whose estimates differ by about 8%, which is inside the estimate's own error and
+        // inside the run-to-run noise of the measurement it was calibrated from. Ordering them by
+        // that number handed the global recommendation to a single-language model.
+        // Built the way the real pair arose: a `fast` model reaching the NPU lands within a few
+        // percent of a `very_fast` model stuck on the CPU.
+        let mut wide = entry("wide");
+        wide.languages = (0..25).map(|i| format!("l{i}")).collect();
+        wide.speed = SpeedTier::Fast;
+        wide.hardware = vec![HardwareTarget::Cpu, HardwareTarget::QnnNpu];
+        let mut narrow = entry("narrow");
+        narrow.languages = vec!["ru".to_string()];
+        narrow.speed = SpeedTier::VeryFast;
+        narrow.hardware = vec![HardwareTarget::Cpu];
+        assert_eq!(wide.quality, narrow.quality, "the test needs them tied on quality");
+
+        let c = catalog(vec![narrow, wide]);
+        let recs = c.recommend(&npu_machine());
+        let est: Vec<f32> = recs.iter().filter_map(|r| r.estimated_rtf).collect();
+        assert_eq!(est.len(), 2);
+        let spread = est[0].max(est[1]) / est[0].min(est[1]);
+        assert!(spread < 2.0, "the two estimates must be close for this test to mean anything: {spread}");
+        assert_eq!(
+            recs[0].entry.id, "wide",
+            "within one speed bucket the broader model leads; got {:?}",
+            recs.iter().map(|r| r.entry.id.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_real_speed_difference_still_outranks_language_coverage() {
+        // The tiebreak must stay a tiebreak: a model a whole tier faster still wins, however few
+        // languages it claims.
+        let mut wide = entry("wide");
+        wide.languages = (0..100).map(|i| format!("l{i}")).collect();
+        wide.speed = SpeedTier::Moderate;
+        let mut narrow = entry("narrow");
+        narrow.languages = vec!["ru".to_string()];
+        narrow.speed = SpeedTier::VeryFast;
+
+        let c = catalog(vec![wide, narrow]);
+        let recs = c.recommend(&cpu_machine());
+        assert_eq!(recs[0].entry.id, "narrow");
+    }
 
     #[test]
     fn npu_machine_prefers_the_npu_target() {

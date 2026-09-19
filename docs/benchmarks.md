@@ -244,18 +244,30 @@ are **estimates**, and the code, the JSON and the tables keep the two apart on p
 `lw_core::model::catalog::estimate_rtf(speed_tier, hardware, cpu_cores)` — deliberately simple, so
 you can judge it:
 
-1. Each catalog entry carries an editorial **speed tier**. Each tier maps to a base RTF on a
-   documented reference machine (an 8-performance-core ARM64 laptop CPU on the ORT CPU EP):
+1. Each catalog entry carries a **speed tier**. Each tier maps to a base RTF on a documented
+   reference machine (an 8-performance-core ARM64 laptop CPU on the ORT CPU EP).
 
-   | Speed tier | Base RTF @ 8 cores |
-   |---|---|
-   | `slow` | 0.60 |
-   | `moderate` | 0.25 |
-   | `fast` | 0.08 |
-   | `very_fast` | 0.035 |
+   **Recalibrated 2026-09-18** from the warm CPU RTF of all eight catalog entries, measured back to
+   back on an idle X2 (18 cores, so the core scale is its 0.75 floor). Each base is the tier's
+   *median* measurement divided by that scale, so the estimate lands in the middle of its tier
+   rather than on one member of it:
 
-   The `very_fast` anchor is set from the measured Parakeet CPU RTF of 0.032 in §5.1. The other
-   three are ordinal steps away from it — they are **not** measurements of anything.
+   | Speed tier | Measured warm CPU RTF | Median | Base RTF @ 8 cores | Was |
+   |---|---|---|---|---|
+   | `very_fast` | 0.0099, 0.0102, 0.0125, 0.0149 | 0.01135 | **0.0151** | 0.035 |
+   | `fast` | 0.0297, 0.0401 | 0.0349 | **0.0465** | 0.08 |
+   | `moderate` | 0.0901, 0.1844 | 0.1373 | **0.183** | 0.25 |
+   | `slow` | nothing here is this slow | — | **0.44** | 0.60 |
+
+   The old values were ordinal guesses hung off a single Parakeet measurement and ran about 2×
+   pessimistic: on the X2 the `very_fast` estimate read 0.0263 where four `very_fast` entries
+   actually measure 0.0099–0.0149. `slow` still has nothing behind it — no entry is that slow — so
+   it keeps its ordinal step of 2.4× `moderate` rather than inventing a number.
+
+   One tier assignment was wrong and was corrected by the same measurements:
+   `parakeet-tdt-0.6b-v3` moved from `very_fast` to `fast`, because its warm CPU RTF is 0.0401
+   while the entries still marked `very_fast` measure 0.0099–0.0149 and `omnilingual-300m` —
+   already `fast` — measures 0.0297.
 
 2. Scale by core count: `clamp(8 / clamp(cores, 2, 16), 0.75, 4.0)`. The clamps are asymmetric on
    purpose. A small or unidentified machine takes up to a 4× penalty; a big machine is credited
@@ -264,9 +276,12 @@ you can judge it:
    reference figure.)
 
 3. If an accelerator is available *and* the entry ships an artifact for it, multiply by
-   `NPU_RTF_RATIO = 0.45` (Qualcomm) or `COREML_RTF_RATIO = 0.60` (Apple). The NPU ratio is the one
-   measured pair we have — 0.0145 / 0.032 from §5.1 — and is validated for **no other model**. The
-   CoreML ratio is an unvalidated placeholder; see §7.
+   `NPU_RTF_RATIO = 0.35` (Qualcomm) or `COREML_RTF_RATIO = 0.60` (Apple). The NPU ratio is the one
+   measured pair we have, and it is now a genuine pair: Parakeet TDT 0.6B v3 measured **in a single
+   session on identical clips** on 2026-09-18, warm CPU 0.0401 against warm NPU 0.0141 → 0.35. The
+   previous 0.45 divided a CPU figure by an NPU figure taken three weeks apart under unrecorded
+   machine load. It is validated for **no other model**. The CoreML ratio is an unvalidated
+   placeholder; see §7.
 
 An accelerator counts only when its *execution provider* is really available, not merely when the
 OS reports the hardware: `lw-platform`'s detector can see a Hexagon driver package while the QNN EP
@@ -274,10 +289,22 @@ fails to load. `lw models list` / `info` register the QNN EP and enumerate devic
 compare` and `lw bench --quick` use the weaker "is the EP library there" check instead, because
 registering the EP behind an engine's back pulls it into sessions meant to stay on the CPU.
 
-**How good is the heuristic?** On the one machine where both numbers exist, `lw models list`
-estimated **~0.0118** for Parakeet on the NPU and `lw models compare` measured **0.0142** on the
-same machine minutes later — about 20 % optimistic. That is the accuracy class to expect: right
-order of magnitude, useful for ranking, useless as a promise.
+**How good is the heuristic?** Since the recalibration, every one of the nine catalog measurements
+is within a factor of 2 of its own entry's estimate, and a test
+(`every_measured_entry_is_estimated_within_2x_of_its_own_measurement`) fails the build if that stops
+being true. On the X2 the estimates now read ~0.011 `very_fast`, ~0.035 `fast`, ~0.137 `moderate`
+and ~0.012 for Parakeet on the NPU, against measurements of 0.0099–0.0149, 0.0297–0.0401,
+0.0901–0.1844 and 0.0141. That is the accuracy class to expect: right order of magnitude, useful for
+ranking, useless as a promise.
+
+**And it is only used for ranking down to a bucket.** The recommender compares estimates in
+quarter-decade buckets (~1.8× wide, just under the estimate's own tolerance) rather than exactly,
+because ranking two models on a 0.001 difference in an estimate is ranking them on nothing. The
+calibration proved the point: it put `gigaam-v3-ru` at 0.0113 and `parakeet-tdt-0.6b-v3` at 0.0122,
+and the top recommendation for every user briefly became a model that speaks only Russian. Inside a
+bucket the tiebreak is language coverage — a general recommendation is made before anyone has said
+what they speak, so the broader model is the safer default, and a reader who *has* said gets the
+per-language role picks instead.
 
 ### 6.2 `lw bench --quick`
 
