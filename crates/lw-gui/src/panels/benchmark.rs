@@ -194,35 +194,110 @@ impl State {
 
 fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
     let mut c = column![
-        widgets::heading("Result"),
+        widgets::heading("Every backend, side by side"),
         fact("Machine", suite.machine.clone()),
         fact("Model", suite.model_id.clone()),
         fact("Clips", suite.clip_source.clone()),
+        widgets::prose(
+            "Every row below ran those same clips, loaded once before the sweep started. That is \
+             what makes these numbers a comparison rather than three unrelated benchmarks.",
+        ),
     ]
     .spacing(4);
-    if let Some(f) = &suite.fastest {
+
+    if suite.runs.is_empty() {
         c = c.push(
-            row![widgets::badge_yes("fastest"), widgets::body(f.clone())]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
+            iced::widget::text(
+                "No accelerator could be measured. Anything that was offered is listed below with \
+                 the reason it did not run.",
+            )
+            .size(13)
+            .color(theme::BAD),
+        );
+        return widgets::card(c).into();
+    }
+
+    let mut table = column![row![
+        cell(widgets::field_label("backend"), 240),
+        cell(widgets::field_label("cold RTF"), 110),
+        cell(widgets::field_label("warm RTF"), 110),
+        cell(widgets::field_label("error"), 110),
+        widgets::field_label("marks"),
+    ]
+    .spacing(8)]
+    .spacing(2);
+
+    for run in &suite.runs {
+        let id = run.accelerator.as_deref();
+        let fastest = id.is_some() && id == suite.fastest.as_deref();
+        let accurate = id.is_some() && id == suite.most_accurate.as_deref();
+
+        let mut marks = row![].spacing(6);
+        if fastest {
+            marks = marks.push(widgets::badge_yes("fastest"));
+        }
+        if accurate {
+            marks = marks.push(widgets::badge_yes("most accurate"));
+        }
+        if !fastest && !accurate {
+            marks = marks.push(widgets::sub("-"));
+        }
+
+        table = table.push(
+            row![
+                cell(widgets::body(run.backend.clone()), 240),
+                cell(widgets::mono(format!("{:.4}", run.cold_rtf)), 110),
+                cell(
+                    match run.warm_rtf {
+                        Some(r) => widgets::mono(format!("{r:.4}")),
+                        None => widgets::sub("no warm run"),
+                    },
+                    110,
+                ),
+                cell(
+                    match run.wer {
+                        Some(w) => widgets::mono(format!(
+                            "{} {:.1}%",
+                            run.unit.unwrap_or("WER"),
+                            w * 100.0
+                        )),
+                        None => widgets::sub("no reference"),
+                    },
+                    110,
+                ),
+                marks,
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
         );
     }
-    if let Some(a) = &suite.most_accurate {
-        c = c.push(
-            row![widgets::badge_yes("most accurate"), widgets::body(a.clone())]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-        );
-    }
-    widgets::card(c).into()
+
+    widgets::card(c.push(widgets::inset(table))).into()
+}
+
+/// A fixed-width cell, so the columns line up without a table widget.
+fn cell<'a>(content: impl Into<Element<'a, Message>>, width: u16) -> Element<'a, Message> {
+    container(content).width(width).into()
+}
+
+/// Is this note the engine saying it did not get what was asked for?
+///
+/// The distinction earns its own badge because it is the one note a reader must not skim past: a
+/// run labelled "NPU" that quietly fell back to the CPU is the exact failure this project refuses
+/// to ship, and the note is where it shows.
+fn is_fallback(note: &str) -> bool {
+    let text = note.to_lowercase();
+    text.contains("unavailable") || text.contains("using cpu")
 }
 
 fn run_card<'a>(run: &'a BenchReport, _suite: &'a BenchSuite) -> Element<'a, Message> {
     let warm = run
         .warm_rtf
         .map(|r| format!("{r:.4}"))
-        .unwrap_or_else(|| "— (only one clip ran)".into());
+        .unwrap_or_else(|| "no warm run".into());
 
+    // RTF is two different quantities and the difference decides which number a reader should
+    // quote, so each carries the sentence that says which it is.
     let mut stats = column![
         row![
             widgets::heading(run.backend.clone()),
@@ -230,8 +305,20 @@ fn run_card<'a>(run: &'a BenchReport, _suite: &'a BenchSuite) -> Element<'a, Mes
         ]
         .spacing(10)
         .align_y(iced::Alignment::Center),
-        fact("Warm RTF", warm),
         fact("Cold RTF", format!("{:.4}", run.cold_rtf)),
+        widgets::sub("First run, including one-time warm-up."),
+        fact("Warm RTF", warm),
+        widgets::sub(match run.warm_rtf {
+            None =>
+                "Only one clip, so nothing ran after the first - there is no warm figure to \
+                 average."
+                    .to_string(),
+            Some(_) => format!(
+                "Mean of {} run{} after the first.",
+                run.warm_count,
+                if run.warm_count == 1 { "" } else { "s" }
+            ),
+        }),
         fact("Audio", format!("{:.1} s", run.audio_secs)),
     ]
     .spacing(4);
@@ -302,12 +389,39 @@ fn run_card<'a>(run: &'a BenchReport, _suite: &'a BenchSuite) -> Element<'a, Mes
         )));
     }
 
-    for note in &run.notes {
-        stats = stats.push(widgets::sub(note.clone()));
+    if !run.notes.is_empty() {
+        let mut notes = column![
+            widgets::field_label("Backend selection"),
+            widgets::prose(
+                "\u{201c}backend that ran\u{201d} above is what actually executed; these are the \
+                 engine's notes on why, in the order it decided them.",
+            ),
+        ]
+        .spacing(4);
+        for note in &run.notes {
+            let fallback = is_fallback(note);
+            notes = notes.push(
+                row![
+                    if fallback {
+                        widgets::badge("fallback", theme::ESTIMATE)
+                    } else {
+                        widgets::badge("note", theme::TEXT_DIM)
+                    },
+                    widgets::sub(note.clone()),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            );
+        }
+        stats = stats.push(notes);
     }
 
     // Every clip, so a reader can see which one a figure came from rather than trusting the mean.
-    let mut clips = column![widgets::sub("clip · duration · time · RTF · error")].spacing(2);
+    let mut clips = column![
+        widgets::field_label("Per clip"),
+        widgets::sub("clip · duration · time · RTF · error"),
+    ]
+    .spacing(2);
     for c in &run.clips {
         clips = clips.push(widgets::sub(format!(
             "{}  {:.2}s  {:.0}ms  {:.3}  {}",
