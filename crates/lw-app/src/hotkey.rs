@@ -486,7 +486,12 @@ fn pump_loop(
                 Ok(edge) => {
                     // The state is read now, from the worker, rather than remembered here: the
                     // capture can end without the hotkey being involved at all.
-                    if let Some(cmd) = decide(edge, mode, remote.state()).command() {
+                    let state = remote.state();
+                    let action = decide(edge, mode, state);
+                    // Not a keystroke log: this is our own configured combination firing, and
+                    // "I pressed it and nothing happened" is otherwise undiagnosable from a log.
+                    tracing::debug!(?edge, ?mode, ?state, ?action, "hotkey edge");
+                    if let Some(cmd) = action.command() {
                         remote.send(cmd);
                     }
                 }

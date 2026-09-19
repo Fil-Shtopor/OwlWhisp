@@ -23,8 +23,9 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, KBDLLHOOKSTRUCT, MSG, PM_REMOVE, PeekMessageW, SetWindowsHookExW,
-    TranslateMessage, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, SetTimer,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
 use crate::hotkey::{ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, ParsedCombo, parse_spec};
@@ -41,6 +42,29 @@ static COMBO_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static HOOK_STARTED: AtomicBool = AtomicBool::new(false);
 static HOOK_HEALTHY: AtomicBool = AtomicBool::new(false);
+
+/// Milliseconds (since [`epoch`]) at which the hook last saw any key event at all.
+///
+/// Evidence that the hook is still installed. Windows removes a low-level hook silently when its
+/// thread fails to answer within `LowLevelHooksTimeout`, and offers no way to ask whether that has
+/// happened; a key event arriving is the only proof there is.
+static LAST_EVENT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How long the hook may go without seeing a single key before it is re-installed.
+///
+/// Long enough that an ordinary pause in typing does not cause churn, short enough that a user who
+/// comes back to the keyboard finds a working hotkey.
+const WATCHDOG_MS: u32 = 5_000;
+
+/// Process start, so elapsed time fits in an atomic.
+fn epoch() -> std::time::Instant {
+    static EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
+    *EPOCH.get_or_init(std::time::Instant::now)
+}
+
+fn now_ms() -> u64 {
+    epoch().elapsed().as_millis() as u64
+}
 
 /// The event channel outlives everything (the hook callback holds no owned sender).
 static EVENTS: OnceLock<(Sender<HotkeyEvent>, Receiver<HotkeyEvent>)> = OnceLock::new();
@@ -76,6 +100,7 @@ unsafe extern "system" fn ll_kbd_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
             let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
             let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
             if down || up {
+                LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
                 on_physical_key(kb.vkCode, down);
             }
         }
@@ -142,31 +167,85 @@ fn ensure_hook() -> Result<()> {
 /// Dedicated hook thread: installs the LL hook and pumps messages forever.
 /// The hook is intentionally leaked — it lives for the rest of the process.
 fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), String>>) {
-    // SAFETY: installing a global WH_KEYBOARD_LL hook with a valid callback; hmod may be
-    // null for LL hooks (the callback lives in this module, not a DLL).
-    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_kbd_proc), None, 0) };
-    let _hook = match hook {
+    let mut hook = match install_hook() {
         Ok(h) => h,
         Err(e) => {
-            let _ = ready_tx.send(Err(format!("SetWindowsHookExW(WH_KEYBOARD_LL) failed: {e}")));
+            let _ = ready_tx.send(Err(e));
             return;
         }
     };
     tracing::info!("low-level keyboard hook installed");
+    LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
     let _ = ready_tx.send(Ok(()));
 
-    // LL-hook callbacks are delivered while this thread pumps messages. PeekMessage plus a
-    // short sleep keeps latency low without burning a core.
+    // A timer, so the loop can wake for the watchdog without ever leaving the message call.
+    // SAFETY: a thread timer with no window and no callback; its WM_TIMER arrives below.
+    let _ = unsafe { SetTimer(None, 0, WATCHDOG_MS, None) };
+
+    // `GetMessageW`, not `PeekMessage` and a sleep.
+    //
+    // This is the whole reason the hotkey used to stop working at random. The system delivers a
+    // low-level hook callback only while the installing thread is *inside* a message-retrieval
+    // call, and it gives that thread `LowLevelHooksTimeout` (300 ms by default) to answer before
+    // it silently removes the hook -- no error, no event, no way to ask afterwards. A loop that
+    // peeks and then sleeps spends nearly all of its time outside a message call, and on a busy
+    // machine -- loading an execution provider, running a benchmark -- a 5 ms sleep becomes long
+    // enough to miss the window. The hook would be dropped moments after startup and the
+    // application would go on believing it was registered.
+    //
+    // `GetMessageW` parks the thread inside the call, which is exactly where it has to be.
     let mut msg = MSG::default();
-    loop {
-        // SAFETY: msg is a valid, owned MSG; standard message pump.
-        unsafe {
-            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
+    // SAFETY: msg is a valid, owned MSG; standard blocking message pump. A return of -1 is an
+    // error and 0 is WM_QUIT; both end the loop.
+    while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+        if msg.message == WM_TIMER {
+            hook = watchdog(hook);
+            continue;
         }
-        std::thread::sleep(Duration::from_millis(5));
+        // SAFETY: msg came from GetMessageW and is valid for these calls.
+        unsafe {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+/// Install the hook, returning its handle.
+fn install_hook() -> std::result::Result<HHOOK, String> {
+    // SAFETY: installing a global WH_KEYBOARD_LL hook with a valid callback; hmod may be
+    // null for LL hooks (the callback lives in this module, not a DLL).
+    unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_kbd_proc), None, 0) }
+        .map_err(|e| format!("SetWindowsHookExW(WH_KEYBOARD_LL) failed: {e}"))
+}
+
+/// Re-install the hook if nothing has been seen through it for a while.
+///
+/// There is no API that answers "is my hook still installed", so silence is the only signal
+/// available -- and silence is ambiguous: it also means nobody is typing. Re-installing in that
+/// case costs two calls and nothing else, which is a good trade against a hotkey that is dead for
+/// the rest of the session.
+fn watchdog(current: HHOOK) -> HHOOK {
+    let quiet = now_ms().saturating_sub(LAST_EVENT_MS.load(Ordering::Relaxed));
+    if quiet < u64::from(WATCHDOG_MS) {
+        return current;
+    }
+    // SAFETY: `current` came from SetWindowsHookExW on this thread and is unhooked once.
+    unsafe {
+        let _ = UnhookWindowsHookEx(current);
+    }
+    match install_hook() {
+        Ok(h) => {
+            LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
+            HOOK_HEALTHY.store(true, Ordering::SeqCst);
+            h
+        }
+        Err(e) => {
+            // Now genuinely broken, and the status the front end reads must say so rather than
+            // keep claiming a registration that no longer exists.
+            tracing::error!("the keyboard hook could not be re-installed: {e}");
+            HOOK_HEALTHY.store(false, Ordering::SeqCst);
+            current
+        }
     }
 }
 
@@ -272,6 +351,105 @@ mod live_tests {
     ///
     /// Ctrl+Alt+F13 on purpose: F13 is absent from ordinary keyboards, so nothing else on the
     /// machine is listening for it and the injected keys cannot trigger anything.
+    /// Inject `mods + trigger` once and report whether the hook saw both edges.
+    fn probe(mods: &[&str], trigger: &str) -> bool {
+        let mut hotkey = match WindowsHotkey::new() {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        let events = hotkey.events();
+        if hotkey
+            .register(&HotkeySpec {
+                modifiers: mods.iter().map(|s| s.to_string()).collect(),
+                trigger: trigger.into(),
+            })
+            .is_err()
+        {
+            return false;
+        }
+        while events.try_recv().is_ok() {}
+
+        let mut codes: Vec<u16> = mods
+            .iter()
+            .map(|m| match *m {
+                "ctrl" => 0x11u16,
+                "shift" => 0x10,
+                "alt" => 0x12,
+                _ => 0x5B,
+            })
+            .collect();
+        codes.push(crate::hotkey::trigger_vk(trigger).unwrap_or(0));
+
+        for c in &codes {
+            key(*c, false);
+        }
+        let pressed = events.recv_timeout(Duration::from_millis(1500));
+        for c in codes.iter().rev() {
+            key(*c, true);
+        }
+        let released = events.recv_timeout(Duration::from_millis(1500));
+        pressed == Ok(HotkeyEvent::Pressed) && released == Ok(HotkeyEvent::Released)
+    }
+
+    /// Which combinations this machine actually delivers to a low-level hook.
+    ///
+    /// Not a pass/fail of our code -- every one of these is registered and tracked identically, and
+    /// the pure edge detector is covered by ordinary tests. This answers a different question, and
+    /// the only way to answer it is on the machine: *another* hook, an IME or a utility can take a
+    /// combination before ours sees it, and the symptom is a hotkey that silently does nothing.
+    ///
+    /// Run it with `--nocapture` when a binding "does not work" and nothing is in the log.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn report_which_combinations_this_machine_delivers() {
+        for (mods, trigger) in [
+            (&["ctrl"][..], "space"),
+            (&["ctrl", "alt"][..], "space"),
+            (&["ctrl", "shift"][..], "space"),
+            (&["alt"][..], "space"),
+            (&["ctrl"][..], "d"),
+            (&["ctrl", "alt"][..], "f13"),
+        ] {
+            let ok = probe(mods, trigger);
+            println!(
+                "{:<24} {}",
+                format!("{}+{trigger}", mods.join("+")),
+                if ok { "delivered" } else { "TAKEN BY SOMETHING ELSE" }
+            );
+        }
+    }
+
+    /// The same, for the binding this machine is actually configured with.
+    ///
+    /// Ctrl+Space is not an arbitrary second case: it is a combination Windows itself uses for the
+    /// IME language switch, so it is the one most likely to be eaten by a hook ahead of ours.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn ctrl_space_produces_both_edges() {
+        const VK_CONTROL: u16 = 0x11;
+        const VK_SPACE: u16 = 0x20;
+
+        let mut hotkey = WindowsHotkey::new().expect("install the keyboard hook");
+        let events = hotkey.events();
+        hotkey
+            .register(&HotkeySpec {
+                modifiers: vec!["ctrl".into()],
+                trigger: "space".into(),
+            })
+            .expect("register ctrl+space");
+        while events.try_recv().is_ok() {}
+
+        key(VK_CONTROL, false);
+        key(VK_SPACE, false);
+        let pressed = events.recv_timeout(Duration::from_secs(2));
+        key(VK_SPACE, true);
+        key(VK_CONTROL, true);
+        let released = events.recv_timeout(Duration::from_secs(2));
+
+        assert_eq!(pressed, Ok(HotkeyEvent::Pressed), "press edge");
+        assert_eq!(released, Ok(HotkeyEvent::Released), "release edge");
+    }
+
     #[test]
     #[ignore = "installs a real keyboard hook and injects keystrokes"]
     fn a_held_combo_produces_a_press_edge_and_letting_go_produces_a_release_edge() {
