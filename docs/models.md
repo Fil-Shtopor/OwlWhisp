@@ -84,27 +84,36 @@ Two exports — `gigaam-v3-ru` and `parakeet-tdt-ctc-110m-en` — carry no langu
 the engine claims nothing and every clip would count. The app falls back to the catalog's language
 list for those; `lw bench` needs an explicit `--languages`.
 
-| Model | Role | Download | Measured WER | Mean RTF | Scored over |
+| Model | Role | Download | Measured WER | Warm RTF | Scored over |
 |---|---|---|---|---|---|
-| `gigaam-v3-ru` | fast, accurate | 221 MiB | **0.029** | 0.0204 | 3 clips, ru |
-| `whisper-turbo` | accurate, universal | 989 MiB | **0.042** | 0.2551 | 12 clips, en/es/ru/uk |
-| `parakeet-tdt-0.6b-v3` | fast | 640 MiB | **0.054** | 0.0315 | 12 clips, en/es/ru/uk |
-| `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | **0.062** | 0.0148 | 3 clips, en |
-| `sense-voice-small` | — | 228 MiB | **0.062** | 0.0165 | 3 clips, en (of zh/ja/ko/yue/en) |
-| `qwen3-asr-0.6b` | — | 838 MiB | **0.071** | 0.1162 | 9 clips, en/es/ru |
-| `moonshine-tiny-en` | compact | 118 MiB | **0.092** | 0.0119 | 3 clips, en |
-| `omnilingual-300m` | — | 279 MiB | **0.144** | 0.0508 | 12 clips, en/es/ru/uk |
+| `gigaam-v3-ru` | fast, accurate | 221 MiB | **0.029** | 0.0149 | 3 clips, ru |
+| `whisper-turbo` | accurate, universal | 989 MiB | **0.042** | 0.1844 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-0.6b-v3` | fast | 640 MiB | **0.054** | 0.0401 | 12 clips, en/es/ru/uk |
+| `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | **0.062** | 0.0099 | 3 clips, en |
+| `sense-voice-small` | — | 228 MiB | **0.062** | 0.0125 | 3 clips, en (of zh/ja/ko/yue/en) |
+| `qwen3-asr-0.6b` | — | 838 MiB | **0.071** | 0.0901 | 9 clips, en/es/ru |
+| `moonshine-tiny-en` | compact | 118 MiB | **0.092** | 0.0102 | 3 clips, en |
+| `omnilingual-300m` | — | 279 MiB | **0.144** | 0.0297 | 12 clips, en/es/ru/uk |
 
-**Read the WER column, and treat the RTF column as a ranking only.** Each RTF above is the median of
-three back-to-back runs. The WER was identical in all three for every model — decoding is greedy and
-deterministic — while the RTF was not: `moonshine-tiny-en` produced 0.0176, 0.0111 and 0.0119 in
-those three runs, a spread of 59% on a three-clip sample.
+**Warm RTF, not the all-clip mean.** This is the mean over every clip *after* the first — the same
+quantity the app records and shows under "on your machine", so the two can be read side by side.
+`lw bench` prints it next to the cold RTF, which is the first clip alone and carries one-time session
+warm-up; on this sweep the cold clip ran 10–50% slower than the warm figure. An earlier revision of
+this table recorded the all-clip mean instead, which is a different quantity, and that alone made the
+catalog look like it disagreed with the app.
 
-The same sweep is also not comparable with this catalog's earlier RTF figures. `gigaam-v3-ru` and
-`parakeet-tdt-ctc-110m-en` were re-measured on 2026-09-18 by exactly the same command as before, with
-no methodology change at all, and still moved +24% and +56% — this is a desktop with an IDE, a
-browser and a sync client on it, not a benchmark rig. An RTF here says this model is faster than that
-one; it does not say what the silicon can do.
+**Read the WER column, and treat the RTF column as a ranking.** Each RTF is the median of three
+back-to-back runs. The WER was identical in all three for every model — decoding is greedy and
+deterministic — while the RTF was not.
+
+**Machine state dominates the RTF, so it is recorded.** This sweep was taken with the machine idle
+(CPU load 2–6%, the app closed) and the run-to-run spread was 2–8%. The revision before it was taken
+while the machine was busy with an IDE, a browser, a sync client and compiler jobs: its spread
+reached 59%, and every sherpa entry came out 20–40% slower. Those figures were withdrawn rather than
+adjusted. Two entries make the point on their own — `gigaam-v3-ru` and `parakeet-tdt-ctc-110m-en`
+were re-measured by exactly the same command with no methodology change and still moved by a quarter
+and a third. An RTF here says this model is faster than that one on this hardware; it does not say
+what the silicon can do.
 
 `whisper-turbo`'s RTF was 0.469 in an earlier, separate run. The accuracy reproduced exactly; the
 speed did not, and the old figure was taken outside this sweep under conditions that were not
@@ -146,19 +155,19 @@ Measured with `--languages zh` over the three `cmn_Hans` clips, each figure the 
 back-to-back runs on 2026-09-18. These are **character** error rates and are kept out of the blended
 totals above, because a word rate and a character rate are not the same quantity:
 
-| Model | CER | Mean RTF | Download |
+| Model | CER | Warm RTF | Download |
 |---|---|---|---|
-| `sense-voice-small` | **0.141** | **0.0168** | **228 MiB** |
-| `qwen3-asr-0.6b` | 0.155 | 0.1112 | 838 MiB |
-| `omnilingual-300m` | 0.310 | 0.0501 | 279 MiB |
-| `whisper-turbo` | 0.380 | 0.2113 | 989 MiB |
+| `sense-voice-small` | **0.141** | **0.0109** | **228 MiB** |
+| `qwen3-asr-0.6b` | 0.155 | 0.0924 | 838 MiB |
+| `omnilingual-300m` | 0.310 | 0.0292 | 279 MiB |
+| `whisper-turbo` | 0.380 | 0.2126 | 989 MiB |
 
 So the best Chinese in this catalog is also the smallest and the fastest of the four that claim it.
 That settles a question this document had been carrying: `sense-voice-small` is not made redundant by
 the newer entries. The CER was identical in all three runs; only the RTFs moved.
 
 **`whisper-turbo` holds the `universal` role and is the worst of the four here** — 2.7× SenseVoice's
-error at 12× the real-time factor. The role is earned on en/es/ru/uk and does not carry over: someone
+error at 20× the real-time factor. The role is earned on en/es/ru/uk and does not carry over: someone
 who picks it for its hundred languages and then dictates Chinese gets the weakest option in the
 catalog. This is exactly the kind of thing a single blended accuracy figure would have hidden.
 
@@ -219,12 +228,12 @@ tiers; the measurement beside them is the evidence.
 
 | If you need… | Look at | Role | Download | Why |
 |---|---|---|---|---|
-| Russian, and nothing else | `gigaam-v3-ru` | fast, accurate | 221 MiB | WER **0.029** against Parakeet v3's 0.059 on the same three Russian clips, at RTF 0.0204, and it emits punctuation |
+| Russian, and nothing else | `gigaam-v3-ru` | fast, accurate | 221 MiB | WER **0.029** against Parakeet v3's 0.059 on the same three Russian clips, at warm RTF 0.0149, and it emits punctuation |
 | 25 European languages, quickest | `parakeet-tdt-0.6b-v3` | fast | 640 MiB | the built-in default and the only entry with a Qualcomm NPU path; WER 0.054 across en/es/ru/uk |
 | the best accuracy measured here, or a language nothing else covers | `whisper-turbo` | accurate, universal | 989 MiB | large-v3's encoder with a 4-layer decoder; WER 0.042 over 100 languages, but RTF 0.469 |
-| English, fastest at that accuracy | `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | WER 0.062 at RTF 0.0148; punctuation and casing |
-| the smallest thing worth using | `moonshine-tiny-en` | compact | 118 MiB | WER 0.092 at RTF 0.0119, and no fixed 30 s padding, so cost scales with what you actually said |
-| Chinese, Japanese, Korean or Cantonese, compactly | `sense-voice-small` | — | 228 MiB | one non-autoregressive pass with punctuation, and the best Chinese here at CER 0.141 / RTF 0.0168; its English figure of 0.062 is a *secondary* language |
+| English, fastest at that accuracy | `parakeet-tdt-ctc-110m-en` | fast | 455 MiB | WER 0.062 at warm RTF 0.0099; punctuation and casing |
+| the smallest thing worth using | `moonshine-tiny-en` | compact | 118 MiB | WER 0.092 at warm RTF 0.0102, and no fixed 30 s padding, so cost scales with what you actually said |
+| Chinese, Japanese, Korean or Cantonese, compactly | `sense-voice-small` | — | 228 MiB | one non-autoregressive pass with punctuation, and the best Chinese here at CER 0.141 / warm RTF 0.0109; its English figure of 0.062 is a *secondary* language |
 | the widest language coverage, including Chinese dialects | `qwen3-asr-0.6b` | — | 838 MiB | 30 languages and 22 Chinese dialects; the joint best English here, and poor Russian — read the per-language table above |
 
 There is deliberately **no `live` role**. Live transcription means partial text appearing while you

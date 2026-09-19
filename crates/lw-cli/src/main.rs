@@ -670,6 +670,21 @@ fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
             m.scored_languages.join("/")
         }
     );
+    // Two real-time factors, because they are different quantities and confusing them made the
+    // catalog's figures look wrong next to the app's. `mean RTF` above averages every clip
+    // INCLUDING the first, which carries one-time session warm-up; `warm` excludes it, and that is
+    // what the app stores and shows under "on your machine". On a three-clip run the cold clip is
+    // a third of the average, so the two can differ by a lot without either being wrong.
+    println!(
+        "warm RTF: {}   cold RTF: {:.4}   ({} warm run(s))",
+        if m.warm_count > 0 {
+            format!("{:.4}", m.warm_rtf)
+        } else {
+            "-- (only one clip ran)".to_string()
+        },
+        m.cold_rtf,
+        m.warm_count
+    );
     if m.skipped_clips > 0 {
         println!(
             "note: {} clip(s) in {} were SKIPPED -- not transcribed at all.",
