@@ -2941,6 +2941,7 @@ dependencies = [
  "iced_core",
  "log",
  "rustc-hash 2.1.3",
+ "tokio",
  "wasm-bindgen-futures",
  "wasm-timer",
 ]
@@ -3928,6 +3929,7 @@ dependencies = [
  "lw-platform",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

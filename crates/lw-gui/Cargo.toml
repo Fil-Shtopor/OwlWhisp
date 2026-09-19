@@ -22,6 +22,8 @@ lw-core.workspace = true
 lw-platform.workspace = true
 
 iced = { workspace = true }
+# For `spawn_blocking`: the benchmark sweep must not run on the thread that draws.
+tokio = { workspace = true, features = ["rt"] }
 
 serde.workspace = true
 serde_json.workspace = true

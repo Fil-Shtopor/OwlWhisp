@@ -41,7 +41,9 @@ lw-gui = { path = "crates/lw-gui" }
 # commit (384 MB through wgpu), against 18 MB rasterising on the CPU -- the driver context is the
 # whole difference, and a bare window without one is 3 MB. Consistency: a CPU rasteriser produces
 # the same pixels on Windows, macOS and Linux by construction, which a platform GPU stack does not.
-iced = { version = "0.13", default-features = false, features = ["tiny-skia", "image", "lazy"] }
+# `tokio` gives the executor that `Task::perform` needs: a benchmark sweep takes tens of seconds
+# and must not run on the thread that draws.
+iced = { version = "0.13", default-features = false, features = ["tiny-skia", "image", "lazy", "tokio"] }
 
 # serialization / config
 serde = { version = "1.0", features = ["derive"] }

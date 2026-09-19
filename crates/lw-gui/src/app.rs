@@ -46,6 +46,7 @@ pub enum Message {
     Models(panels::models::Message),
     Diagnostics(panels::diagnostics::Message),
     Settings(panels::settings::Message),
+    Benchmark(panels::benchmark::Message),
 }
 
 pub struct App {
@@ -53,6 +54,7 @@ pub struct App {
     models: panels::models::State,
     diagnostics: panels::diagnostics::State,
     settings: panels::settings::State,
+    benchmark: panels::benchmark::State,
 }
 
 impl Default for App {
@@ -62,6 +64,7 @@ impl Default for App {
             models: panels::models::State::new(),
             diagnostics: panels::diagnostics::State::new(),
             settings: panels::settings::State::new(),
+            benchmark: panels::benchmark::State::new(),
         }
     }
 }
@@ -80,15 +83,18 @@ impl App {
     /// The width has to come from here rather than from iced's `responsive`, which measures its
     /// own parent and reports nothing usable inside a scrollable.
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        iced::event::listen_with(|event, _status, _id| match event {
-            iced::Event::Window(iced::window::Event::Resized(size)) => {
-                Some(Message::Resized(size.width))
-            }
-            _ => None,
-        })
+        iced::Subscription::batch([
+            iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Message::Resized(size.width))
+                }
+                _ => None,
+            }),
+            self.benchmark.subscription().map(Message::Benchmark),
+        ])
     }
 
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> iced::Task<Message> {
         match message {
             Message::TabSelected(tab) => self.tab = tab,
             Message::Resized(w) => {
@@ -99,7 +105,11 @@ impl App {
             Message::Models(m) => self.models.update(m),
             Message::Diagnostics(m) => self.diagnostics.update(m),
             Message::Settings(m) => self.settings.update(m),
+            Message::Benchmark(m) => {
+                return self.benchmark.update(m).map(Message::Benchmark);
+            }
         }
+        iced::Task::none()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -123,7 +133,7 @@ impl App {
             Tab::Dictate => panels::dictate::view(),
             Tab::Settings => self.settings.view().map(Message::Settings),
             Tab::Models => self.models.view().map(Message::Models),
-            Tab::Benchmark => panels::benchmark::view(),
+            Tab::Benchmark => self.benchmark.view().map(Message::Benchmark),
             Tab::Diagnostics => self.diagnostics.view().map(Message::Diagnostics),
         };
 
