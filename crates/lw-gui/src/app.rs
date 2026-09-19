@@ -181,6 +181,7 @@ impl App {
             self.benchmark.subscription().map(Message::Benchmark),
             self.dictate.subscription().map(Message::Dictate),
             self.settings.subscription().map(Message::Settings),
+            self.models.subscription().map(Message::Models),
             window::close_events().map(Message::Closed),
             window::close_requests().map(Message::CloseRequested),
             // Only while there is a tray to poll. `tray-icon` publishes on a global channel, so
@@ -332,7 +333,13 @@ impl App {
                 // the width it is actually given.
                 self.models.update(panels::models::Message::Resized(w - 48.0));
             }
-            Message::Models(m) => self.models.update(m),
+            Message::Models(m) => {
+                // Choosing a model writes settings.json, and the worker is holding a copy of it.
+                if self.models.update(m) {
+                    self.dictate.settings_saved();
+                    self.settings = panels::settings::State::new();
+                }
+            }
             Message::Diagnostics(m) => self.diagnostics.update(m),
             Message::Settings(m) => {
                 // The microphone belongs to the worker, which the Dictate panel owns. Forwarded

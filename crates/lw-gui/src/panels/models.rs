@@ -40,6 +40,16 @@ pub enum Message {
     GlossaryToggled,
     AskDelete(String),
     CancelDelete,
+    /// Start (or resume) downloading a model.
+    Install(String),
+    /// Ask the download in flight to stop. Partial files stay, so it resumes later.
+    CancelInstall,
+    /// Drain the download's progress channel.
+    InstallTick,
+    /// Make a model the one dictation uses.
+    Select(String),
+    /// Remove a model's files, having been confirmed.
+    Delete(String),
 }
 
 pub struct State {
@@ -53,6 +63,14 @@ pub struct State {
     glossary: bool,
     confirm_delete: Option<String>,
     languages: Vec<Lang>,
+    /// The download in flight, if any. One at a time: two concurrent multi-gigabyte downloads
+    /// share one link and both finish later than they would in sequence.
+    install: Option<lw_app::install::Handle>,
+    /// The model dictation is set to use, re-read whenever it might have changed.
+    selected: String,
+    /// The last thing that happened, good or bad, shown where the buttons are.
+    notice: Option<String>,
+    error: Option<String>,
 }
 
 impl State {
@@ -66,6 +84,10 @@ impl State {
             glossary: false,
             confirm_delete: None,
             languages: Vec::new(),
+            install: None,
+            selected: String::new(),
+            notice: None,
+            error: None,
         };
         s.load();
         s
@@ -78,6 +100,18 @@ impl State {
         let path = lw_app::measurements::path_for(&lw_app::paths::settings_path());
         self.mine = lw_app::LocalMeasurements::load(&path).models;
         self.languages = self.build_languages();
+        self.selected = lw_core::settings::Settings::load(&lw_app::paths::settings_path())
+            .map(|s| s.model_id)
+            .unwrap_or_default();
+    }
+
+    /// Redraw while a download is running, so the bar moves.
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        if self.install.is_some() {
+            iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::InstallTick)
+        } else {
+            iced::Subscription::none()
+        }
     }
 
     /// Sorted by name, not by code: the list is read alphabetically by a human looking for theirs,
@@ -117,7 +151,9 @@ impl State {
             .unwrap_or_else(|| code.to_string())
     }
 
-    pub fn update(&mut self, message: Message) {
+    /// Apply one message; the answer is whether `settings.json` was written, because the model
+    /// dictation uses is in it and the worker is holding a copy.
+    pub fn update(&mut self, message: Message) -> bool {
         match message {
             Message::Refresh => self.load(),
             Message::Resized(w) => self.width = w,
@@ -136,7 +172,79 @@ impl State {
             Message::GlossaryToggled => self.glossary = !self.glossary,
             Message::AskDelete(id) => self.confirm_delete = Some(id),
             Message::CancelDelete => self.confirm_delete = None,
+
+            Message::Install(id) => {
+                if self.install.is_some() {
+                    return false;
+                }
+                self.notice = None;
+                self.error = None;
+                self.install = Some(lw_app::install::start(
+                    &lw_app::paths::settings_path(),
+                    &id,
+                ));
+            }
+            Message::CancelInstall => {
+                if let Some(h) = &self.install {
+                    h.cancel();
+                }
+            }
+            Message::InstallTick => {
+                let Some(handle) = &self.install else {
+                    return false;
+                };
+                let Some(outcome) = handle.poll() else {
+                    return false;
+                };
+                let id = handle.id.clone();
+                self.install = None;
+                match outcome {
+                    lw_app::install::Progress::Done { .. } => {
+                        self.notice = Some(format!("{id} downloaded."));
+                        // The catalog reads the disk to decide what is installed, so it has to be
+                        // rebuilt before the row can stop offering a download.
+                        self.load();
+                    }
+                    lw_app::install::Progress::Cancelled => {
+                        self.notice = Some(format!(
+                            "{id}: download stopped. What was fetched is kept, so starting again \
+                             resumes."
+                        ));
+                        self.load();
+                    }
+                    lw_app::install::Progress::Failed { message } => {
+                        self.error = Some(format!("{id}: {message}"));
+                        self.load();
+                    }
+                    _ => {}
+                }
+            }
+            Message::Select(id) => {
+                self.notice = None;
+                self.error = None;
+                match lw_app::install::select(&lw_app::paths::settings_path(), &id) {
+                    Ok(()) => {
+                        self.selected = id;
+                        self.notice = Some("Dictation will use this model.".into());
+                        return true;
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
+            Message::Delete(id) => {
+                self.confirm_delete = None;
+                self.notice = None;
+                self.error = None;
+                match lw_app::install::delete(&lw_app::paths::settings_path(), &id) {
+                    Ok(freed) => {
+                        self.notice = Some(format!("Deleted {id}, freeing {}.", format_bytes(freed)));
+                        self.load();
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
         }
+        false
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -500,32 +608,189 @@ impl State {
             body = body.push(widgets::sub(format!("Upstream: {url}")));
         }
 
-        let confirming = self.confirm_delete.as_deref() == Some(entry.id.as_str());
-        let buttons: Element<'_, Message> = if confirming {
-            // Deleting is irreversible, so the confirmation sits inline where the row is rather
-            // than over the whole window, and backing out is the easier of the two.
-            row![
-                widgets::sub("Delete this model's files?"),
-                button(widgets::body("Cancel"))
-                    .padding(Padding::from([6, 12]))
-                    .on_press(Message::CancelDelete),
-                button(iced::widget::text("Delete").size(14).color(theme::BAD))
-                    .padding(Padding::from([6, 12])),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into()
-        } else {
-            row![
-                button(iced::widget::text("Delete").size(14).color(theme::BAD))
-                    .padding(Padding::from([6, 12]))
-                    .on_press(Message::AskDelete(entry.id.clone()))
-            ]
-            .into()
-        };
-        body = body.push(buttons);
+        body = body.push(self.actions(entry));
 
         widgets::inset(body).into()
+    }
+
+    /// Download, use, delete -- and the reason a button is unavailable, on the button itself.
+    ///
+    /// A disabled control with no explanation is the worst of both: it says no and not why. So
+    /// each one that cannot be pressed carries a line underneath saying what would make it
+    /// pressable.
+    fn actions<'a>(&'a self, entry: &'a EntryView) -> Element<'a, Message> {
+        use lw_core::model::InstallState as Install;
+
+        let installed = entry.install_state == Install::Installed;
+        let is_selected = self.selected == entry.id;
+        let installing = self.install.as_ref().is_some_and(|h| h.id == entry.id);
+        let other_installing = self.install.is_some() && !installing;
+
+        let mut buttons = row![].spacing(8).align_y(iced::Alignment::Center);
+        let mut why: Vec<String> = Vec::new();
+
+        // --- download ------------------------------------------------------
+        if installing {
+            let state = self
+                .install
+                .as_ref()
+                .map(|h| h.state())
+                .unwrap_or_default();
+            buttons = buttons.push(
+                button(widgets::body(if state.cancelling {
+                    "Stopping..."
+                } else {
+                    "Cancel download"
+                }))
+                .padding(Padding::from([6, 12]))
+                .on_press_maybe((!state.cancelling && !state.finishing).then_some(Message::CancelInstall)),
+            );
+        } else {
+            let can = match entry.install_state {
+                Install::Missing | Install::Incomplete => entry.runnable,
+                _ => false,
+            };
+            if !can {
+                why.push(match entry.install_state {
+                    Install::Installed => "Already downloaded.".into(),
+                    Install::Unpinned => {
+                        "No pinned manifest yet, so there is nothing to verify a download \
+                         against - this one cannot be fetched from here."
+                            .into()
+                    }
+                    _ => "This build cannot run the model on this machine, so downloading it \
+                          would not help."
+                        .to_string(),
+                });
+            }
+            if other_installing {
+                why.push("Another download is running; one at a time.".into());
+            }
+            buttons = buttons.push(
+                button(widgets::body(match entry.install_state {
+                    Install::Incomplete => "Resume download",
+                    _ => "Download",
+                }))
+                .padding(Padding::from([6, 12]))
+                .on_press_maybe(
+                    (can && !other_installing).then(|| Message::Install(entry.id.clone())),
+                ),
+            );
+        }
+
+        // --- use -----------------------------------------------------------
+        buttons = buttons.push(
+            button(widgets::body(if is_selected {
+                "In use"
+            } else {
+                "Use this model"
+            }))
+            .padding(Padding::from([6, 12]))
+            .on_press_maybe(
+                (installed && entry.runnable && !is_selected)
+                    .then(|| Message::Select(entry.id.clone())),
+            ),
+        );
+        if !is_selected && installed && !entry.runnable {
+            why.push("This build cannot run it on this machine.".into());
+        } else if !is_selected && !installed {
+            why.push("Download it before it can be used.".into());
+        }
+
+        // --- delete ----------------------------------------------------------
+        let deletable = matches!(entry.install_state, Install::Installed | Install::Incomplete);
+        if deletable {
+            let confirming = self.confirm_delete.as_deref() == Some(entry.id.as_str());
+            if confirming {
+                // Irreversible, so the confirmation sits inline where the row is rather than over
+                // the whole window, it names what it frees, and backing out is the easier of the
+                // two.
+                buttons = buttons.push(widgets::sub(format!(
+                    "Delete {}'s files{}?",
+                    entry.name,
+                    entry
+                        .disk_bytes
+                        .map(|b| format!(", freeing {}", format_bytes(b)))
+                        .unwrap_or_default()
+                )));
+                buttons = buttons.push(
+                    button(widgets::body("Keep"))
+                        .padding(Padding::from([6, 12]))
+                        .on_press(Message::CancelDelete),
+                );
+                buttons = buttons.push(
+                    button(iced::widget::text("Delete").size(14).color(theme::BAD))
+                        .padding(Padding::from([6, 12]))
+                        .on_press(Message::Delete(entry.id.clone())),
+                );
+            } else {
+                buttons = buttons.push(
+                    button(iced::widget::text("Delete").size(14).color(theme::BAD))
+                        .padding(Padding::from([6, 12]))
+                        .on_press_maybe(
+                            (!is_selected && !installing)
+                                .then(|| Message::AskDelete(entry.id.clone())),
+                        ),
+                );
+                if is_selected {
+                    why.push(
+                        "This is the model dictation uses. Choose another one first.".into(),
+                    );
+                }
+            }
+        }
+
+        let mut block = column![buttons].spacing(4);
+
+        if installing {
+            block = block.push(self.install_progress());
+        }
+        for line in why {
+            block = block.push(widgets::sub(line));
+        }
+        if let Some(n) = &self.notice {
+            block = block.push(widgets::sub(n.clone()));
+        }
+        if let Some(e) = &self.error {
+            block = block.push(iced::widget::text(e.clone()).size(13).color(theme::BAD));
+        }
+        block.into()
+    }
+
+    /// What the download is doing, in bytes rather than in a spinner.
+    fn install_progress(&self) -> Element<'_, Message> {
+        let Some(handle) = &self.install else {
+            return Space::new(0, 0).into();
+        };
+        let s = handle.state();
+        if s.finishing {
+            return widgets::sub(
+                "Verified. Moving the files into place - this can take a moment on a large model.",
+            )
+            .into();
+        }
+        let head = if s.file_count > 0 {
+            format!(
+                "File {} of {}: {}",
+                s.file_index + 1,
+                s.file_count,
+                s.file
+            )
+        } else {
+            "Starting...".to_string()
+        };
+        let bytes = match s.fraction() {
+            Some(f) => format!(
+                "{} of {} ({:.0}%)",
+                format_bytes(s.received),
+                format_bytes(s.total),
+                f * 100.0
+            ),
+            None => format_bytes(s.received),
+        };
+        column![widgets::sub(head), widgets::mono(bytes)]
+            .spacing(2)
+            .into()
     }
 }
 
@@ -633,10 +898,17 @@ fn accelerator_table<'a>(
         .iter()
         .filter(|a| a.supported || has_number(a))
     {
+        // A "no" carries its reason in the cell. The badge alone says the row is off and not
+        // what would turn it on, which is the only part a reader can act on.
         let runs: Element<'_, Message> = if a.supported {
             widgets::badge_yes("yes")
         } else {
-            widgets::badge_no("no")
+            column![
+                widgets::badge_no("no"),
+                widgets::sub(a.reason.clone().unwrap_or_else(|| "not supported".into())),
+            ]
+            .spacing(2)
+            .into()
         };
         // Measured here and in the catalog stay in separate columns: they were taken on different
         // machines on different days, and one column would invite reading one as a check on the
@@ -659,6 +931,10 @@ fn accelerator_table<'a>(
                             u.rate,
                         ));
                     }
+                    // What the figure covers, and when. A rate over three clips is not a rate over
+                    // twelve, and a measurement from a month ago is not a measurement of today's
+                    // build -- neither is visible from the number alone.
+                    c = c.push(widgets::sub(local_detail(local)));
                     c.into()
                 }
                 None => widgets::sub(if a.supported { "not measured yet" } else { "-" }).into(),
@@ -673,7 +949,11 @@ fn accelerator_table<'a>(
                 if let Some(w) = m.wer {
                     r = r.push(widgets::measured("WER", w));
                 }
-                r.into()
+                // The machine and the source, because a catalog figure is somebody else's
+                // measurement and is only meaningful with the machine attached.
+                column![r, widgets::sub(format!("{} - {}", m.machine, m.source))]
+                    .spacing(2)
+                    .into()
             }
             None => widgets::sub("-").into(),
         };
@@ -710,7 +990,135 @@ fn accelerator_table<'a>(
             .spacing(8),
         );
     }
+
+    table = table.push(widgets::prose(
+        "\u{201c}Runs this model\u{201d} is the backend's own answer - the same one that decides \
+         which accelerators a Compare-all sweep skips, so the table cannot promise a run the \
+         benchmark then refuses. \u{201c}Measured on this machine\u{201d} is empty until you run \
+         a benchmark; \u{201c}in the catalog\u{201d} was measured on the developer's machine, and \
+         the two are kept in separate columns because neither checks the other.",
+    ));
+
+    // A run of ours filed under an accelerator this build does not recognise. Listed rather than
+    // dropped: it is a real measurement, and silently hiding it is the one thing this table
+    // exists to prevent. Records written before the sherpa engine reported an accelerator id land
+    // here, filed under "unknown".
+    let orphans: Vec<&lw_app::LocalMeasurement> = mine
+        .iter()
+        .filter(|m| {
+            !entry
+                .accelerators
+                .iter()
+                .any(|a| same_accel(&m.accelerator, a.id))
+        })
+        .collect();
+    if !orphans.is_empty() {
+        let list = orphans
+            .iter()
+            .map(|m| {
+                format!(
+                    "{}: RTF {:.4}{}",
+                    m.accelerator_label,
+                    m.warm_rtf.unwrap_or(m.cold_rtf),
+                    m.wer
+                        .map(|w| format!(" \u{b7} WER {:.1}%", w * 100.0))
+                        .unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        table = table.push(widgets::prose(format!(
+            "Measured here, but filed under an accelerator this build does not recognise - older \
+             runs recorded the backend but not which accelerator it was: {list}. Re-run the \
+             benchmark to file them properly.",
+        )));
+    }
+
+    // The same on the catalog side: a figure on hardware this build has no accelerator for.
+    let unmatched: Vec<&lw_core::model::MeasuredPoint> = entry
+        .measurements
+        .iter()
+        .filter(|m| {
+            !entry
+                .accelerators
+                .iter()
+                .any(|a| same_accel(m.hardware.label(), a.id))
+        })
+        .collect();
+    if !unmatched.is_empty() {
+        let list = unmatched
+            .iter()
+            .map(|m| {
+                format!(
+                    "{}: RTF {:.4}{}",
+                    m.hardware.label(),
+                    m.rtf,
+                    m.wer
+                        .map(|w| format!(" \u{b7} WER {:.1}%", w * 100.0))
+                        .unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        table = table.push(widgets::prose(format!(
+            "Also in the catalog, on hardware this build has no accelerator for: {list}.",
+        )));
+    }
+
     table.into()
+}
+
+/// What a local measurement covers, in one line: how many clips, which languages, what was left
+/// out, and when it was taken.
+fn local_detail(m: &lw_app::LocalMeasurement) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if m.by_unit.len() > 1 {
+        // Two units do not average, so the coverage is stated per unit rather than blended.
+        parts.push(
+            m.by_unit
+                .iter()
+                .map(|u| {
+                    format!(
+                        "{} over {}",
+                        if u.unit == lw_core::bench::ErrorUnit::Character {
+                            "CER"
+                        } else {
+                            "WER"
+                        },
+                        u.clips
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    } else if m.wer.is_none() && m.by_unit.is_empty() {
+        parts.push("no clip could be scored".into());
+    } else {
+        parts.push(format!(
+            "over {} clip{}",
+            m.scored_clips,
+            if m.scored_clips == 1 { "" } else { "s" }
+        ));
+    }
+
+    if !m.scored_languages.is_empty() {
+        parts.push(format!("in {}", m.scored_languages.join("/")));
+    }
+    if m.skipped_clips > 0 {
+        parts.push(format!(
+            "({} skipped - not this model's languages)",
+            m.skipped_clips
+        ));
+    }
+
+    let mut line = parts.join(" ");
+    // Date only: the time of day is noise, and the point is to spot a stale figure.
+    if let Some(day) = m.measured_at.get(..10) {
+        line.push_str(" \u{b7} ");
+        line.push_str(day);
+    }
+    line
 }
 
 /// Accelerator ids are spelled with either separator depending on which enum produced them.

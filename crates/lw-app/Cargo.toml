@@ -21,6 +21,8 @@ lw-engine-parakeet.workspace = true
 lw-engine-sherpa.workspace = true
 
 crossbeam-channel.workspace = true
+# The model downloader is async; the install thread runs it on a current-thread runtime.
+tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
