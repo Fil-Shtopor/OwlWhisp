@@ -643,6 +643,7 @@ impl State {
                     "Cancel download"
                 }))
                 .padding(Padding::from([6, 12]))
+                .style(theme::action(false))
                 .on_press_maybe((!state.cancelling && !state.finishing).then_some(Message::CancelInstall)),
             );
         } else {
@@ -672,6 +673,7 @@ impl State {
                     _ => "Download",
                 }))
                 .padding(Padding::from([6, 12]))
+                .style(theme::action(false))
                 .on_press_maybe(
                     (can && !other_installing).then(|| Message::Install(entry.id.clone())),
                 ),
@@ -686,6 +688,7 @@ impl State {
                 "Use this model"
             }))
             .padding(Padding::from([6, 12]))
+            .style(theme::action(false))
             .on_press_maybe(
                 (installed && entry.runnable && !is_selected)
                     .then(|| Message::Select(entry.id.clone())),
@@ -716,17 +719,20 @@ impl State {
                 buttons = buttons.push(
                     button(widgets::body("Keep"))
                         .padding(Padding::from([6, 12]))
+                        .style(theme::action(false))
                         .on_press(Message::CancelDelete),
                 );
                 buttons = buttons.push(
-                    button(iced::widget::text("Delete").size(14).color(theme::BAD))
+                    button(widgets::body("Delete"))
                         .padding(Padding::from([6, 12]))
+                        .style(theme::action(true))
                         .on_press(Message::Delete(entry.id.clone())),
                 );
             } else {
                 buttons = buttons.push(
-                    button(iced::widget::text("Delete").size(14).color(theme::BAD))
+                    button(widgets::body("Delete"))
                         .padding(Padding::from([6, 12]))
+                        .style(theme::action(true))
                         .on_press_maybe(
                             (!is_selected && !installing)
                                 .then(|| Message::AskDelete(entry.id.clone())),
@@ -949,11 +955,19 @@ fn accelerator_table<'a>(
                 if let Some(w) = m.wer {
                     r = r.push(widgets::measured("WER", w));
                 }
-                // The machine and the source, because a catalog figure is somebody else's
-                // measurement and is only meaningful with the machine attached.
-                column![r, widgets::sub(format!("{} - {}", m.machine, m.source))]
-                    .spacing(2)
-                    .into()
+                // The machine it was taken on, because a catalog figure is somebody else's
+                // measurement and means nothing without one -- but only the machine. `source` is
+                // the full methodology paragraph, and putting it in a column this narrow buried
+                // the row's own buttons under six hundred pixels of prose. It lives in the
+                // tooltip, which is where the web version kept both of them.
+                iced::widget::tooltip(
+                    column![r, widgets::sub(short_machine(&m.machine))].spacing(2),
+                    widgets::inset(widgets::prose(format!("{}
+
+{}", m.machine, m.source))),
+                    iced::widget::tooltip::Position::FollowCursor,
+                )
+                .into()
             }
             None => widgets::sub("-").into(),
         };
@@ -1124,6 +1138,20 @@ fn local_detail(m: &lw_app::LocalMeasurement) -> String {
 /// Accelerator ids are spelled with either separator depending on which enum produced them.
 fn same_accel(a: &str, b: &str) -> bool {
     a.replace('_', "-").eq_ignore_ascii_case(&b.replace('_', "-"))
+}
+
+/// The machine's name without its specification, for a cell rather than a paragraph.
+///
+/// A recorded machine reads "ASUS Zenbook A16 - Snapdragon X2 Elite Extreme X2E94100, 48 GB,
+/// Windows 11 build 28000 ARM64, idle". The first segment identifies it; the rest is detail the
+/// tooltip carries.
+fn short_machine(machine: &str) -> String {
+    machine
+        .split(" - ")
+        .next()
+        .unwrap_or(machine)
+        .trim()
+        .to_string()
 }
 
 /// `qnn_npu` reads as `npu` in a column this narrow; everything else keeps its own name.

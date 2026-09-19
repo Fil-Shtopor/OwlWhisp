@@ -235,6 +235,7 @@ fn watchdog(current: HHOOK) -> HHOOK {
     }
     match install_hook() {
         Ok(h) => {
+            tracing::debug!("keyboard hook re-installed after {quiet} ms of silence");
             LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
             HOOK_HEALTHY.store(true, Ordering::SeqCst);
             h

@@ -90,6 +90,46 @@ pub fn appearance(theme: &Theme) -> iced::daemon::Appearance {
     }
 }
 
+/// An action button, with a disabled state that plainly looks disabled.
+///
+/// iced's default dims a disabled button only slightly, and against this palette the difference is
+/// not visible. A button that looks pressable and is not reads as the application ignoring the
+/// click -- which is exactly how "I cannot select a model" begins. `danger` colours the label for
+/// an action that removes something.
+pub fn action(danger: bool) -> impl Fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style {
+    move |_t, status| {
+        let disabled = matches!(status, iced::widget::button::Status::Disabled);
+        let base = if danger { BAD } else { ACCENT };
+        iced::widget::button::Style {
+            background: Some(
+                if disabled {
+                    // A flat, recessed surface: not a button that is merely a different colour,
+                    // but one that is plainly not raised.
+                    BG_RAISED
+                } else if matches!(status, iced::widget::button::Status::Hovered) {
+                    faded(base, 0.85)
+                } else {
+                    base
+                }
+                .into(),
+            ),
+            text_color: if disabled {
+                faded(TEXT_DIM, 0.55)
+            } else if danger {
+                Color::WHITE
+            } else {
+                BG
+            },
+            border: Border {
+                color: if disabled { BORDER } else { Color::TRANSPARENT },
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// A raised surface with a border, matching `.card` and the model table's container.
 pub fn card(_t: &Theme) -> iced::widget::container::Style {
     iced::widget::container::Style {
