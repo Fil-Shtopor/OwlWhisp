@@ -46,6 +46,7 @@ fn main() -> iced::Result {
 
     iced::daemon(app::App::title, app::App::update, app::App::view)
         .theme(app::App::theme)
+        .style(app::App::style)
         .subscription(app::App::subscription)
         .run_with(move || app::App::boot(tray))
 }

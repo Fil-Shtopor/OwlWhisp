@@ -43,6 +43,12 @@ pub struct State {
     registered: bool,
     /// Mirrors `Settings.overlay_enabled`; the floating indicator is the user's to switch off.
     overlay_enabled: bool,
+    /// Whether the microphone-test stream is open, *as the worker reported it* -- never as it was
+    /// asked for. A machine can refuse access, and a saved device that is no longer plugged in
+    /// makes the call fail outright.
+    mic_test: bool,
+    /// Why the test stream would not open.
+    mic_error: Option<String>,
     /// Rising while listening, to make the pill breathe rather than sit still.
     phase: f32,
 }
@@ -64,6 +70,8 @@ impl State {
             hotkey: settings.hotkey,
             registered: pump.status().is_live(),
             overlay_enabled: settings.overlay_enabled,
+            mic_test: false,
+            mic_error: None,
             pump,
             phase: 0.0,
             worker,
@@ -81,13 +89,42 @@ impl State {
         self.phase
     }
 
-    /// Whether the floating indicator should be on screen: the user asked for it in Settings, and
-    /// there is something happening worth indicating.
+    /// Whether the user wants a floating indicator at all.
     ///
-    /// `Idle` is excluded deliberately. An overlay that sat there permanently would be a
-    /// permanent obstruction advertising that nothing is happening.
-    pub fn overlay_wanted(&self) -> bool {
-        self.overlay_enabled && self.state != RecordingState::Idle
+    /// Not "is there something to indicate": the window exists for as long as the setting is on,
+    /// and it is the pill inside it that appears and disappears. See `App::sync_overlay`.
+    pub fn overlay_enabled(&self) -> bool {
+        self.overlay_enabled
+    }
+
+    /// The live input level, 0..1, which is only non-zero while something is capturing.
+    pub fn level(&self) -> f32 {
+        self.level
+    }
+
+    /// Open or close the microphone-test stream.
+    ///
+    /// Nothing is assumed from the request: the flag this panel reports comes back from the
+    /// worker, so a machine that refuses the microphone leaves the switch off rather than on and
+    /// lying.
+    pub fn set_mic_test(&mut self, on: bool) {
+        if on && self.state != RecordingState::Idle {
+            // Dictation has it. Asking for a second capture at that moment is pointless, and on
+            // some devices worse than pointless.
+            return;
+        }
+        self.mic_error = None;
+        self.worker.send(Command::MicTest(on));
+    }
+
+    /// Whether the test stream is open, according to the worker.
+    pub fn mic_test(&self) -> bool {
+        self.mic_test
+    }
+
+    /// Why it is not, if it was asked for and did not open.
+    pub fn mic_error(&self) -> Option<&str> {
+        self.mic_error.as_deref()
     }
 
     /// What the OS made of the binding, for the Settings tab to show.
@@ -140,11 +177,29 @@ impl State {
                 self.registered = self.pump.status().is_live();
                 while let Ok(ev) = self.worker.events.try_recv() {
                     match ev {
-                        Event::State(s) => self.state = s,
+                        Event::State(s) => {
+                            // Dictation takes the microphone back. Close the test stream rather
+                            // than leave a switch claiming one that was taken away underneath it.
+                            if s != RecordingState::Idle && self.mic_test {
+                                self.worker.send(Command::MicTest(false));
+                            }
+                            self.state = s;
+                        }
                         Event::Level(l) => self.level = l,
                         Event::Backend(b) => self.backend = Some(b),
                         Event::Error(e) => self.error = Some(e),
-                        Event::MicTest(_) => {}
+                        Event::MicTest(Ok(open)) => {
+                            self.mic_test = open;
+                            self.mic_error = (!open).then(|| {
+                                "The microphone did not open, so nothing is being captured. This \
+                                 machine may be refusing access to it."
+                                    .to_string()
+                            });
+                        }
+                        Event::MicTest(Err(e)) => {
+                            self.mic_test = false;
+                            self.mic_error = Some(e);
+                        }
                         Event::Transcript {
                             text,
                             injected,

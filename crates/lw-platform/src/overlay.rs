@@ -82,6 +82,62 @@ impl SystemTray for NoopTray {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Making a real window behave like an overlay
+// ---------------------------------------------------------------------------
+
+/// Make an already-created window passive: it never takes focus, and clicks fall through it.
+///
+/// `hwnd` is the raw window handle, passed as an integer so this crate needs no window-toolkit
+/// dependency to offer it.
+///
+/// A toolkit can usually manage "always on top" and "no decorations" by itself. It generally
+/// cannot manage *not being activated*, and that is the property that matters most here: an
+/// indicator that takes the keyboard focus when it appears interrupts the very sentence the user
+/// is dictating into another program. `WS_EX_NOACTIVATE` is what stops that, and it has to be set
+/// on the window before it is shown.
+///
+/// `WS_EX_TRANSPARENT` makes clicks fall through, and `WS_EX_TOOLWINDOW` keeps the window out of
+/// alt-tab, where an indicator with no controls has nothing to offer.
+///
+/// This does not show or hide the window, deliberately. A window the toolkit believes is hidden
+/// is a window it never asks anyone to paint, so a caller that hides it behind the toolkit's back
+/// ends up with an overlay that exists, reports itself visible to the OS, and draws nothing.
+#[cfg(windows)]
+pub fn make_passive(hwnd: isize) -> crate::Result<()> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_EX_TRANSPARENT,
+    };
+
+    let hwnd = HWND(hwnd as *mut std::ffi::c_void);
+    // SAFETY: a window handle owned by this process, read and written with the standard style
+    // accessors. Both calls are infallible for a valid handle.
+    unsafe {
+        let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if current == 0 {
+            return Err(crate::Error::Unavailable(
+                "could not read the overlay window's extended style".into(),
+            ));
+        }
+        let wanted = current
+            | (WS_EX_NOACTIVATE.0 as isize)
+            | (WS_EX_TRANSPARENT.0 as isize)
+            | (WS_EX_TOOLWINDOW.0 as isize);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted);
+    }
+    Ok(())
+}
+
+/// Not implemented away from Windows yet, so the overlay there may take focus when it opens.
+#[cfg(not(windows))]
+pub fn make_passive(_hwnd: isize) -> crate::Result<()> {
+    Err(crate::Error::Unavailable(
+        "making a window passive is only implemented on Windows".into(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

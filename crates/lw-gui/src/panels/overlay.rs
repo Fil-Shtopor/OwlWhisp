@@ -41,6 +41,12 @@ fn rgb(r: u8, g: u8, b: u8) -> Color {
 /// caller already ticks a phase for the main window's own pill, so it is passed in rather than
 /// timed again.
 pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
+    if state == RecordingState::Idle {
+        // Nothing is happening, so nothing is drawn. The window stays where it is -- transparent,
+        // click-through and off every list -- because opening one costs a stolen keyboard focus
+        // and drawing nothing costs nothing.
+        return Space::new(Length::Fill, Length::Fill).into();
+    }
     let (colour, label, pulse) = visual(state);
 
     // The same 1.2s ease-in-out breath as the CSS keyframes: full size and opaque at the ends,

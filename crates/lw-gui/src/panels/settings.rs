@@ -40,6 +40,20 @@ pickable!(ThemeChoice, SoundTheme);
 pickable!(ModeChoice, HotkeyMode);
 pickable!(TriggerChoice, String);
 
+/// What the shell knows about the microphone, mirrored here for drawing.
+#[derive(Default)]
+struct Mic {
+    /// RMS mapped to 0..1 on a -60..0 dBFS scale, so ordinary speech sits mid-bar.
+    level: f32,
+    /// The loudest level since the test was switched on. Zero means genuinely no signal.
+    peak: f32,
+    /// Whether the test stream is open, as the worker reported it.
+    open: bool,
+    /// Whether dictation has the microphone instead.
+    dictating: bool,
+    error: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct DeviceChoice(String);
 
@@ -63,6 +77,8 @@ pub enum Message {
     ModifierToggled(&'static str, bool),
     /// Start or abandon "press the combination you want".
     CaptureToggled,
+    /// Open or close the microphone-test stream.
+    MicTestToggled(bool),
     /// A combination arrived while capturing.
     Captured {
         modifiers: Vec<String>,
@@ -94,6 +110,9 @@ pub struct State {
     /// What the hotkey pump says about the binding it registered. Pushed in by the shell, which
     /// owns the pump; this panel cannot ask the OS itself and must not guess.
     hotkey_status: lw_app::hotkey::Status,
+    /// The live input level, the test stream's state and any refusal -- all pushed in by the
+    /// shell, because the worker belongs to the Dictate panel.
+    mic: Mic,
     /// Which accelerators this machine can really use, by preference value.
     usable: std::collections::BTreeMap<String, bool>,
     notice: Option<String>,
@@ -158,6 +177,7 @@ impl State {
             triggers: trigger_choices(),
             capturing: false,
             hotkey_status: lw_app::hotkey::Status::default(),
+            mic: Mic::default(),
             usable,
             notice: None,
             error: None,
@@ -167,6 +187,25 @@ impl State {
     /// The shell hands this over after every poll; the panel only displays it.
     pub fn set_hotkey_status(&mut self, status: lw_app::hotkey::Status) {
         self.hotkey_status = status;
+    }
+
+    /// Likewise for the microphone. `dictating` means dictation has it, not this test.
+    pub fn set_mic(&mut self, level: f32, open: bool, dictating: bool, error: Option<&str>) {
+        self.mic.level = level;
+        self.mic.open = open;
+        self.mic.dictating = dictating;
+        self.mic.error = error.map(str::to_string);
+        if open && level > self.mic.peak {
+            self.mic.peak = level;
+        }
+        if !open {
+            self.mic.peak = 0.0;
+        }
+    }
+
+    /// Whether the microphone test is on, so the shell can close it when this tab goes away.
+    pub fn mic_test_on(&self) -> bool {
+        self.mic.open
     }
 
     /// Listen for the next keystroke, but only while the user asked to be listened to.
@@ -241,6 +280,9 @@ impl State {
                     .collect();
             }
             Message::CaptureToggled => self.capturing = !self.capturing,
+            // Nothing is set here. The shell forwards this to the worker, and the answer comes
+            // back through `set_mic` -- the switch shows what happened, not what was asked.
+            Message::MicTestToggled(_) => {}
             Message::Captured { modifiers, trigger } => {
                 self.settings.hotkey.modifiers = modifiers;
                 self.settings.hotkey.trigger = trigger;
@@ -528,10 +570,80 @@ impl State {
                     "System default follows whatever Windows is using, including a headset that \
                      appears later.",
                 ),
+                self.mic_check(),
             ]
             .spacing(8),
         )
         .into()
+    }
+
+    /// The level meter and the switch that gives it something to show.
+    ///
+    /// Two facts shape this, both carried over from the web version. The meter is only alive while
+    /// something is capturing, so without the switch "is my microphone working?" is unanswerable
+    /// on a screen where nothing is being dictated -- which is exactly when the question gets
+    /// asked. And a bar stuck at zero while the stream is open is a real finding, not a gap to
+    /// paper over with an idle animation, so it is reported as one.
+    fn mic_check(&self) -> Element<'_, Message> {
+        let level = self.mic.level.clamp(0.0, 1.0);
+
+        let mut body = column![
+            row![
+                widgets::field_label("Microphone level"),
+                if self.mic.open {
+                    widgets::badge_yes("listening")
+                } else {
+                    Space::new(0, 0).into()
+                },
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+            meter(level),
+            row![
+                checkbox("Test microphone", self.mic.open)
+                    .on_toggle_maybe(
+                        (!self.mic.dictating).then_some(Message::MicTestToggled as fn(bool) -> _)
+                    )
+                    .size(16)
+                    .text_size(14),
+                widgets::sub(
+                    "Opens the microphone only to move this bar. Nothing is transcribed, nothing \
+                     is written to disk, nothing leaves the machine.",
+                ),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(6);
+
+        let saved = self.saved.audio.input_device.trim();
+        body = body.push(widgets::sub(if saved.is_empty() {
+            "This test opens the system default input.".to_string()
+        } else {
+            format!("This test opens the saved input, matching \u{201c}{saved}\u{201d}.")
+        }));
+
+        if let Some(e) = &self.mic.error {
+            body = body.push(iced::widget::text(e.clone()).size(13).color(theme::BAD));
+        }
+
+        body = body.push(widgets::sub(match (self.mic.dictating, self.mic.open) {
+            (true, _) => "Dictation has the microphone; the bar is following that.".to_string(),
+            (false, true) if self.mic.peak == 0.0 => {
+                "No signal yet: the bar has not moved since the microphone opened. Say something. \
+                 If it stays here, this input is reaching the app as silence."
+                    .to_string()
+            }
+            (false, true) => format!(
+                "Loudest so far: {}% of the bar. Ordinary speech should reach the middle.",
+                (self.mic.peak * 100.0).round() as i32
+            ),
+            (false, false) => "The bar only moves while something is capturing - during \
+                               dictation, or while this switch is on."
+                .to_string(),
+        }));
+
+        body.into()
     }
 
     fn sound_card(&self) -> Element<'_, Message> {
@@ -712,6 +824,49 @@ fn trigger_from_key(key: &iced::keyboard::Key) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// A horizontal bar filled to `level`.
+///
+/// Two flex portions rather than a fixed width, because the card's width is not known here and a
+/// meter that did not match its container would be a meter reporting the wrong number. The row
+/// needs `Fill` of its own: a row defaults to shrinking to its content, and children asking for a
+/// portion of nothing collapse to a line a pixel wide.
+fn meter<'a, M: 'a>(level: f32) -> Element<'a, M> {
+    const STEPS: u16 = 1000;
+    let filled = (level.clamp(0.0, 1.0) * f32::from(STEPS)) as u16;
+
+    let mut bar = row![].width(Length::Fill).height(8);
+    if filled > 0 {
+        bar = bar.push(
+            container(Space::new(Length::Fill, 8))
+                .width(Length::FillPortion(filled))
+                .style(|_t| container::Style {
+                    background: Some(theme::GOOD.into()),
+                    border: iced::Border {
+                        radius: 4.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+        );
+    }
+    if filled < STEPS {
+        bar = bar.push(Space::new(Length::FillPortion(STEPS - filled), 8));
+    }
+
+    container(bar)
+        .width(Length::Fill)
+        .height(8)
+        .style(|_t| container::Style {
+            background: Some(theme::BG_RAISED.into()),
+            border: iced::Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .into()
 }
 
 #[cfg(test)]

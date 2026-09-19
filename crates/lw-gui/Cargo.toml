@@ -26,6 +26,8 @@ lw-ort.workspace = true
 iced = { workspace = true }
 tray-icon = { workspace = true }
 image = { workspace = true }
+# Only to read the overlay window's HWND out of iced, so it can be made non-activating.
+raw-window-handle = "0.6"
 # For `spawn_blocking`: the benchmark sweep must not run on the thread that draws.
 tokio = { workspace = true, features = ["rt"] }
 

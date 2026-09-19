@@ -3970,6 +3970,7 @@ dependencies = [
  "lw-core",
  "lw-ort",
  "lw-platform",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "tokio",

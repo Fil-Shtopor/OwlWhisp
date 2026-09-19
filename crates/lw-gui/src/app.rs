@@ -153,8 +153,17 @@ impl App {
         }
     }
 
-    pub fn theme(&self, _window: window::Id) -> iced::Theme {
-        theme::theme()
+    pub fn theme(&self, window: window::Id) -> iced::Theme {
+        if Some(window) == self.overlay {
+            theme::overlay_theme()
+        } else {
+            theme::theme()
+        }
+    }
+
+    /// The colour each window is cleared to. See `theme::appearance`.
+    pub fn style(&self, theme: &iced::Theme) -> iced::daemon::Appearance {
+        theme::appearance(theme)
     }
 
     /// Resize events, so panels that lay out by breakpoint know the width.
@@ -184,30 +193,32 @@ impl App {
         ])
     }
 
-    /// Open or close the overlay so that what is on screen matches what the worker is doing.
+    /// Open or close the overlay window to match the setting -- not the recording.
     ///
-    /// Called after every message rather than from the one place that changes the state, because
-    /// the state can change from several: the hotkey, the panel's own button, and the worker
-    /// finishing an utterance by itself. One place that reconciles is easier to keep honest than
-    /// three places that each remember to.
+    /// The window lives for as long as the user wants an indicator at all, and it is the *pill*
+    /// that comes and goes with a recording. That is not how it was first written, and the reason
+    /// is worth keeping: a window can only be made non-activating after it exists, so a window
+    /// opened at the start of every utterance takes the keyboard focus for the instant before the
+    /// style is applied -- which is the instant the user is mid-sentence in another program. Once
+    /// open, it is click-through, off the taskbar, off alt-tab, and draws nothing at all while
+    /// idle, so a window that is always there is indistinguishable from one that is not.
+    ///
+    /// Switching the setting off really does close it, which is why this exists at all.
     fn sync_overlay(&mut self) -> Task<Message> {
-        let wanted = self.dictate.overlay_wanted();
-        match (wanted, self.overlay) {
+        match (self.dictate.overlay_enabled(), self.overlay) {
             (true, None) => {
-                let (x, y) = lw_platform::screen::primary_work_area()
-                    .map(|a| {
-                        a.bottom_centre(
+                let area = lw_platform::screen::primary_work_area();
+                let position = match area {
+                    Some(a) => {
+                        let (x, y) = a.bottom_centre(
                             panels::overlay::WIDTH,
                             panels::overlay::HEIGHT,
                             panels::overlay::MARGIN,
-                        )
-                    })
-                    .unwrap_or((0.0, 0.0));
-                let position = if lw_platform::screen::primary_work_area().is_some() {
-                    window::Position::Specific(iced::Point::new(x, y))
-                } else {
+                        );
+                        window::Position::Specific(iced::Point::new(x, y))
+                    }
                     // Rather than guess and risk putting it off-screen.
-                    window::Position::Centered
+                    None => window::Position::Centered,
                 };
 
                 let (id, open) = window::open(window::Settings {
@@ -219,8 +230,7 @@ impl App {
                     level: window::Level::AlwaysOnTop,
                     exit_on_close_request: false,
                     platform_specific: window::settings::PlatformSpecific {
-                        // Off the taskbar and the alt-tab list: this is an indicator, not a window
-                        // the user is meant to manage.
+                        // Off the taskbar: this is an indicator, not a window the user manages.
                         skip_taskbar: true,
                         drag_and_drop: false,
                         undecorated_shadow: false,
@@ -247,10 +257,32 @@ impl App {
         match message {
             Message::MainOpened(id) => self.main = Some(id),
             Message::OverlayOpened(id) => {
-                // The one thing that makes it an overlay rather than a window in the way: clicks
-                // land on whatever is underneath. Set after opening because it needs the window to
-                // exist.
-                return window::enable_mouse_passthrough(id);
+                // Order matters, and `batch` does not promise any, so these are chained.
+                //
+                // Click-through goes first because winit rewrites the whole window style from its
+                // own bookkeeping when it applies it -- which silently undoes anything set behind
+                // its back, including the flag that stops the window taking focus. Ours goes last.
+                //
+                // The window is left visible as far as winit is concerned, because a window winit
+                // believes is hidden is a window it never asks anyone to paint -- which showed up
+                // as an overlay that existed, reported itself visible to the OS, and drew nothing.
+                let styles = window::enable_mouse_passthrough(id).chain(
+                    window::run_with_handle(id, |handle| {
+                        if let raw_window_handle::RawWindowHandle::Win32(win32) = handle.as_raw()
+                            && let Err(e) = lw_platform::overlay::make_passive(win32.hwnd.get())
+                        {
+                            tracing::warn!("the overlay may take focus: {e}");
+                        }
+                    })
+                    .discard(),
+                );
+                // Opening it took the focus, once. Hand it straight back: this only ever happens
+                // at startup or when the user switches the indicator on, and in both cases the
+                // window they were looking at is ours.
+                return match self.main {
+                    Some(main) => styles.chain(window::gain_focus(main)),
+                    None => styles,
+                };
             }
             Message::Closed(id) => {
                 if Some(id) == self.overlay {
@@ -286,7 +318,15 @@ impl App {
                     tray::Action::Quit => Self::quit(),
                 };
             }
-            Message::TabSelected(tab) => self.tab = tab,
+            Message::TabSelected(tab) => {
+                // Leaving Settings closes the test stream. Holding a microphone open because
+                // somebody switched tabs would be indefensible.
+                if self.tab == Tab::Settings && tab != Tab::Settings && self.settings.mic_test_on()
+                {
+                    self.dictate.set_mic_test(false);
+                }
+                self.tab = tab;
+            }
             Message::Resized(w) => {
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
                 // the width it is actually given.
@@ -295,6 +335,11 @@ impl App {
             Message::Models(m) => self.models.update(m),
             Message::Diagnostics(m) => self.diagnostics.update(m),
             Message::Settings(m) => {
+                // The microphone belongs to the worker, which the Dictate panel owns. Forwarded
+                // here rather than shared, so neither panel reaches into the other.
+                if let panels::settings::Message::MicTestToggled(on) = m {
+                    self.dictate.set_mic_test(on);
+                }
                 // A save can move the hotkey or change the model, and the dictation worker is the
                 // one holding both. It is told here rather than watching the file.
                 if self.settings.update(m) {
@@ -311,6 +356,12 @@ impl App {
                 // -- did the OS take this binding? -- is asked on the Settings tab. Copied across
                 // here rather than shared, so neither panel can reach into the other.
                 self.settings.set_hotkey_status(self.dictate.hotkey_status());
+                self.settings.set_mic(
+                    self.dictate.level(),
+                    self.dictate.mic_test(),
+                    self.dictate.state() != lw_app::RecordingState::Idle,
+                    self.dictate.mic_error(),
+                );
             }
         }
         Task::none()

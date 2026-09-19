@@ -55,16 +55,39 @@ pub const MEASURE: f32 = 620.0;
 
 /// The application's theme.
 pub fn theme() -> Theme {
+    palette_theme("LocalWisper", BG)
+}
+
+/// The overlay's theme: the same colours, but cleared to nothing.
+///
+/// The window background comes from the palette, and the overlay's window must not paint one at
+/// all -- it is a pill floating over another application, and anything behind the pill would be a
+/// grey rectangle following it around. There is no per-window hook for this in iced 0.13; the
+/// theme is the only thing the window id reaches, so the transparency travels in the palette.
+pub fn overlay_theme() -> Theme {
+    palette_theme("LocalWisper Overlay", iced::Color::TRANSPARENT)
+}
+
+fn palette_theme(name: &str, background: iced::Color) -> Theme {
     Theme::custom(
-        "LocalWisper".to_string(),
+        name.to_string(),
         iced::theme::Palette {
-            background: BG,
+            background,
             text: TEXT,
             primary: ACCENT,
             success: GOOD,
             danger: BAD,
         },
     )
+}
+
+/// What the window is cleared to before anything is drawn. Reads the palette, so the overlay's
+/// transparent background is honoured rather than special-cased twice.
+pub fn appearance(theme: &Theme) -> iced::daemon::Appearance {
+    iced::daemon::Appearance {
+        background_color: theme.palette().background,
+        text_color: theme.palette().text,
+    }
 }
 
 /// A raised surface with a border, matching `.card` and the model table's container.
