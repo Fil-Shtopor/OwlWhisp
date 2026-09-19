@@ -18,6 +18,7 @@ pub mod bench;
 pub mod catalog;
 pub mod diagnostics;
 pub mod dictation;
+pub mod hotkey;
 pub mod machine;
 pub mod measurements;
 pub mod paths;
@@ -27,5 +28,6 @@ pub use catalog::{
 };
 pub use diagnostics::{AcceleratorStatus, Diagnostics};
 pub use dictation::{Command, Event, Handle, RecordingState};
+pub use hotkey::{Binding as HotkeyBinding, Pump as HotkeyPump, decide as decide_hotkey};
 pub use machine::probe_capabilities;
 pub use measurements::{LocalMeasurement, LocalMeasurements};

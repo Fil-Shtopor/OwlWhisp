@@ -150,7 +150,13 @@ impl State {
         self.settings != self.saved
     }
 
-    pub fn update(&mut self, message: Message) {
+    /// Apply one message; the answer is whether `settings.json` was written.
+    ///
+    /// The shell needs to know, because things outside this panel run off that file: the dictation
+    /// worker holds its own copy, and the global hotkey is registered with the OS. Neither will
+    /// notice a new file on its own, and neither should be made to poll for one.
+    pub fn update(&mut self, message: Message) -> bool {
+        let mut wrote = false;
         self.notice = None;
         match message {
             Message::ModelSelected(id) => self.settings.model_id = id,
@@ -209,12 +215,14 @@ impl State {
                         self.saved = self.settings.clone();
                         self.notice = Some("Saved.".into());
                         self.error = None;
+                        wrote = true;
                     }
                     Err(e) => self.error = Some(format!("Could not save: {e}")),
                 }
             }
             Message::Reload => *self = Self::new(),
         }
+        wrote
     }
 
     pub fn view(&self) -> Element<'_, Message> {

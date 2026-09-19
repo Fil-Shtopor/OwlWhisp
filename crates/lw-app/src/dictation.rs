@@ -105,6 +105,60 @@ impl Handle {
     pub fn state(&self) -> RecordingState {
         self.state.lock().map(|s| *s).unwrap_or_default()
     }
+
+    /// A non-owning way to drive the worker from somewhere else.
+    ///
+    /// `Handle` shuts the worker down when it is dropped, which is right for the one owner and
+    /// wrong for everybody else -- the hotkey pump holding a clone would kill the worker the
+    /// moment the pump was rebound. A `Remote` can send and can read the state, and dropping it
+    /// does nothing.
+    pub fn remote(&self) -> Remote {
+        Remote {
+            tx: self.tx.clone(),
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
+/// A borrowed view of a running worker: send commands, read the state, no ownership.
+#[derive(Clone)]
+pub struct Remote {
+    tx: Sender<Command>,
+    state: Arc<std::sync::Mutex<RecordingState>>,
+}
+
+impl Remote {
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(cmd);
+    }
+
+    pub fn state(&self) -> RecordingState {
+        self.state.lock().map(|s| *s).unwrap_or_default()
+    }
+
+    /// A `Remote` attached to a plain channel instead of a worker, for tests.
+    ///
+    /// The hotkey pump's whole job is to put the right `Command` on the worker's channel, and the
+    /// only way to watch it do that on a real worker would be to let it open the microphone. The
+    /// second return is the channel the pump's commands arrive on, and the handle to set the state
+    /// the pump will read back.
+    #[cfg(test)]
+    pub(crate) fn detached() -> (
+        Remote,
+        crossbeam_channel::Receiver<Command>,
+        Arc<std::sync::Mutex<RecordingState>>,
+    ) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let state = Arc::new(std::sync::Mutex::new(RecordingState::Idle));
+        (
+            Remote {
+                tx,
+                state: Arc::clone(&state),
+            },
+            rx,
+            state,
+        )
+    }
 }
 
 impl Drop for Handle {

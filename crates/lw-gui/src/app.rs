@@ -7,7 +7,7 @@
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Length, Padding};
 
-use crate::{panels, theme, widgets};
+use crate::{panels, theme};
 
 /// Which panel is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -108,7 +108,13 @@ impl App {
             }
             Message::Models(m) => self.models.update(m),
             Message::Diagnostics(m) => self.diagnostics.update(m),
-            Message::Settings(m) => self.settings.update(m),
+            Message::Settings(m) => {
+                // A save can move the hotkey or change the model, and the dictation worker is the
+                // one holding both. It is told here rather than watching the file.
+                if self.settings.update(m) {
+                    self.dictate.settings_saved();
+                }
+            }
             Message::Benchmark(m) => {
                 return self.benchmark.update(m).map(Message::Benchmark);
             }
@@ -178,21 +184,3 @@ fn tab_style(selected: bool, status: button::Status) -> button::Style {
     }
 }
 
-/// Shown by a tab that has not been ported yet.
-///
-/// Deliberately blunt. A half-drawn panel that looks finished is worse than an empty one that says
-/// what it is: the point of porting tab by tab is that the old window stays usable while this one
-/// catches up, and a user has to be able to tell which they are looking at.
-pub fn not_yet<'a, M: 'a>(what: &'a str) -> Element<'a, M> {
-    widgets::card(
-        column![
-            widgets::heading(what),
-            widgets::prose(
-                "Not ported to the native window yet. This tab still works in the Tauri build; it \
-                 is being moved one panel at a time so the application keeps running throughout.",
-            ),
-        ]
-        .spacing(6),
-    )
-    .into()
-}

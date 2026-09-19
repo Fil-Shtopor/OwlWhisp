@@ -234,3 +234,74 @@ impl std::fmt::Debug for WindowsHotkey {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
+    };
+
+    /// Synthesize one key event the hook will actually see.
+    ///
+    /// Deliberately *without* [`super::super::LW_SENDINPUT_MARKER`]: the hook drops events
+    /// carrying it, which is right for our own paste keystrokes and would make this test pass
+    /// while proving nothing.
+    fn key(vk: u16, up: bool) {
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(vk),
+                    wScan: 0,
+                    dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+    }
+
+    /// The whole hook, for real: install it, hold a combo down, let go, and see both edges.
+    ///
+    /// Ignored by default. It installs a system-wide keyboard hook and injects keystrokes into
+    /// whatever has focus, which is not something a test run should do behind someone's back --
+    /// and on a headless CI box there is no input queue to inject into. Run it deliberately:
+    /// `cargo test -p lw-platform --lib live_tests -- --ignored --test-threads=1`.
+    ///
+    /// Ctrl+Alt+F13 on purpose: F13 is absent from ordinary keyboards, so nothing else on the
+    /// machine is listening for it and the injected keys cannot trigger anything.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn a_held_combo_produces_a_press_edge_and_letting_go_produces_a_release_edge() {
+        const VK_CONTROL: u16 = 0x11;
+        const VK_MENU: u16 = 0x12; // Alt
+        const VK_F13: u16 = 0x7C;
+
+        let mut hotkey = WindowsHotkey::new().expect("install the keyboard hook");
+        let events = hotkey.events();
+        hotkey
+            .register(&HotkeySpec {
+                modifiers: vec!["ctrl".into(), "alt".into()],
+                trigger: "f13".into(),
+            })
+            .expect("register ctrl+alt+f13");
+
+        // Drain anything the machine was already holding when the hook went in.
+        while events.try_recv().is_ok() {}
+
+        key(VK_CONTROL, false);
+        key(VK_MENU, false);
+        key(VK_F13, false);
+        let pressed = events.recv_timeout(Duration::from_secs(2));
+
+        key(VK_F13, true);
+        key(VK_MENU, true);
+        key(VK_CONTROL, true);
+        let released = events.recv_timeout(Duration::from_secs(2));
+
+        assert_eq!(pressed, Ok(HotkeyEvent::Pressed), "press edge");
+        assert_eq!(released, Ok(HotkeyEvent::Released), "release edge");
+    }
+}

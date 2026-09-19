@@ -5,11 +5,15 @@
 //!
 //! The pill is the one thing on screen that must never lie. It shows the worker's own state, not
 //! an optimistic guess made when a key was pressed, and the backend line says "nothing loaded yet"
-//! before the first utterance rather than naming the accelerator it hopes to use.
+//! before the first utterance rather than naming the accelerator it hopes to use. The same rule
+//! covers the hotkey hint: it is built from the binding that is actually registered, in the mode
+//! that is actually in force, and it says so when the registration failed -- an instruction to
+//! press keys that do nothing is the worst line this panel could print.
 
 use iced::widget::{button, column, container, row, scrollable, text_editor, Space};
 use iced::{Color, Element, Length, Padding};
 use lw_app::dictation::{Command, Event, Handle, RecordingState};
+use lw_core::settings::{HotkeyConfig, HotkeyMode};
 
 use crate::{theme, widgets};
 
@@ -30,8 +34,13 @@ pub struct State {
     last: Option<(String, bool, String)>,
     error: Option<String>,
     scratchpad: text_editor::Content,
-    hotkey: String,
-    mode_is_hands_free: bool,
+    /// The binding as configured, which is what the hint is written from.
+    hotkey: HotkeyConfig,
+    /// The pump that turns key edges into worker commands, whatever tab is showing and whether or
+    /// not this window has focus. Owned here because the worker is; dropping it unregisters.
+    pump: lw_app::hotkey::Pump,
+    /// Whether the OS actually accepted the binding, re-read on every poll.
+    registered: bool,
     /// Rising while listening, to make the pill breathe rather than sit still.
     phase: f32,
 }
@@ -42,6 +51,7 @@ impl State {
         let settings = lw_core::settings::Settings::load(&settings_path).unwrap_or_default();
         let worker = lw_app::dictation::spawn(settings_path);
         worker.send(Command::Describe);
+        let pump = lw_app::hotkey::Pump::spawn(&settings.hotkey, worker.remote());
         Self {
             state: RecordingState::Idle,
             level: 0.0,
@@ -49,11 +59,27 @@ impl State {
             last: None,
             error: None,
             scratchpad: text_editor::Content::new(),
-            hotkey: settings.hotkey.to_accelerator().unwrap_or_default(),
-            mode_is_hands_free: settings.hotkey.mode == lw_core::settings::HotkeyMode::HandsFree,
+            hotkey: settings.hotkey,
+            registered: pump.status().is_live(),
+            pump,
             phase: 0.0,
             worker,
         }
+    }
+
+    /// Settings were saved: re-read them, tell the worker, and move the hotkey if it moved.
+    ///
+    /// Called by the shell rather than discovered here. A panel that polled `settings.json` would
+    /// be reading a file sixty times a second to learn something the application already knows.
+    pub fn settings_saved(&mut self) {
+        let settings = lw_core::settings::Settings::load(&lw_app::paths::settings_path())
+            .unwrap_or_default();
+        self.worker.send(Command::ReloadSettings);
+        if settings.hotkey != self.hotkey {
+            self.pump.rebind(&settings.hotkey);
+            self.hotkey = settings.hotkey;
+        }
+        self.registered = self.pump.status().is_live();
     }
 
     /// Drain the worker's channel on a timer.
@@ -74,7 +100,7 @@ impl State {
                 match self.state {
                     RecordingState::Listening => self.worker.send(Command::Stop),
                     RecordingState::Idle => self.worker.send(Command::Start {
-                        hands_free: self.mode_is_hands_free,
+                        hands_free: self.hotkey.mode == HotkeyMode::HandsFree,
                     }),
                     // Mid-transcription: pressing again must not start a second capture.
                     _ => {}
@@ -82,6 +108,7 @@ impl State {
             }
             Message::Poll => {
                 self.phase = (self.phase + 0.05) % 1.0;
+                self.registered = self.pump.status().is_live();
                 while let Ok(ev) = self.worker.events.try_recv() {
                     match ev {
                         Event::State(s) => self.state = s,
@@ -105,11 +132,10 @@ impl State {
             }
             Message::Scratchpad(action) => self.scratchpad.perform(action),
             Message::CopyLast => {
-                if let Some((text, _, _)) = &self.last {
-                    if let Ok(mut clip) = lw_platform::platform().clipboard() {
-                        use lw_platform::Clipboard;
-                        let _ = clip.set_text(text);
-                    }
+                if let (Some((text, _, _)), Ok(mut clip)) =
+                    (&self.last, lw_platform::platform().clipboard())
+                {
+                    let _ = clip.set_text(text);
                 }
             }
             Message::ClearScratchpad => self.scratchpad = text_editor::Content::new(),
@@ -173,11 +199,7 @@ impl State {
                 iced::widget::text(self.state.label()).size(17).color(fg),
                 level_bar,
                 Space::new(Length::Fill, 0),
-                widgets::sub(if self.hotkey.is_empty() {
-                    "No hotkey set".to_string()
-                } else {
-                    format!("Press {} to start, press again to stop", self.hotkey)
-                }),
+                self.hotkey_hint(),
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
@@ -192,6 +214,29 @@ impl State {
             },
             ..Default::default()
         })
+        .into()
+    }
+
+    /// The one line that tells the user how to dictate.
+    ///
+    /// Two separate facts, and neither may be inferred from the other: what the binding *says*,
+    /// which comes from settings, and whether the OS *took* it, which comes from the pump. A
+    /// combination another application already owns registers as nothing at all, and the user is
+    /// owed that in the same breath as the keys -- otherwise the only symptom is a hotkey that
+    /// does nothing, which reads as a broken microphone.
+    fn hotkey_hint(&self) -> Element<'_, Message> {
+        let sentence = lw_app::hotkey::hint(&self.hotkey);
+        if self.registered || lw_app::hotkey::trigger_of(&self.hotkey).is_empty() {
+            return widgets::sub(sentence).into();
+        }
+        row![
+            widgets::sub(sentence),
+            iced::widget::text("- not registered with the OS")
+                .size(13)
+                .color(theme::BAD),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
         .into()
     }
 
