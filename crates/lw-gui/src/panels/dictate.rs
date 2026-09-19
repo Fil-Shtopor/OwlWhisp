@@ -67,6 +67,11 @@ impl State {
         }
     }
 
+    /// What the OS made of the binding, for the Settings tab to show.
+    pub fn hotkey_status(&self) -> lw_app::hotkey::Status {
+        self.pump.status()
+    }
+
     /// Settings were saved: re-read them, tell the worker, and move the hotkey if it moved.
     ///
     /// Called by the shell rather than discovered here. A panel that polled `settings.json` would

@@ -10,7 +10,7 @@
 //!   checkbox, because a managed machine can refuse and a checkbox that disagreed with the OS
 //!   would be worse than no checkbox.
 
-use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, slider, Space};
+use iced::widget::{button, checkbox, column, container, pick_list, radio, row, scrollable, slider, Space};
 use iced::{Element, Length, Padding};
 use lw_core::engine::BackendPreference;
 use lw_core::settings::{HotkeyMode, Settings};
@@ -38,6 +38,7 @@ pickable!(ModelChoice, String);
 pickable!(BackendChoice, BackendPreference);
 pickable!(ThemeChoice, SoundTheme);
 pickable!(ModeChoice, HotkeyMode);
+pickable!(TriggerChoice, String);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct DeviceChoice(String);
@@ -58,8 +59,15 @@ pub enum Message {
     BackendSelected(BackendPreference),
     DeviceSelected(String),
     ModeSelected(HotkeyMode),
-    TriggerChanged(String),
+    TriggerSelected(String),
     ModifierToggled(&'static str, bool),
+    /// Start or abandon "press the combination you want".
+    CaptureToggled,
+    /// A combination arrived while capturing.
+    Captured {
+        modifiers: Vec<String>,
+        trigger: String,
+    },
     OverlayToggled(bool),
     SoundsToggled(bool),
     ThemeSelected(SoundTheme),
@@ -79,6 +87,13 @@ pub struct State {
     backends: Vec<BackendChoice>,
     themes: Vec<ThemeChoice>,
     modes: Vec<ModeChoice>,
+    /// Every trigger key the editor offers, in the order it offers them.
+    triggers: Vec<TriggerChoice>,
+    /// Whether the next keystroke should be read as a new binding rather than typed.
+    capturing: bool,
+    /// What the hotkey pump says about the binding it registered. Pushed in by the shell, which
+    /// owns the pump; this panel cannot ask the OS itself and must not guess.
+    hotkey_status: lw_app::hotkey::Status,
     /// Which accelerators this machine can really use, by preference value.
     usable: std::collections::BTreeMap<String, bool>,
     notice: Option<String>,
@@ -140,10 +155,56 @@ impl State {
                 label: label.to_string(),
             })
             .collect(),
+            triggers: trigger_choices(),
+            capturing: false,
+            hotkey_status: lw_app::hotkey::Status::default(),
             usable,
             notice: None,
             error: None,
         }
+    }
+
+    /// The shell hands this over after every poll; the panel only displays it.
+    pub fn set_hotkey_status(&mut self, status: lw_app::hotkey::Status) {
+        self.hotkey_status = status;
+    }
+
+    /// Listen for the next keystroke, but only while the user asked to be listened to.
+    ///
+    /// Not a permanent listener: this window has ordinary text fields in it, and a panel that read
+    /// every keypress as a hotkey would rebind the shortcut while someone typed a model name.
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        if !self.capturing {
+            return iced::Subscription::none();
+        }
+        iced::keyboard::on_key_press(|key, modifiers| {
+            // Esc on its own cancels, exactly as it did in the web editor. Esc *with* a modifier is
+            // a perfectly good trigger key and is taken as one.
+            if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+                && modifiers.is_empty()
+            {
+                return Some(Message::CaptureToggled);
+            }
+            // Still holding modifiers down: wait for the real key rather than binding half a combo.
+            let trigger = trigger_from_key(&key)?;
+            let mut names = Vec::new();
+            if modifiers.control() {
+                names.push("ctrl".to_string());
+            }
+            if modifiers.alt() {
+                names.push("alt".to_string());
+            }
+            if modifiers.shift() {
+                names.push("shift".to_string());
+            }
+            if modifiers.logo() {
+                names.push("meta".to_string());
+            }
+            Some(Message::Captured {
+                modifiers: names,
+                trigger,
+            })
+        })
     }
 
     fn dirty(&self) -> bool {
@@ -163,21 +224,27 @@ impl State {
             Message::BackendSelected(b) => self.settings.backend = b,
             Message::DeviceSelected(d) => self.settings.audio.input_device = d,
             Message::ModeSelected(m) => self.settings.hotkey.mode = m,
-            Message::TriggerChanged(t) => self.settings.hotkey.trigger = t,
-            Message::ModifierToggled(name, on) => {
-                // Remove every spelling of this modifier before adding the canonical one, or
-                // ticking a box that was loaded as "control" would leave both in the list.
-                let aliases: &[&str] = match name {
-                    "ctrl" => &["ctrl", "control"],
-                    "alt" => &["alt", "option"],
-                    "shift" => &["shift"],
-                    _ => &["win", "super", "cmd", "meta"],
-                };
-                let m = &mut self.settings.hotkey.modifiers;
-                m.retain(|x| !aliases.iter().any(|a| x.eq_ignore_ascii_case(a)));
-                if on {
-                    m.push(name.to_string());
-                }
+            Message::TriggerSelected(t) => self.settings.hotkey.trigger = t,
+            Message::ModifierToggled(id, on) => {
+                // Rebuilt in a stable canonical order, dropping any alias spelling an older file
+                // may hold: ticking a box loaded as "control" must not leave both in the list.
+                self.settings.hotkey.modifiers = lw_app::hotkey::MODIFIERS
+                    .iter()
+                    .filter(|m| {
+                        if m.id == id {
+                            on
+                        } else {
+                            lw_app::hotkey::has_modifier(&self.settings.hotkey, m.id)
+                        }
+                    })
+                    .map(|m| m.id.to_string())
+                    .collect();
+            }
+            Message::CaptureToggled => self.capturing = !self.capturing,
+            Message::Captured { modifiers, trigger } => {
+                self.settings.hotkey.modifiers = modifiers;
+                self.settings.hotkey.trigger = trigger;
+                self.capturing = false;
             }
             Message::OverlayToggled(v) => self.settings.overlay_enabled = v,
             Message::SoundsToggled(v) => self.settings.sounds_enabled = v,
@@ -241,56 +308,137 @@ impl State {
         scrollable(body).height(Length::Fill).into()
     }
 
+    /// The hotkey editor, in the order the web version settled on: what is bound, how it behaves,
+    /// which keys make it up, and -- last, because it is the only line here that is not the user's
+    /// own choice -- whether the operating system took it.
     fn hotkey_card(&self) -> Element<'_, Message> {
         let h = &self.settings.hotkey;
-        // The spellings the core accepts, not one of them: settings.json in the wild holds "ctrl"
-        // while the parser also takes "control", and checking for a single spelling left the box
-        // unticked beside a hotkey that was plainly set.
-        let has = |names: &[&str]| {
-            h.modifiers
-                .iter()
-                .any(|m| names.iter().any(|n| m.eq_ignore_ascii_case(n)))
-        };
 
-        let mods = row![
-            checkbox("Ctrl", has(&["ctrl", "control"]))
-                .on_toggle(|v| Message::ModifierToggled("ctrl", v)),
-            checkbox("Alt", has(&["alt", "option"]))
-                .on_toggle(|v| Message::ModifierToggled("alt", v)),
-            checkbox("Shift", has(&["shift"]))
-                .on_toggle(|v| Message::ModifierToggled("shift", v)),
-            checkbox("Win", has(&["win", "super", "cmd", "meta"]))
-                .on_toggle(|v| Message::ModifierToggled("win", v)),
+        let preview = row![
+            widgets::mono(lw_app::hotkey::format_hotkey(h)),
+            button(widgets::body(if self.capturing {
+                "Cancel capture"
+            } else {
+                "Capture keystroke"
+            }))
+            .padding(Padding::from([6, 14]))
+            .on_press(Message::CaptureToggled),
         ]
-        .spacing(14);
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
 
-        let selected_mode = self.modes.iter().find(|m| m.value == h.mode).cloned();
+        let mut card = column![widgets::heading("Hotkey"), preview].spacing(8);
+        if self.capturing {
+            card = card.push(widgets::sub(
+                "Press the combination you want to use. Esc on its own cancels.",
+            ));
+        }
 
-        widgets::card(
+        // Radios rather than a dropdown: three choices, each needing a sentence of explanation,
+        // and a dropdown hides two of the three behind a click.
+        let mut modes = column![widgets::field_label("Mode")].spacing(4);
+        for m in &self.modes {
+            modes = modes.push(
+                radio(m.label.clone(), m.value, Some(h.mode), Message::ModeSelected)
+                    .size(15)
+                    .text_size(14),
+            );
+        }
+        card = card.push(modes);
+
+        let mut boxes = row![].spacing(14);
+        for m in &lw_app::hotkey::MODIFIERS {
+            let label = match m.detail {
+                Some(d) => format!("{} ({d})", m.label),
+                None => m.label.to_string(),
+            };
+            boxes = boxes.push(
+                checkbox(label, lw_app::hotkey::has_modifier(h, m.id))
+                    .on_toggle(move |v| Message::ModifierToggled(m.id, v))
+                    .size(16)
+                    .text_size(14),
+            );
+        }
+        card = card.push(column![widgets::field_label("Modifiers"), boxes].spacing(4));
+
+        // A binding written elsewhere can hold a key this editor never offers. It goes at the top
+        // of the list rather than being dropped: a settings file should read back as what it says.
+        let saved = lw_app::hotkey::trigger_of(h);
+        let mut triggers = self.triggers.clone();
+        if !saved.is_empty() && !triggers.iter().any(|t| t.value == saved) {
+            triggers.insert(
+                0,
+                TriggerChoice {
+                    label: format!("{} (saved)", lw_app::hotkey::trigger_label(&saved)),
+                    value: saved.clone(),
+                },
+            );
+        }
+        let selected = triggers.iter().find(|t| t.value == saved).cloned();
+        card = card.push(
             column![
-                widgets::heading("Hotkey"),
-                widgets::sub("The key that starts and stops dictation, anywhere in the system."),
-                mods,
-                row![
-                    widgets::sub("Key"),
-                    iced::widget::text_input("Space", &h.trigger)
-                        .on_input(Message::TriggerChanged)
-                        .width(160),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-                pick_list(self.modes.clone(), selected_mode, |m: ModeChoice| {
-                    Message::ModeSelected(m.value)
+                widgets::field_label("Trigger key"),
+                pick_list(triggers, selected, |t: TriggerChoice| {
+                    Message::TriggerSelected(t.value)
                 })
-                .text_size(14),
-                widgets::prose(
-                    "Hands free needs voice activity detection to decide the utterance ended, so \
-                     it stops on silence rather than on a second press.",
+                .placeholder("No key - pick one")
+                .text_size(14)
+                .width(220),
+                widgets::sub(
+                    "A global shortcut needs a real key. Modifiers on their own cannot be \
+                     registered with the OS, so every binding pairs them with one of these.",
                 ),
             ]
-            .spacing(8),
-        )
-        .into()
+            .spacing(4),
+        );
+
+        if let Err(e) = h.validate() {
+            card = card.push(iced::widget::text(e.to_string()).size(13).color(theme::BAD));
+        }
+
+        card = card.push(
+            column![
+                widgets::field_label("Registered with the OS"),
+                self.registration(),
+            ]
+            .spacing(4),
+        );
+
+        widgets::card(card).into()
+    }
+
+    /// What the OS actually holds, which is not the same question as what the settings say.
+    ///
+    /// The two disagree in the case that matters: a combination another application already owns
+    /// is saved happily and registers as nothing, and the only symptom is a hotkey that does
+    /// nothing at all. This line is where that becomes visible.
+    fn registration(&self) -> Element<'_, Message> {
+        match (&self.hotkey_status.bound, &self.hotkey_status.error) {
+            (_, Some(e)) => column![
+                widgets::sub(
+                    "The OS holds no accelerator for this app right now. If you just saved, \
+                     registration did not take - another app may already own the combination.",
+                ),
+                iced::widget::text(e.clone()).size(13).color(theme::BAD),
+            ]
+            .spacing(2)
+            .into(),
+            (Some(spec), None) => row![
+                widgets::mono(
+                    spec.modifiers
+                        .iter()
+                        .map(|m| lw_app::hotkey::modifier_label(m))
+                        .chain(std::iter::once(lw_app::hotkey::trigger_label(&spec.trigger)))
+                        .collect::<Vec<_>>()
+                        .join(" + "),
+                ),
+                widgets::sub("is the combination the OS currently holds."),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .into(),
+            (None, None) => widgets::sub("Checking...").into(),
+        }
     }
 
     fn model_card(&self) -> Element<'_, Message> {
@@ -491,5 +639,130 @@ impl State {
             r = r.push(widgets::sub("Unsaved changes."));
         }
         container(r).into()
+    }
+}
+
+/// Every trigger key the editor offers, grouped the way the web version grouped them: the four in
+/// everyday use first, then letters, digits and function keys.
+///
+/// `pick_list` has no group headings, so the grouping survives as order alone. Everything here is
+/// accepted by `lw-core`'s `key_code_name`, which is what makes the list safe to offer -- there is
+/// a test below that keeps the two in step.
+fn trigger_choices() -> Vec<TriggerChoice> {
+    let common = ["space", "tab", "enter", "esc"].into_iter().map(String::from);
+    let letters = (b'a'..=b'z').map(|c| (c as char).to_string());
+    let digits = (0..10).map(|d| d.to_string());
+    let fkeys = (1..=20).map(|n| format!("f{n}"));
+    common
+        .chain(letters)
+        .chain(digits)
+        .chain(fkeys)
+        .map(|value| TriggerChoice {
+            label: lw_app::hotkey::trigger_label(&value),
+            value,
+        })
+        .collect()
+}
+
+/// The trigger name for a captured keystroke, or `None` for a key no binding can use.
+///
+/// `None` is also what a bare modifier gives, and that is the useful case: the user is still
+/// holding keys down on the way to the real one, and capture waits rather than binding half a
+/// combination.
+fn trigger_from_key(key: &iced::keyboard::Key) -> Option<String> {
+    use iced::keyboard::Key;
+    use iced::keyboard::key::Named;
+
+    const FKEYS: [(Named, &str); 20] = [
+        (Named::F1, "f1"),
+        (Named::F2, "f2"),
+        (Named::F3, "f3"),
+        (Named::F4, "f4"),
+        (Named::F5, "f5"),
+        (Named::F6, "f6"),
+        (Named::F7, "f7"),
+        (Named::F8, "f8"),
+        (Named::F9, "f9"),
+        (Named::F10, "f10"),
+        (Named::F11, "f11"),
+        (Named::F12, "f12"),
+        (Named::F13, "f13"),
+        (Named::F14, "f14"),
+        (Named::F15, "f15"),
+        (Named::F16, "f16"),
+        (Named::F17, "f17"),
+        (Named::F18, "f18"),
+        (Named::F19, "f19"),
+        (Named::F20, "f20"),
+    ];
+
+    match key {
+        Key::Named(Named::Space) => Some("space".into()),
+        Key::Named(Named::Tab) => Some("tab".into()),
+        Key::Named(Named::Enter) => Some("enter".into()),
+        Key::Named(Named::Escape) => Some("esc".into()),
+        Key::Named(n) => FKEYS
+            .iter()
+            .find(|(named, _)| named == n)
+            .map(|(_, name)| (*name).to_string()),
+        Key::Character(c) => {
+            let lower = c.to_lowercase();
+            (lower.len() == 1 && lower.chars().all(|ch| ch.is_ascii_alphanumeric()))
+                .then_some(lower)
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::keyboard::Key;
+    use iced::keyboard::key::Named;
+
+    #[test]
+    fn every_offered_trigger_is_one_the_core_accepts() {
+        // The dropdown is a promise: pick any of these and Save will work. A key the core rejects
+        // would be offered and then refused, with no way for the user to tell which.
+        for choice in trigger_choices() {
+            let cfg = lw_core::settings::HotkeyConfig {
+                modifiers: vec!["ctrl".into()],
+                trigger: choice.value.clone(),
+                mode: HotkeyMode::Toggle,
+            };
+            assert!(
+                cfg.validate().is_ok(),
+                "{} was offered but is invalid",
+                choice.value
+            );
+        }
+    }
+
+    #[test]
+    fn capture_waits_for_a_real_key_rather_than_binding_a_bare_modifier() {
+        assert_eq!(trigger_from_key(&Key::Named(Named::Control)), None);
+        assert_eq!(trigger_from_key(&Key::Named(Named::Shift)), None);
+    }
+
+    #[test]
+    fn capture_maps_the_keys_the_editor_can_also_be_set_to_by_hand() {
+        assert_eq!(
+            trigger_from_key(&Key::Named(Named::Space)).as_deref(),
+            Some("space")
+        );
+        assert_eq!(
+            trigger_from_key(&Key::Named(Named::F13)).as_deref(),
+            Some("f13")
+        );
+        assert_eq!(
+            trigger_from_key(&Key::Character("D".into())).as_deref(),
+            Some("d")
+        );
+        assert_eq!(
+            trigger_from_key(&Key::Character("7".into())).as_deref(),
+            Some("7")
+        );
+        // Punctuation is not in the list the core accepts, so capture must not produce it.
+        assert_eq!(trigger_from_key(&Key::Character(";".into())), None);
     }
 }

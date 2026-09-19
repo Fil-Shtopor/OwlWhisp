@@ -95,6 +95,7 @@ impl App {
             }),
             self.benchmark.subscription().map(Message::Benchmark),
             self.dictate.subscription().map(Message::Dictate),
+            self.settings.subscription().map(Message::Settings),
         ])
     }
 
@@ -118,7 +119,13 @@ impl App {
             Message::Benchmark(m) => {
                 return self.benchmark.update(m).map(Message::Benchmark);
             }
-            Message::Dictate(m) => self.dictate.update(m),
+            Message::Dictate(m) => {
+                self.dictate.update(m);
+                // The pump lives with the worker, in the Dictate panel, but the question it answers
+                // -- did the OS take this binding? -- is asked on the Settings tab. Copied across
+                // here rather than shared, so neither panel can reach into the other.
+                self.settings.set_hotkey_status(self.dictate.hotkey_status());
+            }
         }
         iced::Task::none()
     }

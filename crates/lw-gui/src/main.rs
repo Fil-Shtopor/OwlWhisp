@@ -1,3 +1,7 @@
+// No console window in a release build. A double-clicked GUI application that also opens a black
+// terminal behind itself looks broken, and the Tauri build did not do it either.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! The LocalWisper window, drawn natively on the CPU.
 //!
 //! Replaces the Tauri/WebView2 front end. Measured on the target machine: that one costs eight
@@ -12,12 +16,10 @@ mod theme;
 mod widgets;
 
 fn main() -> iced::Result {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lw_gui=info,lw_app=info,lw_core=info".into()),
-        )
-        .init();
+    // Held for the life of the process: the guard flushes the appender when it is dropped, and a
+    // release build has no console, so without this every `tracing` call goes nowhere and a user
+    // hitting a problem has nothing to send.
+    let _log_guard = lw_app::logging::init();
 
     iced::application(app::App::title, app::App::update, app::App::view)
         .theme(app::App::theme)

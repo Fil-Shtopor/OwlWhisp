@@ -77,6 +77,14 @@ pub fn mono<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
     text(s).size(13).font(iced::Font::MONOSPACE).color(theme::TEXT)
 }
 
+/// The small uppercase label above a group of controls, matching `.perf-label`.
+///
+/// iced has no `text-transform`, so the caller's string is upcased here rather than at every call
+/// site -- which also keeps the one place that decides what these look like.
+pub fn field_label(s: &str) -> Text<'static> {
+    text(s.to_uppercase()).size(11).color(theme::TEXT_DIM)
+}
+
 /// A section heading.
 pub fn heading<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
     text(s).size(17).color(theme::TEXT)
