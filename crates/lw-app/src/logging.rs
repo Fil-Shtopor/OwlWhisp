@@ -9,20 +9,42 @@
 //! only. `LW_LOG` raises it for debugging (e.g. `LW_LOG=debug`).
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use tracing_appender::non_blocking::WorkerGuard;
+
+/// The writer's flush guard.
+///
+/// Kept here rather than handed to the caller because [`flush`] must be able to *take* it: the
+/// guard flushes when it is dropped, and the way this application quits -- `exit_without_teardown`,
+/// which is a `TerminateProcess` on itself -- runs no destructors at all. A guard living in a local
+/// in `main` would never be dropped on that path, and the last lines before a quit are exactly the
+/// ones worth having.
+static GUARD: OnceLock<Mutex<Option<WorkerGuard>>> = OnceLock::new();
 
 /// Where the log files are written, so a diagnostics screen can point at the folder.
 pub fn log_dir() -> PathBuf {
     crate::paths::app_data_dir().join("logs")
 }
 
-/// Start logging to `<app-data>/logs/localwisper.log.<date>`.
+/// Start logging to `<app-data>/logs/localwisper.log.<date>`. Answers whether it worked.
+pub fn init() -> bool {
+    let guard = init_in(&log_dir());
+    let started = guard.is_some();
+    let _ = GUARD.set(Mutex::new(guard));
+    started
+}
+
+/// Write out anything the appender is still holding.
 ///
-/// The returned guard flushes the appender when it is dropped, so the caller must keep it alive
-/// for the life of the process -- a guard dropped at the end of `init` would log nothing.
-pub fn init() -> Option<WorkerGuard> {
-    init_in(&log_dir())
+/// Called on the way out, before the process is ended the hard way. Idempotent: a second call has
+/// nothing left to flush.
+pub fn flush() {
+    if let Some(slot) = GUARD.get()
+        && let Ok(mut guard) = slot.lock()
+    {
+        drop(guard.take());
+    }
 }
 
 /// As [`init`], but into a directory of the caller's choosing. Separated for tests, which must not

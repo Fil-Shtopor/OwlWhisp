@@ -55,11 +55,17 @@ The Qualcomm AI Stack License also lists prohibited use cases (predictive polici
 etc.), caps liability at US$100, and is terminable by Qualcomm — these bind the *end product*, and
 are surfaced in `THIRD_PARTY_NOTICES`.
 
-## Rust dependencies (all permissive)
+## Rust dependencies (permissive, with one MPL-2.0 exception noted below)
 
 | Crate(s) | Licence |
 |---|---|
-| `tauri`, `tao`, `wry`, `tray-icon`, Tauri plugins | MIT OR Apache-2.0 |
+| `iced`, `iced_core`, `iced_widget`, `iced_winit`, `iced_tiny_skia` | MIT |
+| `winit` (the window and event loop, under iced) | Apache-2.0 |
+| `tiny-skia` (the rasteriser the window draws with) | BSD-3-Clause |
+| `softbuffer`, `cosmic-text` (the frame buffer and text shaping, under iced) | MIT OR Apache-2.0 |
+| `tray-icon`, `muda`, `keyboard-types` (the tray icon and its menu, from the Tauri authors) | MIT OR Apache-2.0 |
+| `image` (decodes the embedded PNG for the tray icon) | MIT OR Apache-2.0 |
+| `tauri`, `tao`, `wry`, Tauri plugins *(being removed; see below)* | MIT OR Apache-2.0 |
 | `ort`, `ort-sys` | MIT OR Apache-2.0 |
 | `cpal`, `rubato`, `hound`, `realfft`, `rustfft`, `ndarray`, `half` | Apache-2.0 / MIT / MIT-OR-Apache-2.0 |
 | `enigo` | MIT |
@@ -70,13 +76,32 @@ are surfaced in `THIRD_PARTY_NOTICES`.
 | `reqwest` (native-tls), `tokio`, `futures`, `serde`, `serde_json`, `thiserror`, `anyhow`, `tracing`, `sha2`, `hex`, `directories`, `sysinfo`, `regex`, `unicode-normalization`, `zip`, `tar`, `bzip2`, `flate2`, `clap`, `indicatif`, `uuid`, `chrono`, `parking_lot`, `crossbeam-channel`, `tokio-util` | MIT / Apache-2.0 (permissive) |
 | `schannel` (Windows TLS, via native-tls) | MIT |
 
-No copyleft (GPL/AGPL/LGPL) code is linked in any shipped build. The one configuration where that
+### One weak-copyleft transitive dependency
+
+`option-ext` **0.2.0 is MPL-2.0**, and it is linked into every build. It arrives as
+`lw-core` → `directories` → `dirs-sys` → `option-ext`, so it long predates the native window; it
+was simply never written down, under a heading that says "all permissive". MPL-2.0 is file-level
+copyleft, not GPL: linking it into a larger work imposes nothing on that work, and the obligation
+is to make the source of *its own files* available to anyone who receives a binary containing it,
+unchanged or modified. We do not modify it.
+
+**What that means for a release:** ship the MPL-2.0 notice for `option-ext` and a pointer to its
+source (crates.io `option-ext` 0.2.0), the same way the ONNX Runtime notices are shipped. Dropping
+it instead would mean replacing `directories`, which is not worth doing for a notice file.
+
+No GPL, AGPL or LGPL code is linked in any shipped build. The one configuration where that
 could go wrong — the optional `sherpa` engine — is covered below, along with the build step that
 prevents it. TLS uses the OS provider (SChannel/Secure Transport)
 via `native-tls`, avoiding `aws-lc-rs`/`rustls` (also removes an ARM64 assembler build problem).
 
 ## Frontend dependencies
 
+**Being removed.** The window is now `crates/lw-gui`, drawn natively with `iced` on a `tiny-skia`
+CPU rasteriser; the licences are in the table above and are all permissive. `iced` was chosen over
+`slint`, whose smaller binary comes under GPL-3.0 unless a commercial licence is bought — which
+would be exactly the kind of accidental copyleft this document exists to prevent.
+
+Until `app/src-tauri` and `app/frontend` are deleted, the old front end is still in the tree:
 React, Vite, TypeScript, `@tauri-apps/api` and the Tauri plugin JS packages — all MIT or
 Apache-2.0. Enumerated in `app/frontend/package.json`; a full SBOM is produced at release time.
 

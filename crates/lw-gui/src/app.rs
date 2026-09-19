@@ -8,7 +8,7 @@
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Length, Padding, Task, window};
 
-use crate::{panels, theme};
+use crate::{panels, theme, tray};
 
 /// Which panel is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,8 +53,14 @@ pub enum Message {
     MainOpened(window::Id),
     /// The overlay finished opening, and can now be made click-through.
     OverlayOpened(window::Id),
-    /// A window closed. The main one closing ends the process.
+    /// A window closed.
     Closed(window::Id),
+    /// The main window's close button. Hides to the tray rather than quitting, where there is one.
+    CloseRequested(window::Id),
+    /// Time to drain the tray's menu channel.
+    TrayPoll,
+    /// The user picked something in the tray menu.
+    Tray(tray::Action),
 }
 
 pub struct App {
@@ -62,6 +68,9 @@ pub struct App {
     main: Option<window::Id>,
     /// The overlay, while a recording is in progress.
     overlay: Option<window::Id>,
+    /// The tray icon, if this machine gave us one. Held for its whole life; dropping it removes
+    /// the icon.
+    tray: Option<tray::Tray>,
     tab: Tab,
     models: panels::models::State,
     diagnostics: panels::diagnostics::State,
@@ -75,6 +84,7 @@ impl Default for App {
         Self {
             main: None,
             overlay: None,
+            tray: None,
             tab: Tab::Dictate,
             models: panels::models::State::new(),
             diagnostics: panels::diagnostics::State::new(),
@@ -90,13 +100,47 @@ impl App {
     ///
     /// A daemon has no window until one is asked for, which is what makes the overlay possible;
     /// the cost is that the first window has to be opened by hand, here.
-    pub fn boot() -> (Self, Task<Message>) {
+    pub fn boot(tray: Option<tray::Tray>) -> (Self, Task<Message>) {
         let (_id, open) = window::open(window::Settings {
             size: iced::Size::new(1000.0, 720.0),
             min_size: Some(iced::Size::new(560.0, 420.0)),
+            // The close button is answered by us: with a tray, it hides; without one, it quits.
+            exit_on_close_request: false,
+            // The same icon as the tray and the Tauri build. Without it the window wears the
+            // default winit icon, which is not this application.
+            icon: crate::tray::window_icon(),
             ..Default::default()
         });
-        (Self::default(), open.map(Message::MainOpened))
+        let app = Self {
+            tray,
+            ..Self::default()
+        };
+        (app, open.map(Message::MainOpened))
+    }
+
+    /// Leave, flushing the log first.
+    ///
+    /// Not `iced::exit()`: once a WebGPU session has existed in this process, ONNX Runtime's
+    /// WebGPU execution provider crashes during library detach, so an ordinary exit ends in a
+    /// crash dialog rather than a quit. `exit_without_teardown` ends the process outright, which
+    /// runs no destructors -- hence the explicit flush.
+    fn quit() -> ! {
+        tracing::info!("quitting");
+        lw_app::logging::flush();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        lw_ort::exit_without_teardown(0)
+    }
+
+    /// Bring the main window back and put it on `tab`.
+    fn show_main(&mut self, tab: Tab) -> Task<Message> {
+        self.tab = tab;
+        match self.main {
+            Some(id) => Task::batch([
+                window::change_mode(id, window::Mode::Windowed),
+                window::gain_focus(id),
+            ]),
+            None => Task::none(),
+        }
     }
 
     pub fn title(&self, window: window::Id) -> String {
@@ -129,6 +173,14 @@ impl App {
             self.dictate.subscription().map(Message::Dictate),
             self.settings.subscription().map(Message::Settings),
             window::close_events().map(Message::Closed),
+            window::close_requests().map(Message::CloseRequested),
+            // Only while there is a tray to poll. `tray-icon` publishes on a global channel, so
+            // this is a `try_recv` and nothing more.
+            if self.tray.is_some() {
+                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::TrayPoll)
+            } else {
+                iced::Subscription::none()
+            },
         ])
     }
 
@@ -206,8 +258,33 @@ impl App {
                 } else if Some(id) == self.main {
                     self.main = None;
                     // The overlay is not a reason to keep the process alive.
-                    return iced::exit();
+                    Self::quit();
                 }
+            }
+            Message::CloseRequested(id) => {
+                if Some(id) != self.main {
+                    return window::close(id);
+                }
+                match self.tray.is_some() {
+                    // Hidden, not closed: the application goes on listening for its hotkey, and
+                    // the panels keep their state -- an unsaved settings edit survives a stray
+                    // click on the close button.
+                    true => return window::change_mode(id, window::Mode::Hidden),
+                    // With no tray there would be no way back, so the close button means what it
+                    // says.
+                    false => Self::quit(),
+                }
+            }
+            Message::TrayPoll => {
+                let actions = self.tray.as_ref().map(|t| t.poll()).unwrap_or_default();
+                return Task::batch(actions.into_iter().map(|a| Task::done(Message::Tray(a))));
+            }
+            Message::Tray(action) => {
+                return match action {
+                    tray::Action::OpenSettings => self.show_main(Tab::Settings),
+                    tray::Action::OpenDiagnostics => self.show_main(Tab::Diagnostics),
+                    tray::Action::Quit => Self::quit(),
+                };
             }
             Message::TabSelected(tab) => self.tab = tab,
             Message::Resized(w) => {

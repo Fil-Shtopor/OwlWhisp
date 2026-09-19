@@ -20,10 +20,16 @@ sherpa = ["lw-app/sherpa"]
 lw-app.workspace = true
 lw-core.workspace = true
 lw-platform.workspace = true
+# Only for the quit path: see `App::quit`.
+lw-ort.workspace = true
 
 iced = { workspace = true }
+tray-icon = { workspace = true }
+image = { workspace = true }
 # For `spawn_blocking`: the benchmark sweep must not run on the thread that draws.
 tokio = { workspace = true, features = ["rt"] }
+
+tracing.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true

@@ -30,6 +30,7 @@ pub mod inject;
 pub mod overlay;
 pub mod screen;
 pub mod secrets;
+pub mod single_instance;
 pub mod sound;
 
 #[cfg(windows)]

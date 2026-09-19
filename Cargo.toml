@@ -44,6 +44,11 @@ lw-gui = { path = "crates/lw-gui" }
 # `tokio` gives the executor that `Task::perform` needs: a benchmark sweep takes tens of seconds
 # and must not run on the thread that draws.
 iced = { version = "0.13", default-features = false, features = ["tiny-skia", "image", "lazy", "tokio"] }
+# The system tray. MIT/Apache-2.0, from the Tauri authors, and the same library Tauri itself used
+# for the tray in the build this replaces.
+tray-icon = "0.25"
+# Only to turn the embedded PNG icon into the RGBA the tray wants; already in the tree via arboard.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # serialization / config
 serde = { version = "1.0", features = ["derive"] }
