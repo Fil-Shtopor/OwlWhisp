@@ -9,6 +9,11 @@
 //! window with a GPU context costs 113 MB in one process; this one costs 18 MB, because nothing
 //! here opens a GPU context at all. The rasteriser is tiny-skia, which also means the same pixels
 //! on Windows, macOS and Linux rather than whatever each platform's driver produces.
+//!
+//! A `daemon` rather than an `application`, because there are two windows: the main one and the
+//! dictation overlay, which is opened and closed as dictation starts and stops. A daemon has no
+//! window of its own until one is asked for, so the main window is opened by the initial task and
+//! the process exits when it closes.
 
 mod app;
 mod panels;
@@ -21,13 +26,8 @@ fn main() -> iced::Result {
     // hitting a problem has nothing to send.
     let _log_guard = lw_app::logging::init();
 
-    iced::application(app::App::title, app::App::update, app::App::view)
+    iced::daemon(app::App::title, app::App::update, app::App::view)
         .theme(app::App::theme)
         .subscription(app::App::subscription)
-        .window(iced::window::Settings {
-            size: iced::Size::new(1000.0, 720.0),
-            min_size: Some(iced::Size::new(560.0, 420.0)),
-            ..Default::default()
-        })
-        .run()
+        .run_with(app::App::boot)
 }

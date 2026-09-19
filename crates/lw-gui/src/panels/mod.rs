@@ -4,4 +4,5 @@ pub mod benchmark;
 pub mod diagnostics;
 pub mod dictate;
 pub mod models;
+pub mod overlay;
 pub mod settings;

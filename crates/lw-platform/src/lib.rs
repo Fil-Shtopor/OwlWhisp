@@ -28,6 +28,7 @@ pub mod clipboard;
 pub mod hotkey;
 pub mod inject;
 pub mod overlay;
+pub mod screen;
 pub mod secrets;
 pub mod sound;
 

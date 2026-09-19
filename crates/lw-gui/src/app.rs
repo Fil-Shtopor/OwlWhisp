@@ -1,11 +1,12 @@
-//! The window: a tab bar and whichever panel is selected.
+//! The windows: the main one -- a tab bar and whichever panel is selected -- and the dictation
+//! overlay that comes and goes with a recording.
 //!
 //! The tab order is the one the web front end settled on -- Dictate, Settings, Models, Benchmark,
 //! Diagnostics -- because it is the order of how often a tab is wanted, and changing it would be a
 //! change a user can see in a commit that is supposed to change nothing they can see.
 
 use iced::widget::{button, column, container, row, text, Space};
-use iced::{Element, Length, Padding};
+use iced::{Element, Length, Padding, Task, window};
 
 use crate::{panels, theme};
 
@@ -48,9 +49,19 @@ pub enum Message {
     Settings(panels::settings::Message),
     Benchmark(panels::benchmark::Message),
     Dictate(panels::dictate::Message),
+    /// The main window finished opening.
+    MainOpened(window::Id),
+    /// The overlay finished opening, and can now be made click-through.
+    OverlayOpened(window::Id),
+    /// A window closed. The main one closing ends the process.
+    Closed(window::Id),
 }
 
 pub struct App {
+    /// The main window, once it exists. A daemon starts with no windows at all.
+    main: Option<window::Id>,
+    /// The overlay, while a recording is in progress.
+    overlay: Option<window::Id>,
     tab: Tab,
     models: panels::models::State,
     diagnostics: panels::diagnostics::State,
@@ -62,6 +73,8 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            main: None,
+            overlay: None,
             tab: Tab::Dictate,
             models: panels::models::State::new(),
             diagnostics: panels::diagnostics::State::new(),
@@ -73,11 +86,30 @@ impl Default for App {
 }
 
 impl App {
-    pub fn title(&self) -> String {
-        "LocalWisper".to_string()
+    /// Build the state and open the main window.
+    ///
+    /// A daemon has no window until one is asked for, which is what makes the overlay possible;
+    /// the cost is that the first window has to be opened by hand, here.
+    pub fn boot() -> (Self, Task<Message>) {
+        let (_id, open) = window::open(window::Settings {
+            size: iced::Size::new(1000.0, 720.0),
+            min_size: Some(iced::Size::new(560.0, 420.0)),
+            ..Default::default()
+        });
+        (Self::default(), open.map(Message::MainOpened))
     }
 
-    pub fn theme(&self) -> iced::Theme {
+    pub fn title(&self, window: window::Id) -> String {
+        if Some(window) == self.overlay {
+            // Never seen: the overlay has no decorations and is off the taskbar. Named anyway, so
+            // that a tool listing windows shows something a person can identify.
+            "LocalWisper Overlay".to_string()
+        } else {
+            "LocalWisper".to_string()
+        }
+    }
+
+    pub fn theme(&self, _window: window::Id) -> iced::Theme {
         theme::theme()
     }
 
@@ -96,11 +128,87 @@ impl App {
             self.benchmark.subscription().map(Message::Benchmark),
             self.dictate.subscription().map(Message::Dictate),
             self.settings.subscription().map(Message::Settings),
+            window::close_events().map(Message::Closed),
         ])
     }
 
-    pub fn update(&mut self, message: Message) -> iced::Task<Message> {
+    /// Open or close the overlay so that what is on screen matches what the worker is doing.
+    ///
+    /// Called after every message rather than from the one place that changes the state, because
+    /// the state can change from several: the hotkey, the panel's own button, and the worker
+    /// finishing an utterance by itself. One place that reconciles is easier to keep honest than
+    /// three places that each remember to.
+    fn sync_overlay(&mut self) -> Task<Message> {
+        let wanted = self.dictate.overlay_wanted();
+        match (wanted, self.overlay) {
+            (true, None) => {
+                let (x, y) = lw_platform::screen::primary_work_area()
+                    .map(|a| {
+                        a.bottom_centre(
+                            panels::overlay::WIDTH,
+                            panels::overlay::HEIGHT,
+                            panels::overlay::MARGIN,
+                        )
+                    })
+                    .unwrap_or((0.0, 0.0));
+                let position = if lw_platform::screen::primary_work_area().is_some() {
+                    window::Position::Specific(iced::Point::new(x, y))
+                } else {
+                    // Rather than guess and risk putting it off-screen.
+                    window::Position::Centered
+                };
+
+                let (id, open) = window::open(window::Settings {
+                    size: iced::Size::new(panels::overlay::WIDTH, panels::overlay::HEIGHT),
+                    position,
+                    resizable: false,
+                    decorations: false,
+                    transparent: true,
+                    level: window::Level::AlwaysOnTop,
+                    exit_on_close_request: false,
+                    platform_specific: window::settings::PlatformSpecific {
+                        // Off the taskbar and the alt-tab list: this is an indicator, not a window
+                        // the user is meant to manage.
+                        skip_taskbar: true,
+                        drag_and_drop: false,
+                        undecorated_shadow: false,
+                    },
+                    ..Default::default()
+                });
+                self.overlay = Some(id);
+                open.map(Message::OverlayOpened)
+            }
+            (false, Some(id)) => {
+                self.overlay = None;
+                window::close(id)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.route(message);
+        Task::batch([task, self.sync_overlay()])
+    }
+
+    fn route(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::MainOpened(id) => self.main = Some(id),
+            Message::OverlayOpened(id) => {
+                // The one thing that makes it an overlay rather than a window in the way: clicks
+                // land on whatever is underneath. Set after opening because it needs the window to
+                // exist.
+                return window::enable_mouse_passthrough(id);
+            }
+            Message::Closed(id) => {
+                if Some(id) == self.overlay {
+                    self.overlay = None;
+                } else if Some(id) == self.main {
+                    self.main = None;
+                    // The overlay is not a reason to keep the process alive.
+                    return iced::exit();
+                }
+            }
             Message::TabSelected(tab) => self.tab = tab,
             Message::Resized(w) => {
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
@@ -121,16 +229,24 @@ impl App {
             }
             Message::Dictate(m) => {
                 self.dictate.update(m);
+                // Nothing else to do here: `update` reconciles the overlay after every message.
                 // The pump lives with the worker, in the Dictate panel, but the question it answers
                 // -- did the OS take this binding? -- is asked on the Settings tab. Copied across
                 // here rather than shared, so neither panel can reach into the other.
                 self.settings.set_hotkey_status(self.dictate.hotkey_status());
             }
         }
-        iced::Task::none()
+        Task::none()
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, window: window::Id) -> Element<'_, Message> {
+        if Some(window) == self.overlay {
+            return panels::overlay::view(self.dictate.state(), self.dictate.phase());
+        }
+        self.main_view()
+    }
+
+    fn main_view(&self) -> Element<'_, Message> {
         let mut tabs = row![].spacing(4);
         for tab in Tab::ALL {
             let selected = self.tab == tab;

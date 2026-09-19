@@ -41,6 +41,8 @@ pub struct State {
     pump: lw_app::hotkey::Pump,
     /// Whether the OS actually accepted the binding, re-read on every poll.
     registered: bool,
+    /// Mirrors `Settings.overlay_enabled`; the floating indicator is the user's to switch off.
+    overlay_enabled: bool,
     /// Rising while listening, to make the pill breathe rather than sit still.
     phase: f32,
 }
@@ -61,10 +63,31 @@ impl State {
             scratchpad: text_editor::Content::new(),
             hotkey: settings.hotkey,
             registered: pump.status().is_live(),
+            overlay_enabled: settings.overlay_enabled,
             pump,
             phase: 0.0,
             worker,
         }
+    }
+
+    /// What the worker is doing, for the overlay to mirror.
+    pub fn state(&self) -> RecordingState {
+        self.state
+    }
+
+    /// The breathing phase, shared with the overlay so the two pills pulse together rather than
+    /// drifting apart on two timers.
+    pub fn phase(&self) -> f32 {
+        self.phase
+    }
+
+    /// Whether the floating indicator should be on screen: the user asked for it in Settings, and
+    /// there is something happening worth indicating.
+    ///
+    /// `Idle` is excluded deliberately. An overlay that sat there permanently would be a
+    /// permanent obstruction advertising that nothing is happening.
+    pub fn overlay_wanted(&self) -> bool {
+        self.overlay_enabled && self.state != RecordingState::Idle
     }
 
     /// What the OS made of the binding, for the Settings tab to show.
@@ -80,6 +103,7 @@ impl State {
         let settings = lw_core::settings::Settings::load(&lw_app::paths::settings_path())
             .unwrap_or_default();
         self.worker.send(Command::ReloadSettings);
+        self.overlay_enabled = settings.overlay_enabled;
         if settings.hotkey != self.hotkey {
             self.pump.rebind(&settings.hotkey);
             self.hotkey = settings.hotkey;
