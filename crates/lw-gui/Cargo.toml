@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The LocalWisper desktop window, drawn natively. Replaces the Tauri/WebView2 front end: one process instead of eight, and no browser engine between the user and the Rust that does the work."
+description = "The LocalWisper desktop window, drawn natively on the CPU. Replaces the Tauri/WebView2 front end: one process instead of eight, no browser engine, no GPU context, and the same pixels on every platform because nothing platform-specific draws them."
 
 [[bin]]
 name = "localwisper-gui"
@@ -21,8 +21,7 @@ lw-app.workspace = true
 lw-core.workspace = true
 lw-platform.workspace = true
 
-eframe = { workspace = true }
-egui = { workspace = true }
+iced = { workspace = true }
 
 serde.workspace = true
 serde_json.workspace = true

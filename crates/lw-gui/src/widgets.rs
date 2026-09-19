@@ -1,103 +1,95 @@
 //! The handful of shapes the web front end used everywhere, redrawn.
 //!
-//! Pills, chips and dimmed sub-lines are not decoration here: the project's rule is that an
-//! estimate and a measurement must never look alike, and the shapes are how that rule is kept
-//! visible. They are gathered in one place so the rule is enforced once rather than remembered at
-//! every call site.
+//! Pills, chips and dimmed sub-lines are not decoration: the project's rule is that an estimate
+//! and a measurement must never look alike, and these shapes are how that rule stays visible. They
+//! live in one place so the rule is enforced once rather than remembered at every call site.
 
-use egui::{Align, Color32, FontId, Layout, Response, RichText, Rounding, Sense, Ui, Vec2};
+use iced::widget::{container, text, Container, Text};
+use iced::{Color, Element, Length, Padding};
 
 use crate::theme;
 
-/// A rounded pill with a tinted background, matching `.badge` in the stylesheet.
-pub fn badge(ui: &mut Ui, text: &str, colour: Color32) -> Response {
-    let font = FontId::proportional(12.0);
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, colour);
-    let pad = Vec2::new(10.0, 2.0);
-    let (rect, response) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
-    if ui.is_rect_visible(rect) {
-        ui.painter().rect_filled(
-            rect,
-            Rounding::same(999.0),
-            colour.linear_multiply(0.15),
-        );
-        ui.painter().galley(rect.min + pad, galley, colour);
-    }
-    response
+/// A rounded pill with a tinted background, matching `.badge`.
+pub fn badge<'a, M: 'a>(label: impl text::IntoFragment<'a>, colour: Color) -> Element<'a, M> {
+    container(text(label).size(12))
+        .padding(Padding::from([1, 9]))
+        .style(theme::pill(colour))
+        .into()
 }
 
 /// A badge in the palette's "yes" green.
-pub fn badge_yes(ui: &mut Ui, text: &str) -> Response {
-    badge(ui, text, theme::GOOD)
+pub fn badge_yes<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
+    badge(label, theme::GOOD)
 }
 
 /// A badge in the palette's "no" red.
-pub fn badge_no(ui: &mut Ui, text: &str) -> Response {
-    badge(ui, text, theme::BAD)
+pub fn badge_no<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
+    badge(label, theme::BAD)
 }
 
 /// A small neutral chip, matching `.hw-chip`: an accelerator name beside a number.
-pub fn chip(ui: &mut Ui, text: &str) -> Response {
-    let font = FontId::monospace(10.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_string(), font, theme::TEXT_DIM);
-    let pad = Vec2::new(6.0, 1.0);
-    let (rect, response) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
-    if ui.is_rect_visible(rect) {
-        ui.painter()
-            .rect_filled(rect, Rounding::same(4.0), theme::BG_INSET);
-        ui.painter().galley(rect.min + pad, galley, theme::TEXT_DIM);
-    }
-    response
+pub fn chip<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
+    container(text(label).size(10).font(iced::Font::MONOSPACE))
+        .padding(Padding::from([1, 5]))
+        .style(theme::chip)
+        .into()
 }
 
 /// Dimmed secondary text, matching `.sub`.
-pub fn sub(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.label(RichText::new(text).size(12.0).color(theme::TEXT_DIM))
+pub fn sub<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(s).size(12).color(theme::TEXT_DIM)
+}
+
+/// Ordinary body text.
+pub fn body<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(s).size(14).color(theme::TEXT)
+}
+
+/// A number that was measured: green, because a measurement is the thing worth trusting.
+pub fn measured<'a>(label: &str, rate: f32) -> Text<'a> {
+    text(format!("{label} {:.1}%", rate * 100.0))
+        .size(13)
+        .font(iced::Font::MONOSPACE)
+        .color(theme::GOOD)
+}
+
+/// A number that was estimated: amber, and prefixed with the tilde used throughout the project.
+pub fn estimated<'a>(rtf: f32) -> Text<'a> {
+    text(format!("~{rtf:.4}"))
+        .size(13)
+        .font(iced::Font::MONOSPACE)
+        .color(theme::ESTIMATE)
+}
+
+/// Monospace, for paths and figures that should line up.
+pub fn mono<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(s).size(13).font(iced::Font::MONOSPACE).color(theme::TEXT)
+}
+
+/// A section heading.
+pub fn heading<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(s).size(17).color(theme::TEXT)
 }
 
 /// A paragraph of running prose, held to a readable measure.
-pub fn prose(ui: &mut Ui, text: impl Into<String>) {
-    ui.allocate_ui_with_layout(
-        Vec2::new(theme::MEASURE.min(ui.available_width()), 0.0),
-        Layout::top_down(Align::Min),
-        |ui| {
-            ui.label(RichText::new(text).color(theme::TEXT_DIM));
-        },
-    );
+pub fn prose<'a, M: 'a>(s: impl text::IntoFragment<'a>) -> Element<'a, M> {
+    container(text(s).size(13).color(theme::TEXT_DIM))
+        .max_width(theme::MEASURE)
+        .into()
 }
 
-/// A raised card with a border, matching the `.card` / `.model-table` container.
-pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::none()
-        .fill(theme::BG_RAISED)
-        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER))
-        .rounding(Rounding::same(10.0))
-        .inner_margin(egui::Margin::same(14.0))
-        .show(ui, add)
-        .inner
+/// A raised card with a border.
+pub fn card<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Container<'a, M> {
+    container(content)
+        .padding(14)
+        .width(Length::Fill)
+        .style(theme::card)
 }
 
-/// A section heading, matching the `<h3>` the panels use.
-pub fn heading(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(16.0).strong().color(theme::TEXT));
-}
-
-/// An estimated number: amber, prefixed with the tilde the whole project uses for "not measured".
-pub fn estimate(ui: &mut Ui, value: f32) -> Response {
-    ui.label(
-        RichText::new(format!("~{value:.4}"))
-            .monospace()
-            .color(theme::ESTIMATE),
-    )
-}
-
-/// A measured error rate: green, because a measurement is the thing worth trusting.
-pub fn measured_rate(ui: &mut Ui, label: &str, rate: f32) -> Response {
-    ui.label(
-        RichText::new(format!("{label} {:.1}%", rate * 100.0))
-            .monospace()
-            .color(theme::GOOD),
-    )
+/// A sunken panel, for an expanded row's body.
+pub fn inset<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> Container<'a, M> {
+    container(content)
+        .padding(12)
+        .width(Length::Fill)
+        .style(theme::inset)
 }

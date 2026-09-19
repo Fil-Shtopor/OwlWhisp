@@ -34,9 +34,14 @@ lw-platform = { path = "crates/lw-platform" }
 lw-app = { path = "crates/lw-app" }
 lw-gui = { path = "crates/lw-gui" }
 
-# native GUI (replaces the Tauri webview; see docs/architecture.md)
-eframe = { version = "0.29", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
-egui = "0.29"
+# Native GUI, replacing the Tauri webview -- see docs/architecture.md.
+#
+# `tiny-skia` rather than the default `wgpu` backend, for two reasons measured on the target
+# machine rather than assumed. Memory: an empty window with a GPU context costs 113 MB of private
+# commit (384 MB through wgpu), against 18 MB rasterising on the CPU -- the driver context is the
+# whole difference, and a bare window without one is 3 MB. Consistency: a CPU rasteriser produces
+# the same pixels on Windows, macOS and Linux by construction, which a platform GPU stack does not.
+iced = { version = "0.13", default-features = false, features = ["tiny-skia", "image", "lazy"] }
 
 # serialization / config
 serde = { version = "1.0", features = ["derive"] }

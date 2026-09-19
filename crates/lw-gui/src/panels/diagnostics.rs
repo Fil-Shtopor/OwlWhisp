@@ -1,6 +1,8 @@
 //! The Diagnostics tab.
 
+use iced::Element;
+
 /// Draw the tab.
-pub fn show(ui: &mut egui::Ui) {
-    super::not_yet(ui, "Diagnostics");
+pub fn view<'a, M: 'a>() -> Element<'a, M> {
+    crate::app::not_yet("Diagnostics")
 }

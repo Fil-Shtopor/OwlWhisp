@@ -1,12 +1,13 @@
 //! The window: a tab bar and whichever panel is selected.
 //!
 //! The tab order is the one the web front end settled on -- Dictate, Settings, Models, Benchmark,
-//! Diagnostics -- because it is the order of how often a tab is wanted, and moving it would be a
-//! change nobody asked for in a commit that is supposed to change nothing a user can see.
+//! Diagnostics -- because it is the order of how often a tab is wanted, and changing it would be a
+//! change a user can see in a commit that is supposed to change nothing they can see.
 
-use egui::{Align, Layout, RichText};
+use iced::widget::{button, column, container, row, text, Space};
+use iced::{Element, Length, Padding};
 
-use crate::{panels, theme};
+use crate::{panels, theme, widgets};
 
 /// Which panel is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -38,70 +39,118 @@ impl Tab {
     }
 }
 
-/// Everything the window holds between frames.
-pub struct App {
-    pub tab: Tab,
-    pub models: panels::models::State,
+#[derive(Debug, Clone)]
+pub enum Message {
+    TabSelected(Tab),
+    Models(panels::models::Message),
 }
 
-impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        theme::install(&cc.egui_ctx);
+pub struct App {
+    tab: Tab,
+    models: panels::models::State,
+}
+
+impl Default for App {
+    fn default() -> Self {
         Self {
             tab: Tab::Dictate,
-            models: panels::models::State::default(),
+            models: panels::models::State::new(),
         }
     }
 }
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("tabs")
-            .frame(
-                egui::Frame::none()
-                    .fill(theme::BG)
-                    .inner_margin(egui::Margin {
-                        left: 12.0,
-                        right: 12.0,
-                        top: 8.0,
-                        bottom: 0.0,
-                    }),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    for tab in Tab::ALL {
-                        let selected = self.tab == tab;
-                        let text = RichText::new(tab.label())
-                            .size(15.0)
-                            .color(if selected { theme::TEXT } else { theme::TEXT_DIM });
-                        if ui.selectable_label(selected, text).clicked() {
-                            self.tab = tab;
-                        }
-                    }
-                });
-                ui.add_space(6.0);
-                let y = ui.max_rect().bottom();
-                ui.painter().hline(
-                    ui.max_rect().x_range(),
-                    y,
-                    egui::Stroke::new(1.0_f32, theme::BORDER),
-                );
-            });
-
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(theme::BG)
-                    .inner_margin(egui::Margin::same(16.0)),
-            )
-            .show(ctx, |ui| {
-                ui.with_layout(Layout::top_down(Align::Min), |ui| match self.tab {
-                    Tab::Dictate => panels::dictate::show(ui),
-                    Tab::Settings => panels::settings::show(ui),
-                    Tab::Models => panels::models::show(ui, &mut self.models),
-                    Tab::Benchmark => panels::benchmark::show(ui),
-                    Tab::Diagnostics => panels::diagnostics::show(ui),
-                });
-            });
+impl App {
+    pub fn title(&self) -> String {
+        "LocalWisper".to_string()
     }
+
+    pub fn theme(&self) -> iced::Theme {
+        theme::theme()
+    }
+
+    pub fn update(&mut self, message: Message) {
+        match message {
+            Message::TabSelected(tab) => self.tab = tab,
+            Message::Models(m) => self.models.update(m),
+        }
+    }
+
+    pub fn view(&self) -> Element<'_, Message> {
+        let mut tabs = row![].spacing(4);
+        for tab in Tab::ALL {
+            let selected = self.tab == tab;
+            let label = text(tab.label()).size(15).color(if selected {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            });
+            tabs = tabs.push(
+                button(label)
+                    .padding(Padding::from([6, 14]))
+                    .on_press(Message::TabSelected(tab))
+                    .style(move |_t, status| tab_style(selected, status)),
+            );
+        }
+
+        let body: Element<'_, Message> = match self.tab {
+            Tab::Dictate => panels::dictate::view(),
+            Tab::Settings => panels::settings::view(),
+            Tab::Models => self.models.view().map(Message::Models),
+            Tab::Benchmark => panels::benchmark::view(),
+            Tab::Diagnostics => panels::diagnostics::view(),
+        };
+
+        column![
+            container(tabs).padding(Padding {
+                top: 8.0,
+                right: 12.0,
+                bottom: 8.0,
+                left: 12.0,
+            }),
+            container(Space::new(Length::Fill, 1)).style(|_t| container::Style {
+                background: Some(theme::BORDER.into()),
+                ..Default::default()
+            }),
+            container(body).padding(16).height(Length::Fill),
+        ]
+        .into()
+    }
+}
+
+fn tab_style(selected: bool, status: button::Status) -> button::Style {
+    let bg = if selected {
+        theme::BG_RAISED
+    } else if matches!(status, button::Status::Hovered) {
+        theme::faded(theme::BG_RAISED, 0.6)
+    } else {
+        iced::Color::TRANSPARENT
+    };
+    button::Style {
+        background: Some(bg.into()),
+        text_color: if selected { theme::TEXT } else { theme::TEXT_DIM },
+        border: iced::Border {
+            radius: 8.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Shown by a tab that has not been ported yet.
+///
+/// Deliberately blunt. A half-drawn panel that looks finished is worse than an empty one that says
+/// what it is: the point of porting tab by tab is that the old window stays usable while this one
+/// catches up, and a user has to be able to tell which they are looking at.
+pub fn not_yet<'a, M: 'a>(what: &'a str) -> Element<'a, M> {
+    widgets::card(
+        column![
+            widgets::heading(what),
+            widgets::prose(
+                "Not ported to the native window yet. This tab still works in the Tauri build; it \
+                 is being moved one panel at a time so the application keeps running throughout.",
+            ),
+        ]
+        .spacing(6),
+    )
+    .into()
 }
