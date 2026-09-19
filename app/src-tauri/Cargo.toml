@@ -26,7 +26,7 @@ custom-protocol = ["tauri/custom-protocol"]
 # Portable CPU engine (Whisper / Moonshine / SenseVoice and friends). Off by default: see
 # docs/licenses.md - the stock sherpa-onnx archive links GPL-3.0 espeak-ng, which cannot be
 # combined with the proprietary Qualcomm runtime, so a shipped build needs a -no-tts archive.
-sherpa = ["lw-engine-sherpa/sherpa"]
+sherpa = ["lw-engine-sherpa/sherpa", "lw-app/sherpa"]
 
 [dependencies]
 # workspace crates
@@ -34,6 +34,7 @@ lw-core.workspace = true
 lw-ort.workspace = true
 lw-engine-parakeet.workspace = true
 lw-platform.workspace = true
+lw-app.workspace = true
 lw-engine-sherpa.workspace = true
 crossbeam-channel.workspace = true
 

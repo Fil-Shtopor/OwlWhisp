@@ -14,7 +14,6 @@
 //! - `run_benchmark(modelId?, backend?) -> BenchReport`
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use lw_core::capabilities::Capabilities;
 use lw_core::engine::BackendPreference;
@@ -27,7 +26,10 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::state::AppState;
-use crate::worker::{BenchReport, WorkerCmd};
+use lw_app::bench::BenchReport;
+use lw_app::machine::probe_capabilities;
+
+use crate::worker::WorkerCmd;
 
 /// The sentence the UI must show beside any estimated number.
 const ESTIMATE_DISCLAIMER: &str = "Estimated from the model's speed tier and your detected hardware - not a measurement. \
@@ -52,25 +54,6 @@ fn models_root(state: &AppState) -> PathBuf {
 /// make the app report "QNN EP unavailable" on a machine whose NPU works, refuse to prefer NPU
 /// artifacts, and never recommend the NPU path.
 ///
-/// Enumerating devices is the only honest way to answer "is the NPU usable", so that is what this
-/// does. It registers the QNN plugin EP process-wide, which is safe here because every CPU session
-/// is pinned to the CPU device (see `lw_ort::build_cpu_session`). The result is cached: the probe
-/// costs a DLL load, and the answer cannot change while the process runs.
-pub fn probe_capabilities() -> &'static Capabilities {
-    static CAPS: OnceLock<Capabilities> = OnceLock::new();
-    CAPS.get_or_init(|| {
-        let mut caps = lw_platform::caps::detect();
-        caps.providers.cpu = true;
-        match lw_ort::OrtRuntime::auto() {
-            Ok(rt) => caps.providers.qnn = rt.has_qnn_npu(),
-            Err(e) => tracing::warn!(
-                "ONNX Runtime not loaded ({e}); accelerator availability is unverified,                  so everything reported here assumes CPU"
-            ),
-        }
-        caps
-    })
-}
-
 /// Detect hardware and report it, including whether the NPU is merely present or actually usable.
 ///
 /// Probing loads `onnxruntime.dll`, so this runs on a blocking thread.
@@ -460,11 +443,11 @@ pub async fn run_benchmark(
 /// can read on screen, and failing the command because a cache file could not be written would
 /// throw away the thing they waited for.
 fn record_local_measurement(settings_path: &std::path::Path, report: &BenchReport) {
-    let Some(entry) = crate::measurements::from_report(report) else {
+    let Some(entry) = lw_app::measurements::from_report(report) else {
         return;
     };
-    let path = crate::measurements::path_for(settings_path);
-    let mut set = crate::measurements::LocalMeasurements::load(&path);
+    let path = lw_app::measurements::path_for(settings_path);
+    let mut set = lw_app::measurements::LocalMeasurements::load(&path);
     set.record(&report.model_id, entry);
     if let Err(e) = set.save(&path) {
         tracing::warn!("could not save local measurements: {e}");
@@ -556,8 +539,8 @@ fn dir_size(dir: &std::path::Path) -> u64 {
 /// Everything this machine has measured, for the model list.
 #[tauri::command]
 pub fn local_measurements(state: State<'_, AppState>) -> Value {
-    let path = crate::measurements::path_for(&state.settings_path);
-    serde_json::to_value(crate::measurements::LocalMeasurements::load(&path).models)
+    let path = lw_app::measurements::path_for(&state.settings_path);
+    serde_json::to_value(lw_app::measurements::LocalMeasurements::load(&path).models)
         .unwrap_or_else(|_| json!({}))
 }
 

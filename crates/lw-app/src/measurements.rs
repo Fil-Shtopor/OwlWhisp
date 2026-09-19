@@ -117,7 +117,7 @@ pub fn path_for(settings_path: &Path) -> PathBuf {
 }
 
 /// Turn a finished benchmark into a record, or `None` when it measured nothing usable.
-pub fn from_report(report: &crate::worker::BenchReport) -> Option<LocalMeasurement> {
+pub fn from_report(report: &crate::bench::BenchReport) -> Option<LocalMeasurement> {
     if report.clips.is_empty() {
         return None;
     }

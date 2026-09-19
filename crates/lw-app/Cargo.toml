@@ -1,0 +1,26 @@
+[package]
+name = "lw-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Application logic shared by every LocalWisper front end: settings state, the model catalog as it is shown, install and benchmark orchestration, and the numbers this machine has measured. Knows nothing about Tauri, egui or any other UI toolkit."
+
+[features]
+default = []
+# Mirrors the engine feature the binaries turn on, so this crate builds the same engines.
+sherpa = ["lw-engine-sherpa/sherpa"]
+
+[dependencies]
+lw-core.workspace = true
+lw-ort.workspace = true
+lw-platform.workspace = true
+lw-engine-parakeet.workspace = true
+lw-engine-sherpa.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

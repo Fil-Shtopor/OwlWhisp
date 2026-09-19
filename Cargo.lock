@@ -2795,6 +2795,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "log",
+ "lw-app",
  "lw-core",
  "lw-engine-parakeet",
  "lw-engine-sherpa",
@@ -2835,6 +2836,21 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "lw-app"
+version = "0.1.0"
+dependencies = [
+ "lw-core",
+ "lw-engine-parakeet",
+ "lw-engine-sherpa",
+ "lw-ort",
+ "lw-platform",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
 
 [[package]]
 name = "lw-cli"

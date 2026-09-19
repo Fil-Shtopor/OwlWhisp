@@ -13,7 +13,6 @@
 
 pub mod catalog;
 pub mod commands;
-pub mod measurements;
 pub mod state;
 pub mod worker;
 

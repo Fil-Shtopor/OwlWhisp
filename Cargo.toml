@@ -8,6 +8,7 @@ members = [
     "crates/lw-engine-whisper",
     "crates/lw-engine-sherpa",
     "crates/lw-platform",
+    "crates/lw-app",
     "crates/lw-cli",
     "app/src-tauri",
 ]
@@ -29,6 +30,7 @@ lw-engine-parakeet = { path = "crates/lw-engine-parakeet" }
 lw-engine-whisper = { path = "crates/lw-engine-whisper" }
 lw-engine-sherpa = { path = "crates/lw-engine-sherpa" }
 lw-platform = { path = "crates/lw-platform" }
+lw-app = { path = "crates/lw-app" }
 
 # serialization / config
 serde = { version = "1.0", features = ["derive"] }
