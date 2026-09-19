@@ -22,6 +22,7 @@
 #![warn(missing_docs)]
 
 pub mod audio;
+pub mod autostart;
 pub mod caps;
 pub mod clipboard;
 pub mod hotkey;

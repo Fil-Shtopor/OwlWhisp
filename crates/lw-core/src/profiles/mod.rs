@@ -24,7 +24,7 @@ pub enum CleanupLevel {
 }
 
 /// Text-delivery options for a profile.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DeliveryOptions {
     /// Paste automatically after transcription (vs. copy to clipboard only).
     pub auto_paste: bool,
@@ -48,7 +48,7 @@ impl Default for DeliveryOptions {
 }
 
 /// A rule for auto-activating a profile.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct MatchRule {
     /// Match if the foreground executable/bundle id contains this (case-insensitive).
     #[serde(default)]
@@ -59,7 +59,7 @@ pub struct MatchRule {
 }
 
 /// A single application profile.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     /// Stable key (used for deep links / storage).
     pub key: String,
@@ -172,7 +172,7 @@ pub struct ForegroundApp {
 }
 
 /// A set of profiles with a matcher.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ProfileSet {
     /// All profiles; the one keyed `"default"` is the fallback.
     pub profiles: Vec<Profile>,

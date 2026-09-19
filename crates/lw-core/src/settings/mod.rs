@@ -27,7 +27,7 @@ pub enum HotkeyMode {
 }
 
 /// Hotkey configuration.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HotkeyConfig {
     /// Modifier list, e.g. `["ctrl", "win"]`.
     pub modifiers: Vec<String>,
@@ -141,7 +141,7 @@ fn key_code_name(trigger: &str) -> Option<&'static str> {
 }
 
 /// Optional OpenAI-compatible LLM cleanup endpoint.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct LlmConfig {
     /// Whether LLM cleanup is enabled at all.
     pub enabled: bool,
@@ -154,7 +154,7 @@ pub struct LlmConfig {
 }
 
 /// Audio input settings.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioConfig {
     /// Preferred input device name, or empty for the system default.
     pub input_device: String,
@@ -175,7 +175,10 @@ impl Default for AudioConfig {
 }
 
 /// The whole settings document. Bump `version` on breaking changes.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// `PartialEq` so a front end can tell an edited settings object from the one on disk, which
+/// is what an "unsaved changes" marker needs. Comparing serialised JSON instead would make the
+/// answer depend on key order.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// Schema version.
     #[serde(default = "default_version")]

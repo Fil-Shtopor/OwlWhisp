@@ -23,7 +23,7 @@ pub struct Rule {
 }
 
 /// A collection of replacement rules.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Dictionary {
     /// The rules, applied longest-phrase-first.
     pub rules: Vec<Rule>,

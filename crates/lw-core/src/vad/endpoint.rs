@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the endpoint detector. All durations are milliseconds.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct EndpointConfig {
     /// Speech-onset probability threshold.
     pub threshold: f32,

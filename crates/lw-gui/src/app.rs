@@ -45,12 +45,14 @@ pub enum Message {
     Resized(f32),
     Models(panels::models::Message),
     Diagnostics(panels::diagnostics::Message),
+    Settings(panels::settings::Message),
 }
 
 pub struct App {
     tab: Tab,
     models: panels::models::State,
     diagnostics: panels::diagnostics::State,
+    settings: panels::settings::State,
 }
 
 impl Default for App {
@@ -59,6 +61,7 @@ impl Default for App {
             tab: Tab::Dictate,
             models: panels::models::State::new(),
             diagnostics: panels::diagnostics::State::new(),
+            settings: panels::settings::State::new(),
         }
     }
 }
@@ -95,6 +98,7 @@ impl App {
             }
             Message::Models(m) => self.models.update(m),
             Message::Diagnostics(m) => self.diagnostics.update(m),
+            Message::Settings(m) => self.settings.update(m),
         }
     }
 
@@ -117,7 +121,7 @@ impl App {
 
         let body: Element<'_, Message> = match self.tab {
             Tab::Dictate => panels::dictate::view(),
-            Tab::Settings => panels::settings::view(),
+            Tab::Settings => self.settings.view().map(Message::Settings),
             Tab::Models => self.models.view().map(Message::Models),
             Tab::Benchmark => panels::benchmark::view(),
             Tab::Diagnostics => self.diagnostics.view().map(Message::Diagnostics),
