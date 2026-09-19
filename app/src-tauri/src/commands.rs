@@ -174,39 +174,21 @@ pub async fn get_diagnostics() -> Value {
 }
 
 fn collect_diagnostics() -> Value {
-    let mut m = serde_json::Map::new();
-    m.insert("app_version".into(), json!(env!("CARGO_PKG_VERSION")));
-    m.insert("core_version".into(), json!(lw_core::VERSION));
-    m.insert("os".into(), json!(std::env::consts::OS));
-    m.insert("os_version".into(), json!(tauri_plugin_os::version().to_string()));
-    m.insert("arch".into(), json!(std::env::consts::ARCH));
-
-    match lw_ort::OrtRuntime::auto() {
-        Ok(rt) => {
-            m.insert(
-                "runtime_dir".into(),
-                json!(rt.runtime_dir().display().to_string()),
-            );
-            m.insert("qnn_dll_present".into(), json!(rt.qnn_available()));
-            // Probing registers the QNN plugin EP process-wide. That used to mean probe order
-            // mattered -- a registered EP gets auto-applied to later sessions. It no longer does:
-            // every CPU session is pinned to the CPU *device*, so a registered provider cannot be
-            // applied where it was not asked for (see lw-ort's session builder).
-            let npu_available = rt.has_qnn_npu();
-            m.insert("npu_available".into(), json!(npu_available));
-            m.insert("qnn_registered".into(), json!(rt.qnn_registered()));
-            m.insert("qnn_npu_count".into(), json!(rt.qnn_npu_count()));
-            m.insert("devices".into(), json!(rt.device_summary()));
-            // The per-accelerator table is the answer to "what can this machine actually use",
-            // which the raw device list only hints at.
-            m.insert("accelerators".into(), crate::catalog::accelerators_json());
-        }
-        Err(e) => {
-            m.insert("runtime_error".into(), json!(e.to_string()));
-            m.insert("qnn_dll_present".into(), json!(false));
-            m.insert("npu_available".into(), json!(false));
-        }
+    // Collected and typed in `lw_app::diagnostics`, so the native window and this one report the
+    // same probe rather than two that can drift. The extra key is the OS version string, which
+    // comes from a Tauri plugin and has no meaning outside this build.
+    let d = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
+    let mut v = serde_json::to_value(&d).unwrap_or_else(|_| json!({}));
+    if let Some(m) = v.as_object_mut() {
+        m.insert(
+            "os_version".into(),
+            json!(tauri_plugin_os::version().to_string()),
+        );
+        // The web front end reads these two names; the typed report spells them differently.
+        m.insert("accelerators".into(), json!({
+            "error": d.accelerators_error,
+            "items": d.accelerators,
+        }));
     }
-
-    Value::Object(m)
+    v
 }

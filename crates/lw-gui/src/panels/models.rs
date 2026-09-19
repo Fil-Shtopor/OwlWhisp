@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use iced::widget::{button, column, container, pick_list, responsive, row, scrollable, Space};
+use iced::widget::{button, column, container, pick_list, row, scrollable, Space};
 use iced::{Element, Length, Padding};
 use lw_app::catalog::{CatalogView, EntryView};
 use lw_core::model::{InstallState, ModelRole};
@@ -32,6 +32,7 @@ impl fmt::Display for Lang {
 #[derive(Debug, Clone)]
 pub enum Message {
     Refresh,
+    Resized(f32),
     ToggleRow(String),
     ExpandAll,
     CollapseAll,
@@ -42,6 +43,9 @@ pub enum Message {
 }
 
 pub struct State {
+    /// The window's width, kept up to date by the application from resize events. Used for the
+    /// column breakpoints; `responsive` cannot supply it inside a scrollable.
+    width: f32,
     catalog: Result<CatalogView, String>,
     mine: std::collections::BTreeMap<String, Vec<lw_app::LocalMeasurement>>,
     open: BTreeSet<String>,
@@ -54,6 +58,7 @@ pub struct State {
 impl State {
     pub fn new() -> Self {
         let mut s = Self {
+            width: 1000.0,
             catalog: Err("not loaded".into()),
             mine: Default::default(),
             open: Default::default(),
@@ -115,6 +120,7 @@ impl State {
     pub fn update(&mut self, message: Message) {
         match message {
             Message::Refresh => self.load(),
+            Message::Resized(w) => self.width = w,
             Message::ToggleRow(id) => {
                 if !self.open.remove(&id) {
                     self.open.insert(id);
@@ -327,8 +333,9 @@ impl State {
         ]
         .align_y(iced::Alignment::Center);
 
-        // `responsive` reports the width actually available, which is what the breakpoints need.
-        let table = responsive(move |size| self.table_body(view, size.width));
+        // The width comes from the window rather than from `responsive`, which measures its
+        // parent and therefore reports nothing useful inside a scrollable.
+        let table = self.table_body(view, self.width);
 
         widgets::card(column![toolbar, table].spacing(8)).into()
     }
@@ -390,7 +397,10 @@ impl State {
             .map(|v| v.as_slice())
             .unwrap_or(EMPTY);
 
-        let mut name_cell = row![
+        // The name and its badges get separate, bounded cells. Sharing one cell went wrong twice:
+        // in the web build the badges were unshrinkable and the name collapsed to "S", and here
+        // the row divided the space evenly and wrapped both, a letter per line.
+        let name_cell = row![
             iced::widget::text(if open { "v" } else { ">" })
                 .size(11)
                 .color(theme::TEXT_DIM),
@@ -401,21 +411,39 @@ impl State {
         ]
         .spacing(6)
         .align_y(iced::Alignment::Center);
+
+        let mut badges = row![].spacing(4).align_y(iced::Alignment::Center);
         if recommended {
-            name_cell = name_cell.push(widgets::badge("* Recommended", theme::ACCENT));
+            badges = badges.push(widgets::badge("* Recommended", theme::ACCENT));
         }
-        for r in &entry.roles {
-            name_cell = name_cell.push(widgets::badge(r.label, theme::TEXT_DIM));
+        // Role pills only when there is room for them whole. Chasing them into a narrow cell
+        // produced a pill reading "F / a / s / t", which looks like a rendering fault rather than
+        // a full cell -- and the roles are already spelled out in the picker above and in the
+        // expansion, so shedding them here loses nothing. The web table shed columns at narrow
+        // widths for the same reason.
+        if self.width >= 1200.0 || !recommended {
+            for r in &entry.roles {
+                badges = badges.push(widgets::badge(r.label, theme::TEXT_DIM));
+            }
         }
 
-        let mut line = row![container(name_cell)
-            .width(Length::FillPortion(NAME_PORTION))
-            .clip(true)]
+        let mut line = row![
+            container(name_cell)
+                .width(Length::FillPortion(NAME_PORTION))
+                .clip(true),
+            // The inner fixed width is what stops the wrapping. A row squeezes Shrink children
+            // when they do not fit, and a squeezed pill wraps a letter per line however firmly its
+            // text says not to; given a width it cannot be squeezed below, the outer container
+            // clips the overflow cleanly instead.
+            container(container(badges).width(Length::Fixed(400.0)))
+                .width(Length::FillPortion(BADGE_PORTION))
+                .clip(true),
+        ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
         for col in cols {
             line = line.push(
-                container(col.cell(entry, mine))
+                container(col.cell(entry, mine, self.width >= 1200.0))
                     .width(Length::FillPortion(col.portion()))
                     .clip(true),
             );
@@ -518,18 +546,32 @@ fn machine_card(view: &CatalogView) -> Element<'_, Message> {
 fn disclaimer(text: &str) -> Element<'_, Message> {
     // A left rule in the accent colour, as the stylesheet has it: this is the one piece of prose
     // in the tab that must not be skimmed past.
+    //
+    // Two nested containers rather than a `Fill`-height spacer beside the text. Inside a
+    // scrollable there is no bounded height for `Fill` to mean anything, so it resolved to the
+    // whole viewport: the disclaimer filled the window and everything below it -- the role picker,
+    // the glossary, the entire table -- was pushed off the bottom. The stripe is the outer
+    // container's left padding showing through instead, which needs no height at all.
     container(
-        row![
-            container(Space::new(3, Length::Fill)).style(|_t| container::Style {
-                background: Some(theme::ACCENT.into()),
-                ..Default::default()
-            }),
-            widgets::prose(text),
-        ]
-        .spacing(12),
+        container(widgets::prose(text))
+            .padding(12)
+            .width(Length::Fill)
+            .style(theme::inset),
     )
-    .padding(12)
-    .style(theme::inset)
+    .padding(Padding {
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+        left: 3.0,
+    })
+    .style(|_t| container::Style {
+        background: Some(theme::ACCENT.into()),
+        border: iced::Border {
+            radius: 8.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
     .into()
 }
 
@@ -692,7 +734,10 @@ fn format_bytes(b: u64) -> String {
 ///
 /// The name is the widest share on purpose. In the web build it was the only thing that could
 /// shrink, and "SenseVoice Small (int8, sherpa-onnx export)" rendered as the single letter "S".
-const NAME_PORTION: u16 = 26;
+const NAME_PORTION: u16 = 18;
+
+/// The share beside it that holds the recommendation star and the role pills.
+const BADGE_PORTION: u16 = 13;
 
 /// One column of the table.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -735,6 +780,7 @@ impl Col {
         self,
         entry: &'a EntryView,
         mine: &'a [lw_app::LocalMeasurement],
+        wide: bool,
     ) -> Element<'a, Message> {
         match self {
             Col::Family => widgets::sub(lw_app::catalog::family_label(&entry.engine)).into(),
@@ -765,9 +811,16 @@ impl Col {
                     .or(entry.measurements.first());
                 if let Some((m, wer)) = point.and_then(|m| m.wer.map(|w| (m, w))) {
                     r = r.push(widgets::measured("WER", wer));
-                    r = r.push(widgets::chip(short_hardware(m.hardware.label())));
+                    // The accelerator chip is dropped when narrow: the Speed column already names
+                    // the accelerator on almost every row, and squeezed it read as "c / p / u".
+                    if wide {
+                        r = r.push(widgets::chip(short_hardware(m.hardware.label())));
+                    }
                 }
-                r.align_y(iced::Alignment::Center).into()
+                // Fixed inner width for the same reason as the badges: three things in a row get
+                // squeezed rather than clipped, and a squeezed chip wraps "cpu" into three lines.
+                container(r.align_y(iced::Alignment::Center))
+                    .into()
             }
             Col::Mine => match pick_local(mine, entry.best_hardware) {
                 None => widgets::sub("not yet").into(),
@@ -837,10 +890,11 @@ fn columns_for(width: f32) -> Vec<Col> {
 }
 
 fn header(cols: &[Col]) -> Element<'static, Message> {
-    let mut r = row![container(
-        iced::widget::text("MODEL").size(11).color(theme::TEXT_DIM)
-    )
-    .width(Length::FillPortion(NAME_PORTION))]
+    let mut r = row![
+        container(iced::widget::text("MODEL").size(11).color(theme::TEXT_DIM))
+            .width(Length::FillPortion(NAME_PORTION)),
+        container(Space::new(0, 0)).width(Length::FillPortion(BADGE_PORTION)),
+    ]
     .spacing(8);
     for col in cols {
         r = r.push(

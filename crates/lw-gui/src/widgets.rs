@@ -11,10 +11,16 @@ use crate::theme;
 
 /// A rounded pill with a tinted background, matching `.badge`.
 pub fn badge<'a, M: 'a>(label: impl text::IntoFragment<'a>, colour: Color) -> Element<'a, M> {
-    container(text(label).size(12))
-        .padding(Padding::from([1, 9]))
-        .style(theme::pill(colour))
-        .into()
+    // Never wrapped. A pill is a label, and a label broken across four lines reads as damage:
+    // "Recommended" came out as "* Reco / mme / nded" the first time this was drawn.
+    container(
+        text(label)
+            .size(12)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding(Padding::from([1, 9]))
+    .style(theme::pill(colour))
+    .into()
 }
 
 /// A badge in the palette's "yes" green.
@@ -29,10 +35,15 @@ pub fn badge_no<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M>
 
 /// A small neutral chip, matching `.hw-chip`: an accelerator name beside a number.
 pub fn chip<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    container(text(label).size(10).font(iced::Font::MONOSPACE))
-        .padding(Padding::from([1, 5]))
-        .style(theme::chip)
-        .into()
+    container(
+        text(label)
+            .size(10)
+            .font(iced::Font::MONOSPACE)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding(Padding::from([1, 5]))
+    .style(theme::chip)
+    .into()
 }
 
 /// Dimmed secondary text, matching `.sub`.

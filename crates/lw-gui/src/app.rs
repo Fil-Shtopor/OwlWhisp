@@ -42,12 +42,15 @@ impl Tab {
 #[derive(Debug, Clone)]
 pub enum Message {
     TabSelected(Tab),
+    Resized(f32),
     Models(panels::models::Message),
+    Diagnostics(panels::diagnostics::Message),
 }
 
 pub struct App {
     tab: Tab,
     models: panels::models::State,
+    diagnostics: panels::diagnostics::State,
 }
 
 impl Default for App {
@@ -55,6 +58,7 @@ impl Default for App {
         Self {
             tab: Tab::Dictate,
             models: panels::models::State::new(),
+            diagnostics: panels::diagnostics::State::new(),
         }
     }
 }
@@ -68,10 +72,29 @@ impl App {
         theme::theme()
     }
 
+    /// Resize events, so panels that lay out by breakpoint know the width.
+    ///
+    /// The width has to come from here rather than from iced's `responsive`, which measures its
+    /// own parent and reports nothing usable inside a scrollable.
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        iced::event::listen_with(|event, _status, _id| match event {
+            iced::Event::Window(iced::window::Event::Resized(size)) => {
+                Some(Message::Resized(size.width))
+            }
+            _ => None,
+        })
+    }
+
     pub fn update(&mut self, message: Message) {
         match message {
             Message::TabSelected(tab) => self.tab = tab,
+            Message::Resized(w) => {
+                // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
+                // the width it is actually given.
+                self.models.update(panels::models::Message::Resized(w - 48.0));
+            }
             Message::Models(m) => self.models.update(m),
+            Message::Diagnostics(m) => self.diagnostics.update(m),
         }
     }
 
@@ -97,7 +120,7 @@ impl App {
             Tab::Settings => panels::settings::view(),
             Tab::Models => self.models.view().map(Message::Models),
             Tab::Benchmark => panels::benchmark::view(),
-            Tab::Diagnostics => panels::diagnostics::view(),
+            Tab::Diagnostics => self.diagnostics.view().map(Message::Diagnostics),
         };
 
         column![
