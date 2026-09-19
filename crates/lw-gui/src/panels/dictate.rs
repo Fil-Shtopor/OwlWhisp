@@ -17,6 +17,10 @@ use lw_core::settings::{HotkeyConfig, HotkeyMode};
 
 use crate::{theme, widgets};
 
+/// How long one breath takes. The web version animated this in CSS over 1.2 s, and that is the
+/// speed the pill is meant to have -- slow enough to read out of the corner of an eye.
+const PULSE: std::time::Duration = std::time::Duration::from_millis(1200);
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Toggle,
@@ -49,8 +53,12 @@ pub struct State {
     mic_test: bool,
     /// Why the test stream would not open.
     mic_error: Option<String>,
-    /// Rising while listening, to make the pill breathe rather than sit still.
-    phase: f32,
+    /// When the panel started, so the breath can be a function of the clock.
+    ///
+    /// It used to be a counter bumped once per poll, which made its speed a side effect of the
+    /// poll rate: 16 ms a tick and 0.05 a step is a full cycle every 320 ms, and the main pill's
+    /// `abs(sin)` halved that again to 160 ms. That is a strobe, not a breath.
+    started: std::time::Instant,
 }
 
 impl State {
@@ -73,7 +81,7 @@ impl State {
             mic_test: false,
             mic_error: None,
             pump,
-            phase: 0.0,
+            started: std::time::Instant::now(),
             worker,
         }
     }
@@ -83,10 +91,10 @@ impl State {
         self.state
     }
 
-    /// The breathing phase, shared with the overlay so the two pills pulse together rather than
-    /// drifting apart on two timers.
+    /// The breathing phase, 0..1 over [`PULSE`], shared with the overlay so the two pills pulse
+    /// together rather than drifting apart on two timers.
     pub fn phase(&self) -> f32 {
-        self.phase
+        (self.started.elapsed().as_secs_f32() / PULSE.as_secs_f32()) % 1.0
     }
 
     /// Whether the user wants a floating indicator at all.
@@ -173,7 +181,6 @@ impl State {
                 }
             }
             Message::Poll => {
-                self.phase = (self.phase + 0.05) % 1.0;
                 self.registered = self.pump.status().is_live();
                 while let Ok(ev) = self.worker.events.try_recv() {
                     match ev {
@@ -258,7 +265,11 @@ impl State {
         // Breathing, not blinking: a hard on/off reads as a fault, and this has to be legible from
         // the corner of the eye while the user is looking at whatever they are dictating into.
         let alpha = match self.state {
-            RecordingState::Listening => 0.65 + 0.35 * (self.phase * std::f32::consts::TAU).sin().abs(),
+            // One cycle per `PULSE`, not two: `abs(sin)` would fold the wave and blink twice as
+            // often as the overlay beside it.
+            RecordingState::Listening => {
+                0.65 + 0.35 * (0.5 + 0.5 * (self.phase() * std::f32::consts::TAU).cos())
+            }
             _ => 1.0,
         };
 
