@@ -10,11 +10,31 @@
 
 use std::sync::{Arc, Mutex};
 
-use iced::widget::{button, column, container, row, scrollable, Space};
+use iced::widget::{button, column, container, pick_list, row, scrollable, Space};
 use iced::{Element, Length, Padding, Task};
 use lw_app::bench::{BenchReport, BenchSuite};
+use lw_core::engine::BackendPreference;
 
 use crate::{theme, widgets};
+
+/// A pickable wrapper, so a list can show a label while carrying the value.
+macro_rules! pickable {
+    ($name:ident, $inner:ty) => {
+        #[derive(Clone, PartialEq, Eq)]
+        pub struct $name {
+            value: $inner,
+            label: String,
+        }
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.label)
+            }
+        }
+    };
+}
+
+pickable!(ModelChoice, Option<String>);
+pickable!(BackendChoice, Option<BackendPreference>);
 
 /// What the worker thread reports while a sweep is running.
 #[derive(Default)]
@@ -24,8 +44,15 @@ struct Progress {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    /// Measure one backend -- the chosen one, or the one in Settings.
+    RunOne,
+    /// Measure every accelerator this machine can use, over one shared clip set.
     RunAll,
     Tick,
+    ModelSelected(Option<String>),
+    BackendSelected(Option<BackendPreference>),
+    MethodToggled,
+    FinishedOne(Arc<Result<BenchReport, String>>),
     Finished(Arc<Result<BenchSuite, String>>),
 }
 
@@ -33,6 +60,18 @@ pub struct State {
     running: bool,
     progress: Arc<Mutex<Progress>>,
     result: Option<Result<BenchSuite, String>>,
+    /// The single-backend run, kept apart from the sweep: they answer different questions and
+    /// showing one where the other was expected is how a reader ends up quoting the wrong number.
+    single: Option<Result<BenchReport, String>>,
+    /// What to measure. `None` in either means "whatever Settings says".
+    models: Vec<ModelChoice>,
+    backends: Vec<BackendChoice>,
+    model_choice: Option<String>,
+    backend_choice: Option<BackendPreference>,
+    /// When the run in flight started, so the button can count.
+    started: Option<std::time::Instant>,
+    /// Whether the "how this is measured" block is open.
+    method: bool,
 }
 
 impl Default for State {
@@ -43,11 +82,67 @@ impl Default for State {
 
 impl State {
     pub fn new() -> Self {
+        let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
+        let usable: std::collections::BTreeMap<String, bool> = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.usable))
+            .collect();
+
+        // Only models that are installed and that this build can run. Offering one that is
+        // neither is offering a run that fails after the user has waited for it.
+        let mut models = vec![ModelChoice {
+            value: None,
+            label: "From Settings".into(),
+        }];
+        if let Ok(view) = lw_app::catalog::build(&lw_app::paths::models_root()) {
+            for e in &view.entries {
+                if e.runnable && e.install_state == lw_core::model::InstallState::Installed {
+                    models.push(ModelChoice {
+                        value: Some(e.id.clone()),
+                        label: e.name.clone(),
+                    });
+                }
+            }
+        }
+
+        let mut backends = vec![BackendChoice {
+            value: None,
+            label: "From Settings".into(),
+        }];
+        for p in BackendPreference::all() {
+            // The reason travels with the name, so the list says *why* a choice is pointless
+            // rather than only listing it. A coarse choice ("any NPU") stays offered even when
+            // nothing matches: measuring the failure of one is a legitimate thing to do.
+            let note = match p.accelerator() {
+                Some(a) if !usable.get(a.id()).copied().unwrap_or(false) => {
+                    " - not usable on this machine"
+                }
+                _ => "",
+            };
+            backends.push(BackendChoice {
+                value: Some(p),
+                label: format!("{}{note}", p.label()),
+            });
+        }
+
         Self {
             running: false,
             progress: Arc::new(Mutex::new(Progress::default())),
             result: None,
+            single: None,
+            models,
+            backends,
+            model_choice: None,
+            backend_choice: None,
+            started: None,
+            method: false,
         }
+    }
+
+    /// Seconds since the run in flight began, for the button to count.
+    fn elapsed(&self) -> u64 {
+        self.started.map(|t| t.elapsed().as_secs()).unwrap_or(0)
     }
 
     /// Redraw while a sweep is in flight, so the progress lines appear as they are written.
@@ -61,12 +156,50 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::ModelSelected(v) => self.model_choice = v,
+            Message::BackendSelected(v) => self.backend_choice = v,
+            Message::MethodToggled => self.method = !self.method,
+
+            Message::RunOne => {
+                if self.running {
+                    return Task::none();
+                }
+                self.running = true;
+                self.started = Some(std::time::Instant::now());
+                self.single = None;
+                self.result = None;
+                let settings_path = lw_app::paths::settings_path();
+                let model = self.model_choice.clone();
+                let backend = self.backend_choice;
+
+                // Same reasoning as the sweep: this loads an ONNX Runtime session and transcribes
+                // a dozen clips, so it must not run on the thread that draws.
+                return Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            lw_app::bench::run_benchmark_job(&settings_path, model, backend, None)
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(format!("the benchmark task failed: {e}")))
+                    },
+                    |r| Message::FinishedOne(Arc::new(r)),
+                );
+            }
+            Message::FinishedOne(r) => {
+                self.running = false;
+                self.started = None;
+                self.single = Arc::try_unwrap(r).ok();
+                return Task::none();
+            }
+
             Message::RunAll => {
                 if self.running {
                     return Task::none();
                 }
                 self.running = true;
+                self.started = Some(std::time::Instant::now());
                 self.result = None;
+                self.single = None;
                 let progress = Arc::clone(&self.progress);
                 progress.lock().map(|mut p| p.lines.clear()).ok();
                 let settings_path = lw_app::paths::settings_path();
@@ -74,7 +207,7 @@ impl State {
                 // `spawn_blocking`, not an ordinary future: this loads an ONNX Runtime session per
                 // accelerator and transcribes fifteen clips through each. On the executor thread
                 // it would stop the window redrawing for the whole sweep.
-                Task::perform(
+                return Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             lw_app::bench::run_benchmark_suite(&settings_path, None, |value| {
@@ -87,45 +220,189 @@ impl State {
                         .unwrap_or_else(|e| Err(format!("the benchmark task failed: {e}")))
                     },
                     |r| Message::Finished(Arc::new(r)),
-                )
+                );
             }
-            Message::Tick => Task::none(),
+            Message::Tick => {}
             Message::Finished(r) => {
                 self.running = false;
+                self.started = None;
                 // The Arc exists only because iced messages must be Clone; nothing else holds
                 // a reference by the time it arrives, so unwrapping it is the normal path.
                 self.result = Arc::try_unwrap(r).ok();
-                Task::none()
             }
         }
+        Task::none()
+    }
+
+    /// The model and backend to measure. Both default to what Settings says.
+    fn controls(&self) -> Element<'_, Message> {
+        let model = self
+            .models
+            .iter()
+            .find(|m| m.value == self.model_choice)
+            .cloned();
+        let backend = self
+            .backends
+            .iter()
+            .find(|b| b.value == self.backend_choice)
+            .cloned();
+
+        let installed = self.models.len() - 1;
+
+        column![
+            column![
+                widgets::field_label("Model"),
+                pick_list(self.models.clone(), model, |m: ModelChoice| {
+                    Message::ModelSelected(m.value)
+                })
+                .text_size(14)
+                .width(320),
+                widgets::sub(if installed == 0 {
+                    "No installed, runnable model found - a run falls back to the one in Settings."
+                        .to_string()
+                } else {
+                    format!(
+                        "{installed} installed model{} this build can run. Both actions below \
+                         measure the one chosen here.",
+                        if installed == 1 { "" } else { "s" }
+                    )
+                }),
+            ]
+            .spacing(4),
+            column![
+                widgets::field_label("Backend"),
+                pick_list(self.backends.clone(), backend, |b: BackendChoice| {
+                    Message::BackendSelected(b.value)
+                })
+                .text_size(14)
+                .width(320),
+                widgets::prose(
+                    "Forcing a backend is how you confirm or refute an estimate: run each one and \
+                     compare the measured RTF. A choice this machine cannot honour is marked as \
+                     such - a strict choice fails rather than quietly producing a slower number \
+                     from somewhere else.",
+                ),
+                widgets::sub(
+                    "This applies to \u{201c}Run benchmark\u{201d} only. \u{201c}Compare all \
+                     accelerators\u{201d} measures every usable one, so it ignores this choice.",
+                ),
+            ]
+            .spacing(4),
+        ]
+        .spacing(10)
+        .into()
+    }
+
+    /// The two buttons, and what each of them costs in time.
+    fn actions(&self) -> Element<'_, Message> {
+        let secs = self.elapsed();
+        column![
+            row![
+                button(widgets::body(if self.running && self.single.is_none() && self.result.is_none() {
+                    format!("Running... {secs}s")
+                } else {
+                    "Run benchmark".to_string()
+                }))
+                .padding(Padding::from([8, 18]))
+                .on_press_maybe((!self.running).then_some(Message::RunOne)),
+                button(widgets::body("Compare all accelerators"))
+                    .padding(Padding::from([8, 18]))
+                    .on_press_maybe((!self.running).then_some(Message::RunAll)),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+            widgets::prose(
+                "Run benchmark measures one backend and takes tens of seconds. Compare all \
+                 accelerators measures CPU, GPU and NPU on one shared clip set in a single action \
+                 and takes several minutes: each loads its own engine, and a first NPU run also \
+                 prepares and caches a context binary before it can time anything. Both drop the \
+                 dictation engine; the next dictation loads it again.",
+            ),
+        ]
+        .spacing(6)
+        .into()
+    }
+
+    /// What a run actually does, collapsed by default.
+    ///
+    /// Reference material rather than something to read before every run -- but without it,
+    /// "RTF 0.04, WER 7.9%" is a pair of numbers with no method behind them, and the reader has no
+    /// way to tell that the cold figure is deliberately the worst one, or that some clips were
+    /// left out of the accuracy total on purpose.
+    fn methodology(&self) -> Element<'_, Message> {
+        let head = button(
+            row![
+                widgets::sub(if self.method { "v" } else { ">" }),
+                widgets::body("How this is measured"),
+            ]
+            .spacing(8),
+        )
+        .padding(Padding::from([4, 8]))
+        .on_press(Message::MethodToggled)
+        .style(|_t, _s| iced::widget::button::Style {
+            background: None,
+            text_color: theme::TEXT,
+            ..Default::default()
+        });
+
+        if !self.method {
+            return head.into();
+        }
+
+        let body = column![
+            widgets::prose(
+                "A run transcribes the fixture clips committed with this repository - twelve \
+                 clips, three each in English, Russian, Spanish and Ukrainian - and times every \
+                 one. They are real speech with reference transcripts, not a synthesised tone.",
+            ),
+            method_item(
+                "RTF",
+                "Wall-clock seconds per second of audio; lower is faster, and 1.0 means \
+                 transcribing takes as long as the recording did. The first clip is reported \
+                 separately as cold, because it carries the one-time warm-up. Warm is the mean of \
+                 the rest, and warm is what steady-state dictation feels like.",
+            ),
+            method_item(
+                "WER",
+                "The share of words that came out wrong - substituted, dropped or invented - \
+                 against the reference. Lower is better: 5% is about one word in twenty. \
+                 Levenshtein distance over words, lowercased and with punctuation stripped, so \
+                 casing and commas never count as errors. Word-weighted across the clips, so long \
+                 clips carry more of the total; not a mean of per-clip rates.",
+            ),
+            method_item(
+                "Which clips count",
+                "Accuracy is scored only on the languages a model claims. An English-only model \
+                 is judged on the English clips; the rest are not run at all, because a rate \
+                 against a language a model never advertised measures the question rather than \
+                 the model. Moonshine tiny en scores 0.092 on English and 0.850 if you score it \
+                 on all four.",
+            ),
+            method_item(
+                "Comparing backends",
+                "Compare all accelerators runs every usable one over a single clip set, loaded \
+                 once before the sweep starts. That shared set is what makes the rows comparable \
+                 rather than three unrelated benchmarks.",
+            ),
+        ]
+        .spacing(8);
+
+        column![head, widgets::inset(body)].spacing(6).into()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         let intro: Element<'_, Message> = widgets::card(
-                column![
-                    widgets::heading("Measure this machine"),
-                    widgets::prose(
-                        "Runs the model currently selected in Settings on every accelerator this \
-                         machine can actually use, over the same committed clip set, and reports \
-                         what each one did. Everything here is measured now, on this computer; \
-                         nothing is an estimate.",
-                    ),
-                    row![
-                        button(widgets::body(if self.running {
-                            "Measuring..."
-                        } else {
-                            "Compare all accelerators"
-                        }))
-                        .padding(Padding::from([8, 18]))
-                        .on_press_maybe((!self.running).then_some(Message::RunAll)),
-                        widgets::sub(
-                            "A sweep loads an engine per accelerator, so it takes tens of seconds.",
-                        ),
-                    ]
-                    .spacing(12)
-                    .align_y(iced::Alignment::Center),
+            column![
+                widgets::heading("Measure this machine"),
+                widgets::prose(
+                    "Every number on this page is measured here, by the run you start. The catalog \
+                     figures in Models are estimates; these are not.",
+                ),
+                self.methodology(),
+                self.controls(),
+                self.actions(),
             ]
-            .spacing(8),
+            .spacing(10),
         )
         .into();
 
@@ -146,6 +423,36 @@ impl State {
             body = body.push(widgets::card(list));
         }
 
+        if let Some(single) = &self.single {
+            match single {
+                Err(e) => {
+                    body = body.push(widgets::card(
+                        column![
+                            widgets::heading("The benchmark could not run"),
+                            widgets::prose(e.clone()),
+                        ]
+                        .spacing(6),
+                    ));
+                }
+                Ok(report) => {
+                    body = body.push(widgets::card(
+                        column![
+                            widgets::heading("One backend, measured"),
+                            fact("Machine", report.machine.clone()),
+                            fact("Model", report.model_id.clone()),
+                            fact("Clips", report.clip_source.clone()),
+                            widgets::prose(
+                                "The backend named here is the one that actually executed, read \
+                                 back from the engine rather than from what was asked for.",
+                            ),
+                        ]
+                        .spacing(4),
+                    ));
+                    body = body.push(run_card(report, None));
+                }
+            }
+        }
+
         match &self.result {
             None => {}
             Some(Err(e)) => {
@@ -160,7 +467,7 @@ impl State {
             Some(Ok(suite)) => {
                 body = body.push(suite_card(suite));
                 for run in &suite.runs {
-                    body = body.push(run_card(run, suite));
+                    body = body.push(run_card(run, Some(suite)));
                 }
                 if !suite.skipped.is_empty() {
                     let mut list = column![
@@ -290,7 +597,7 @@ fn is_fallback(note: &str) -> bool {
     text.contains("unavailable") || text.contains("using cpu")
 }
 
-fn run_card<'a>(run: &'a BenchReport, _suite: &'a BenchSuite) -> Element<'a, Message> {
+fn run_card<'a>(run: &'a BenchReport, _suite: Option<&'a BenchSuite>) -> Element<'a, Message> {
     let warm = run
         .warm_rtf
         .map(|r| format!("{r:.4}"))
@@ -439,6 +746,13 @@ fn run_card<'a>(run: &'a BenchReport, _suite: &'a BenchSuite) -> Element<'a, Mes
     stats = stats.push(clip_table);
 
     widgets::card(stats).into()
+}
+
+/// One term and its definition, in the shape the web version used.
+fn method_item<'a>(term: &'a str, body: &'a str) -> Element<'a, Message> {
+    column![widgets::body(term), widgets::prose(body)]
+        .spacing(2)
+        .into()
 }
 
 fn fact(label: &str, value: String) -> Element<'_, Message> {
