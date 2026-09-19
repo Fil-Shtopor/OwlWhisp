@@ -14,8 +14,8 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "dictate", label: "Dictate" },
   { id: "settings", label: "Settings" },
   { id: "models", label: "Models" },
-  { id: "diagnostics", label: "Diagnostics" },
   { id: "benchmark", label: "Benchmark" },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
 function isTab(value: string): value is Tab {
@@ -70,8 +70,8 @@ export function App() {
         {tab === "dictate" && <DictatePanel state={state} />}
         {tab === "settings" && <SettingsPanel state={state} />}
         {tab === "models" && <ModelsPanel />}
-        {tab === "diagnostics" && <DiagnosticsPanel />}
         {tab === "benchmark" && <BenchmarkPanel />}
+        {tab === "diagnostics" && <DiagnosticsPanel />}
       </main>
     </div>
   );

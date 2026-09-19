@@ -291,6 +291,20 @@ export type QualityTier = "basic" | "good" | "better" | "best";
 export type SpeedTier = "very_fast" | "fast" | "moderate" | "slow";
 export type InstallState = "installed" | "incomplete" | "missing" | "unpinned";
 
+/**
+ * One total, over the clips scored in one unit.
+ *
+ * A run covering Russian and Chinese produces two: a word rate and a character rate. Both are
+ * real measurements; only their average is not a quantity.
+ */
+export interface UnitScore {
+  unit: "word" | "character";
+  rate: number;
+  clips: number;
+  /** Reference tokens behind the rate — words or characters, per `unit`. */
+  tokens: number;
+}
+
 /** A real measurement, tagged with the machine it was taken on. Never an estimate. */
 export interface MeasuredPoint {
   hardware: string;
@@ -386,6 +400,14 @@ export interface LocalMeasurement {
   cold_rtf: number;
   warm_rtf: number | null;
   wer: number | null;
+  /**
+   * One total per unit, words first.
+   *
+   * Empty in records written before this was stored. Non-empty with two entries is the ordinary
+   * case for a model that claims Chinese alongside a space-delimited language: `wer` is then null
+   * because the blend would have no unit, and these are what there is to show.
+   */
+  by_unit: UnitScore[];
   /** Clips the WER was computed over — a 3-clip figure is not a 12-clip one. */
   scored_clips: number;
   /** Clips that ran. */
@@ -431,6 +453,7 @@ export async function getLocalMeasurements(): Promise<LocalMeasurements> {
       cold_rtf: r.cold_rtf ?? 0,
       warm_rtf: r.warm_rtf ?? null,
       wer: r.wer ?? null,
+      by_unit: r.by_unit ?? [],
       scored_clips: r.scored_clips ?? 0,
       clips: r.clips ?? 0,
       skipped_clips: r.skipped_clips ?? 0,
@@ -539,8 +562,13 @@ export interface BenchReport {
   /** Mean over the runs after the first, or null when there was no second run. */
   warm_rtf: number | null;
   warm_count: number;
-  /** Word-weighted WER, or null when the clips had no reference transcripts. */
+  /**
+   * Token-weighted error rate, or null when the clips had no references **or** the run spanned
+   * both words and characters. In the second case `by_unit` has the real totals — show those.
+   */
   wer: number | null;
+  /** One total per unit, words first. Always the honest answer, whether or not `wer` is null. */
+  by_unit: UnitScore[];
   /** Seconds of audio actually transcribed — skipped clips are not in it. */
   audio_secs: number;
   /**

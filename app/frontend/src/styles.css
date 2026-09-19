@@ -1990,6 +1990,23 @@ input[type="radio"] {
   margin-top: 6px;
 }
 
+/* Two totals where a single-unit run shows one: stacked, each labelled with its unit. */
+.stat-split {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 18px;
+}
+
+.stat-unit {
+  white-space: nowrap;
+}
+
+/* The marker saying the cell's number is not the only one measured. */
+.mine-alt {
+  margin-left: 4px;
+}
+
 /* One line per reason, not one row per accelerator that shares it. */
 .accel-blocked {
   margin-top: 6px;

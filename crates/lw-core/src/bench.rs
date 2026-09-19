@@ -98,6 +98,22 @@ pub struct ClipResult {
     pub unit: ErrorUnit,
 }
 
+/// One total, for the clips scored in one unit.
+///
+/// A run over Russian and Chinese has two of these: a word rate over the Russian clips and a
+/// character rate over the Chinese ones. Both are real; only their average is not.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnitScore {
+    /// What this total is measured in.
+    pub unit: ErrorUnit,
+    /// Token-weighted error rate over the scored clips that use this unit.
+    pub rate: f32,
+    /// How many clips contributed.
+    pub clips: usize,
+    /// How many reference tokens contributed -- words or characters, per `unit`.
+    pub tokens: usize,
+}
+
 /// WER over the clips of one language.
 #[derive(Clone, Debug, Serialize)]
 pub struct LanguageScore {
@@ -134,9 +150,17 @@ pub struct Measurement {
     pub unit: Option<ErrorUnit>,
     /// True when the scored clips spanned both words and characters, so no single total exists.
     ///
-    /// Not an error: it means the run covered, say, Russian and Chinese at once. The per-language
-    /// breakdown is the honest answer, and a caller must print that instead of inventing a total.
+    /// Not an error: it means the run covered, say, Russian and Chinese at once. It is also not a
+    /// reason to report nothing -- see [`Measurement::by_unit`], which holds a real total for each
+    /// unit separately. Only their average is meaningless.
     pub mixed_units: bool,
+    /// One total per unit the scored clips used, words first.
+    ///
+    /// This is what a caller shows when `wer` is `None`. Withholding the blend was right;
+    /// withholding the two figures that make it up was not, and it left the model list printing a
+    /// dash for every model that claims Chinese -- which reads as "the benchmark failed" rather
+    /// than "there are two answers here".
+    pub by_unit: Vec<UnitScore>,
     /// Languages the scored clips covered, sorted, for provenance.
     pub scored_languages: Vec<String>,
     /// Clips that were transcribed and timed but not scored, and the languages they were in.
@@ -301,8 +325,9 @@ pub fn measure_with(
     let mut cold_rtf = 0.0f32;
     let mut warm_ms = Vec::new();
     let mut warm_rtf_sum = 0.0f64;
-    let mut total_err = 0.0f64;
-    let mut total_words = 0usize;
+    // unit -> (weighted error, tokens, clips). One entry per unit that actually scored something.
+    let mut totals: std::collections::BTreeMap<ErrorUnit, (f64, usize, usize)> =
+        std::collections::BTreeMap::new();
     let mut audio_secs = 0.0f32;
     let mut results = Vec::with_capacity(selected.len());
     let mut scored_languages: Vec<String> = Vec::new();
@@ -310,9 +335,6 @@ pub fn measure_with(
     // language -> (weighted error, tokens, clips, unit)
     let mut by_language: std::collections::BTreeMap<String, (f64, usize, usize, ErrorUnit)> =
         std::collections::BTreeMap::new();
-    // Every unit that contributed to the blended total. More than one means the total would be an
-    // average of a word rate and a character rate, which is not a quantity.
-    let mut scored_units: std::collections::BTreeSet<ErrorUnit> = std::collections::BTreeSet::new();
 
     for (i, clip) in selected.iter().copied().enumerate() {
         let scored = counts(clip);
@@ -334,9 +356,10 @@ pub fn measure_with(
         let wer = clip.reference.as_ref().map(|r| {
             let (w, n) = error_rate(r, &transcript.text, unit);
             if scored {
-                total_err += w as f64 * n as f64;
-                total_words += n;
-                scored_units.insert(unit);
+                let slot = totals.entry(unit).or_insert((0.0, 0, 0));
+                slot.0 += w as f64 * n as f64;
+                slot.1 += n;
+                slot.2 += 1;
             }
             // The per-language tally counts every clip that has a reference, claimed or not:
             // seeing what an unclaimed language actually scored is the point of the breakdown.
@@ -405,21 +428,33 @@ pub fn measure_with(
 
     // A blended total exists only when everything in it is the same quantity. Mixing Chinese
     // characters with Russian words would produce a number with no unit and no meaning, so the
-    // total is withheld and the per-language breakdown is the answer instead.
-    let mixed_units = scored_units.len() > 1;
+    // blend is withheld -- but each unit's own total is kept and reported, because those are
+    // ordinary, meaningful numbers.
+    let by_unit: Vec<UnitScore> = totals
+        .iter()
+        .filter(|(_, (_, tokens, _))| *tokens > 0)
+        .map(|(unit, (err, tokens, clips))| UnitScore {
+            unit: *unit,
+            rate: (err / *tokens as f64) as f32,
+            clips: *clips,
+            tokens: *tokens,
+        })
+        .collect();
+    let mixed_units = by_unit.len() > 1;
     let total_unit = if mixed_units {
         None
     } else {
-        scored_units.iter().next().copied()
+        by_unit.first().map(|u| u.unit)
     };
     Ok(Measurement {
         warm_rtf,
         cold_rtf,
         warm_count,
         warm_ms,
-        wer: (total_words > 0 && !mixed_units).then(|| (total_err / total_words as f64) as f32),
+        wer: (!mixed_units).then(|| by_unit.first().map(|u| u.rate)).flatten(),
         unit: total_unit,
         mixed_units,
+        by_unit,
         scored_languages,
         unscored_languages,
         skipped_clips: skipped.len(),
@@ -669,6 +704,67 @@ mod tests {
     /// Chinese is written without spaces, so a word-level metric sees the whole sentence as one
     /// token: get one character wrong and the "WER" is 1.0 — the same score as transcribing
     /// nothing recognisable at all. Scored by character, the same transcript is 1 error in 9.
+    #[test]
+    fn a_run_spanning_two_units_reports_both_totals_instead_of_none() {
+        // The model list showed a dash for every model that claims Chinese. The blend really is
+        // meaningless -- a word rate and a character rate do not average -- but the two totals it
+        // would have been made of are ordinary numbers, and withholding them said "the benchmark
+        // failed" where the truth was "there are two answers".
+        use crate::engine::Language;
+        const BOTH: &[Language] = &[Language("ru"), Language("zh")];
+        let clips = vec![
+            clip_in("ru.wav", 1.0, Some("а б в г"), Some("ru")),
+            clip_in("zh.wav", 1.0, Some("中文测试"), Some("zh")),
+        ];
+        let mut engine = ScriptedEngine {
+            // Perfect Russian, one wrong character out of four in Chinese.
+            replies: vec!["а б в г".into(), "中文测验".into()],
+            next: 0,
+            languages: BOTH,
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+
+        assert!(m.mixed_units, "words and characters in one run");
+        assert_eq!(m.wer, None, "and so no single blended figure");
+        assert_eq!(m.by_unit.len(), 2, "but both totals must survive");
+
+        let word = m
+            .by_unit
+            .iter()
+            .find(|u| u.unit == ErrorUnit::Word)
+            .expect("a word total");
+        let ch = m
+            .by_unit
+            .iter()
+            .find(|u| u.unit == ErrorUnit::Character)
+            .expect("a character total");
+        assert_eq!(word.rate, 0.0);
+        assert_eq!(word.clips, 1);
+        assert_eq!(word.tokens, 4);
+        assert!((ch.rate - 0.25).abs() < 1e-6, "one character in four: {}", ch.rate);
+        assert_eq!(ch.clips, 1);
+        assert_eq!(ch.tokens, 4);
+        // Words first, so a caller that shows one figure shows the one the catalog column uses.
+        assert_eq!(m.by_unit[0].unit, ErrorUnit::Word);
+    }
+
+    #[test]
+    fn a_single_unit_run_still_reports_one_total_and_agrees_with_itself() {
+        use crate::engine::Language;
+        const EN: &[Language] = &[Language("en")];
+        let clips = vec![clip_in("en.wav", 1.0, Some("a b c d"), Some("en"))];
+        let mut engine = ScriptedEngine {
+            replies: vec!["a b c x".into()],
+            next: 0,
+            languages: EN,
+        };
+        let m = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {}).unwrap();
+        assert!(!m.mixed_units);
+        assert_eq!(m.by_unit.len(), 1);
+        assert_eq!(m.wer, Some(m.by_unit[0].rate), "the two must never disagree");
+        assert_eq!(m.unit, Some(ErrorUnit::Word));
+    }
+
     #[test]
     fn a_word_rate_is_meaningless_for_chinese_and_a_character_rate_is_not() {
         let reference = "今天天气非常好";

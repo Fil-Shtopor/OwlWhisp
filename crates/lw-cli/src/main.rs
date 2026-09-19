@@ -638,9 +638,23 @@ fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
             scored.len(),
             m.scored_languages.join("/")
         );
-        println!(
-            "no single accuracy figure: these clips are scored in different units (words for some              languages, characters for the ones written without spaces), and the two cannot be              averaged. Read the per-language breakdown above."
-        );
+        // Two totals, not none. The blend is withheld because a word rate and a character rate do
+        // not average; each unit's own total is an ordinary number and gets printed.
+        for u in &m.by_unit {
+            println!(
+                "token-weighted {}: {:.3}   over {} clip(s), {} token(s)",
+                u.unit.label(),
+                u.rate,
+                u.clips,
+                u.tokens
+            );
+        }
+        // Two short lines rather than one wrapped literal: a `\`-continuation here has twice been
+        // collapsed into a single line with the indentation left inside the string, which then
+        // prints as a run of spaces mid-sentence.
+        println!("no single figure across the two: words and characters are different quantities,");
+        println!("      so they are reported separately rather than averaged. The per-language");
+        println!("      breakdown above has the detail.");
         return Ok(());
     }
 

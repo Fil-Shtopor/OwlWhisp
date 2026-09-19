@@ -30,9 +30,16 @@ pub struct LocalMeasurement {
     /// Mean real-time factor after the first clip, when there was more than one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warm_rtf: Option<f32>,
-    /// Word-weighted WER over the clips in languages the model claims, when any were scored.
+    /// Token-weighted error rate, when every scored clip used the same unit.
+    ///
+    /// `None` for a run spanning both words and characters -- a model that claims Chinese as well
+    /// as Russian, say. That is not a failure, and `by_unit` carries the real totals; a reader
+    /// must show those rather than a blank.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wer: Option<f32>,
+    /// One total per unit, words first. Empty in records written before this was stored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub by_unit: Vec<lw_core::bench::UnitScore>,
     /// How many clips the WER was computed over — a three-clip figure is not a twelve-clip one.
     pub scored_clips: usize,
     /// How many clips ran in total.
@@ -123,6 +130,7 @@ pub fn from_report(report: &crate::worker::BenchReport) -> Option<LocalMeasureme
         cold_rtf: report.cold_rtf,
         warm_rtf: report.warm_rtf,
         wer: report.wer,
+        by_unit: report.by_unit.clone(),
         scored_clips: report.clips.iter().filter(|c| c.scored).count(),
         clips: report.clips.len(),
         skipped_clips: report.skipped_clips,
@@ -168,6 +176,12 @@ mod tests {
             cold_rtf: 0.1,
             warm_rtf: Some(0.05),
             wer: Some(wer),
+            by_unit: vec![lw_core::bench::UnitScore {
+                unit: lw_core::bench::ErrorUnit::Word,
+                rate: wer,
+                clips: 12,
+                tokens: 240,
+            }],
             scored_clips: 12,
             clips: 12,
             skipped_clips: 3,
@@ -187,6 +201,10 @@ mod tests {
         assert_eq!(m.clips, 12);
         assert_eq!(m.skipped_clips, 0, "absence means it ran everything, which it did");
         assert!(m.scored_languages.is_empty());
+        assert!(
+            m.by_unit.is_empty(),
+            "no breakdown was stored then; the reader must fall back to `wer`, not invent a unit"
+        );
     }
 
     #[test]

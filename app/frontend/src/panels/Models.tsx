@@ -9,6 +9,7 @@ import {
   type Capabilities,
   type InstallState,
   type LocalMeasurement,
+  type UnitScore,
   type LocalMeasurements,
   type ModelAccelerator,
   type MeasuredPoint,
@@ -340,6 +341,33 @@ function pickLocal(mine: readonly LocalMeasurement[], best: string | null): Loca
   return [...mine].sort((a, b) => (a.warm_rtf ?? a.cold_rtf) - (b.warm_rtf ?? b.cold_rtf))[0] ?? null;
 }
 
+/** `"WER"` for a word rate, `"CER"` for a character one. */
+function unitLabel(unit: UnitScore["unit"]): string {
+  return unit === "character" ? "CER" : "WER";
+}
+
+/**
+ * The one error rate a single-line cell should show, and whatever else was measured beside it.
+ *
+ * `wer` is null for every run that spanned words and characters -- which is every model claiming
+ * Chinese alongside a space-delimited language -- and the cell printed a dash for those, reading
+ * as "the benchmark produced nothing". It produced two things. The word rate goes in the cell,
+ * because that is the unit the catalog's Accuracy column uses and the two sit side by side; the
+ * character rate is named next to it, not dropped.
+ */
+function headlineRate(
+  m: LocalMeasurement,
+): { rate: number; unit: UnitScore["unit"] | null; rest: UnitScore[] } | null {
+  if (m.by_unit.length > 0) {
+    const primary = m.by_unit.find((u) => u.unit === "word") ?? m.by_unit[0];
+    return { rate: primary.rate, unit: primary.unit, rest: m.by_unit.filter((u) => u !== primary) };
+  }
+  // A record written before the breakdown was stored. Its single figure is all there is, and
+  // nothing says which unit it was in, so nothing claims one.
+  if (m.wer !== null) return { rate: m.wer, unit: null, rest: [] };
+  return null;
+}
+
 /** A measured word-error rate the row can show, and whether it describes this machine's target. */
 interface AccuracyEvidence {
   readonly point: MeasuredPoint;
@@ -668,12 +696,23 @@ function AcceleratorTable({
                       <>
                         <span className="mono">
                           RTF {formatRtf(here.warm_rtf ?? here.cold_rtf)}
-                          {here.wer !== null && <> · WER {formatWer(here.wer)}</>}
+                          {here.by_unit.length > 0
+                            ? here.by_unit.map((u) => (
+                                <span key={u.unit}>
+                                  {" "}
+                                  · {unitLabel(u.unit)} {formatWer(u.rate)}
+                                </span>
+                              ))
+                            : here.wer !== null && <> · WER {formatWer(here.wer)}</>}
                         </span>
                         <div className="sub">
-                          {here.wer === null
-                            ? "no clip could be scored"
-                            : `over ${here.scored_clips} clip${here.scored_clips === 1 ? "" : "s"}`}
+                          {here.by_unit.length > 1
+                            ? here.by_unit
+                                .map((u) => `${unitLabel(u.unit)} over ${u.clips}`)
+                                .join(", ")
+                            : here.wer === null && here.by_unit.length === 0
+                              ? "no clip could be scored"
+                              : `over ${here.scored_clips} clip${here.scored_clips === 1 ? "" : "s"}`}
                           {here.scored_languages.length > 0 && (
                             <> in {here.scored_languages.join("/")}</>
                           )}
@@ -961,6 +1000,7 @@ export function ModelsPanel() {
   const renderRow = (entry: ModelEntry) => {
     const localAll = mine[entry.id] ?? [];
     const local = pickLocal(localAll, entry.best_hardware);
+    const headline = local === null ? null : headlineRate(local);
     const isRecommended = catalog.recommended === entry.id;
     const isSelected = selectedId === entry.id;
     const state = INSTALL_STATES[entry.install_state];
@@ -1114,13 +1154,48 @@ export function ModelsPanel() {
             ) : (
               <span
                 className="mono mine-value"
-                title={`Measured here on ${local.accelerator_label}: WER ${
-                  local.wer === null ? "not scored" : formatWer(local.wer)
-                } over ${local.scored_clips} of ${local.clips} clips, warm RTF ${
+                title={`Measured here on ${local.accelerator_label}: ${
+                  local.by_unit.length > 0
+                    ? local.by_unit
+                        .map(
+                          (u) =>
+                            `${unitLabel(u.unit)} ${formatWer(u.rate)} over ${u.clips} clip${
+                              u.clips === 1 ? "" : "s"
+                            }`,
+                        )
+                        .join(", ")
+                    : local.wer === null
+                      ? local.scored_clips > 0
+                        ? "This run scored clips in two units and was stored before both totals were kept, so it has no figure to show. Run the benchmark again to fill it in."
+                        : "nothing could be scored"
+                      : `${formatWer(local.wer)} over ${local.scored_clips} clips`
+                }. Warm RTF ${
                   local.warm_rtf === null ? "—" : local.warm_rtf.toFixed(4)
-                }, cold ${local.cold_rtf.toFixed(4)} — ${local.measured_at}`}
+                }, cold ${local.cold_rtf.toFixed(4)} — ${local.measured_at}${
+                  local.by_unit.length > 1
+                    ? ". Two units: Chinese is scored by character, the rest by word, and the two do not average — so there is no single figure, not a missing one."
+                    : ""
+                }`}
               >
-                {local.wer === null ? "—" : formatWer(local.wer)}
+                {headline === null ? (
+                  /*
+                    A record stored before the per-unit breakdown existed, from a run that spanned
+                    two units: it kept no figure at all, and there is nothing to recover from it.
+                    "Re-run" says what to do; a dash said the benchmark had produced nothing.
+                  */
+                  local.scored_clips > 0 ? (
+                    <span className="sub">re-run</span>
+                  ) : (
+                    "—"
+                  )
+                ) : (
+                  formatWer(headline.rate)
+                )}
+                {headline !== null && headline.rest.length > 0 && (
+                  <span className="hw-chip mine-alt">
+                    +{headline.rest.map((u) => unitLabel(u.unit).toLowerCase()).join("/")}
+                  </span>
+                )}
                 <span className="sub mine-rtf">
                   {" "}
                   {(local.warm_rtf ?? local.cold_rtf).toFixed(3)}
@@ -1486,7 +1561,7 @@ export function ModelsPanel() {
             </span>
             <span className="mcell mcell-mine">
               <span className="th-sort-static">On your machine</span>
-              <span className="th-note">WER · RTF from your own benchmark run</span>
+              <span className="th-note">error rate · RTF from your own benchmark run</span>
             </span>
             <span className="mcell mcell-state">
               {sortHeader("state", "Status", "on disk")}

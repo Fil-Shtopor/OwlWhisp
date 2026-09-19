@@ -151,10 +151,16 @@ totals above, because a word rate and a character rate are not the same quantity
 | `sense-voice-small` | **0.141** | **0.0168** | **228 MiB** |
 | `qwen3-asr-0.6b` | 0.155 | 0.1112 | 838 MiB |
 | `omnilingual-300m` | 0.310 | 0.0501 | 279 MiB |
+| `whisper-turbo` | 0.380 | 0.2113 | 989 MiB |
 
-So the best Chinese in this catalog is also the smallest and the fastest of the three that claim it.
+So the best Chinese in this catalog is also the smallest and the fastest of the four that claim it.
 That settles a question this document had been carrying: `sense-voice-small` is not made redundant by
 the newer entries. The CER was identical in all three runs; only the RTFs moved.
+
+**`whisper-turbo` holds the `universal` role and is the worst of the four here** — 2.7× SenseVoice's
+error at 12× the real-time factor. The role is earned on en/es/ru/uk and does not carry over: someone
+who picks it for its hundred languages and then dictates Chinese gets the weakest option in the
+catalog. This is exactly the kind of thing a single blended accuracy figure would have hidden.
 
 Three clips is indicative and not statistically meaningful, and one of them (`fleurs_zh_2`) embeds a
 Latin word in parentheses that every model here stumbles on. The ranking is worth more than any one

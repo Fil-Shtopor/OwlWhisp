@@ -709,17 +709,36 @@ export function BenchmarkPanel() {
                     : "word error rate, lower is better"}
                 </span>
               </span>
-              <span className="mono stat-value">
-                {report.wer === null ? "—" : formatWer(report.wer)}
-              </span>
+              {/*
+                Two units is not "no result". The blend is withheld because a word rate and a
+                character rate do not average, but each unit's own total is an ordinary number and
+                both are shown, stacked, rather than replaced by a dash.
+              */}
+              {report.by_unit.length > 1 ? (
+                <span className="mono stat-value stat-split">
+                  {report.by_unit.map((u) => (
+                    <span key={u.unit} className="stat-unit">
+                      {u.unit === "character" ? "CER" : "WER"} {formatWer(u.rate)}
+                      <span className="sub">
+                        {" "}
+                        over {u.clips} clip{u.clips === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="mono stat-value">
+                  {report.wer === null ? "—" : formatWer(report.wer)}
+                </span>
+              )}
               <span className="sub">
                 {/*
-                  Three different reasons for having no figure, and they are not the same thing.
-                  Mixing units is the newest: a run covering Russian and Chinese has no single
-                  number, because a word rate and a character rate cannot be averaged.
+                  Three different reasons for having no single figure, and they are not the same
+                  thing. Mixing units is the newest: a run covering Russian and Chinese has two
+                  totals rather than one, because a word rate and a character rate do not average.
                 */}
                 {report.mixed_units
-                  ? "No single figure: these clips span languages scored in different units — words for most, characters for the ones written without spaces — and the two cannot be averaged. The per-language breakdown above is the answer."
+                  ? "Two figures, not one: Chinese is scored by character and the rest by word, and the two cannot be averaged into a single number. Both totals are above, and the per-language breakdown has the detail."
                   : report.wer === null
                     ? "No clip contributed a reference this model could be scored against, so accuracy could not be computed."
                     : report.clips.every((c) => c.scored)

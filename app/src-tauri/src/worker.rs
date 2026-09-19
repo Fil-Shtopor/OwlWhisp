@@ -284,6 +284,11 @@ pub struct BenchReport {
     pub wer: Option<f32>,
     /// What `wer` is measured in: `"word"` or `"character"`, when there is a figure.
     pub unit: Option<&'static str>,
+    /// One real total per unit the run scored in, words first.
+    ///
+    /// Always populated; `wer` is just this list when it has exactly one entry. A run covering
+    /// Russian and Chinese has two, and this is what a caller shows instead of nothing.
+    pub by_unit: Vec<lw_core::bench::UnitScore>,
     /// True when the scored clips mixed word-scored and character-scored languages, so no single
     /// figure exists. Chinese is not measured in words and Russian is not measured in characters,
     /// and averaging the two would produce a number with no unit.
@@ -531,6 +536,7 @@ fn run_benchmark_job(
         warm_count: m.warm_count,
         wer: m.wer,
         unit: m.unit.map(lw_core::bench::ErrorUnit::label),
+        by_unit: m.by_unit.clone(),
         mixed_units: m.mixed_units,
         audio_secs: m.audio_secs,
         skipped_clips: m.skipped_clips,
