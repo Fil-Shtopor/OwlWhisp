@@ -47,6 +47,7 @@ pub enum Message {
     Diagnostics(panels::diagnostics::Message),
     Settings(panels::settings::Message),
     Benchmark(panels::benchmark::Message),
+    Dictate(panels::dictate::Message),
 }
 
 pub struct App {
@@ -55,6 +56,7 @@ pub struct App {
     diagnostics: panels::diagnostics::State,
     settings: panels::settings::State,
     benchmark: panels::benchmark::State,
+    dictate: panels::dictate::State,
 }
 
 impl Default for App {
@@ -65,6 +67,7 @@ impl Default for App {
             diagnostics: panels::diagnostics::State::new(),
             settings: panels::settings::State::new(),
             benchmark: panels::benchmark::State::new(),
+            dictate: panels::dictate::State::new(),
         }
     }
 }
@@ -91,6 +94,7 @@ impl App {
                 _ => None,
             }),
             self.benchmark.subscription().map(Message::Benchmark),
+            self.dictate.subscription().map(Message::Dictate),
         ])
     }
 
@@ -108,6 +112,7 @@ impl App {
             Message::Benchmark(m) => {
                 return self.benchmark.update(m).map(Message::Benchmark);
             }
+            Message::Dictate(m) => self.dictate.update(m),
         }
         iced::Task::none()
     }
@@ -130,7 +135,7 @@ impl App {
         }
 
         let body: Element<'_, Message> = match self.tab {
-            Tab::Dictate => panels::dictate::view(),
+            Tab::Dictate => self.dictate.view().map(Message::Dictate),
             Tab::Settings => self.settings.view().map(Message::Settings),
             Tab::Models => self.models.view().map(Message::Models),
             Tab::Benchmark => self.benchmark.view().map(Message::Benchmark),

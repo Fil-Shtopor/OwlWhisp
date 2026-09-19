@@ -17,6 +17,7 @@
 pub mod bench;
 pub mod catalog;
 pub mod diagnostics;
+pub mod dictation;
 pub mod machine;
 pub mod measurements;
 pub mod paths;
@@ -25,5 +26,6 @@ pub use catalog::{
     AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role,
 };
 pub use diagnostics::{AcceleratorStatus, Diagnostics};
+pub use dictation::{Command, Event, Handle, RecordingState};
 pub use machine::probe_capabilities;
 pub use measurements::{LocalMeasurement, LocalMeasurements};
