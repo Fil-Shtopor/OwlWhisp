@@ -18,7 +18,10 @@ pub mod bench;
 pub mod catalog;
 pub mod machine;
 pub mod measurements;
+pub mod paths;
 
-pub use catalog::{AcceleratorView, CatalogView, EntryView, RoleView};
+pub use catalog::{
+    AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role,
+};
 pub use machine::probe_capabilities;
 pub use measurements::{LocalMeasurement, LocalMeasurements};

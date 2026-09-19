@@ -1,0 +1,30 @@
+[package]
+name = "lw-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The LocalWisper desktop window, drawn natively. Replaces the Tauri/WebView2 front end: one process instead of eight, and no browser engine between the user and the Rust that does the work."
+
+[[bin]]
+name = "localwisper-gui"
+path = "src/main.rs"
+
+[features]
+default = []
+sherpa = ["lw-app/sherpa"]
+
+[dependencies]
+lw-app.workspace = true
+lw-core.workspace = true
+lw-platform.workspace = true
+
+eframe = { workspace = true }
+egui = { workspace = true }
+
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

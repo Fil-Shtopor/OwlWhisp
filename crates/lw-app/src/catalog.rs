@@ -223,6 +223,199 @@ pub fn build(root: &Path) -> Result<CatalogView, String> {
     })
 }
 
+/// Quarter-decade bucket, about 1.8x wide. Two numbers inside one bucket are treated as tied.
+///
+/// Used wherever the inputs cannot support a finer ordering: an estimate accurate to a factor of
+/// two, or two error rates measured on different clip sets.
+fn coarse(value: f32) -> i32 {
+    (value.max(1e-6).log10() * 4.0).round() as i32
+}
+
+/// Order the candidates for one role by the thing that role actually claims.
+///
+/// Every role states a criterion in its own blurb -- fewest errors, least delay, smallest
+/// download, most languages -- and for a long time all four were answered by one global ordering
+/// led by the editorial quality tier. That tier is a judgement about a whole model, and it got the
+/// per-language question wrong: Whisper turbo is `best` and so led the `accurate` pick for
+/// Chinese while measuring CER 0.380 against SenseVoice's 0.141.
+///
+/// What decides how hard to compare is whether the numbers are the same measurement:
+///
+/// - **A language is chosen and both candidates were measured on it.** Same clips, same unit, so
+///   the comparison is valid as it stands and the better number wins outright.
+/// - **Anything else.** A blended rate is not one measurement: GigaAM's 0.029 comes from three
+///   Russian clips and Whisper turbo's 0.042 from twelve across four languages, and a
+///   one-language specialist sits an easier exam. Those are compared only as coarsely as that
+///   allows, and the tie goes to language coverage -- the question was "any language", so a model
+///   that speaks one cannot be the answer to it. `Fast` is always in this case, because its input
+///   is an estimate rather than a measurement.
+///
+/// Returns `None` when the criterion cannot rank an entry at all; such entries sort last.
+fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, i32)> {
+    match role {
+        ModelRole::Accurate => {
+            if let Some(m) = entry.measured_for_language(language) {
+                // Same clips for every candidate that has this: no bucketing, no tiebreak.
+                return Some(((m.rate * 1e6) as i32, 0));
+            }
+            let blended = entry
+                .measured_reference
+                .as_ref()
+                .or(entry.measurements.first())?
+                .wer?;
+            Some((coarse(blended), -(entry.languages.len() as i32)))
+        }
+        ModelRole::Fast => {
+            let rtf = entry.estimated_rtf?;
+            Some((coarse(rtf), -(entry.languages.len() as i32)))
+        }
+        // Exact and never a tie; an entry with no pinned file set has no size to rank on.
+        ModelRole::Compact => entry.download_bytes.map(|b| (b.min(i32::MAX as u64) as i32, 0)),
+        ModelRole::Universal => Some((-(entry.languages.len() as i32), 0)),
+    }
+}
+
+/// The entry to suggest for one role, optionally restricted to a language.
+///
+/// `language` is a code or the empty string for "any". Returns `None` when nothing in the catalog
+/// carries the role, or carries it and claims the language.
+pub fn pick_for_role<'a>(
+    entries: &'a [EntryView],
+    role: ModelRole,
+    language: &str,
+) -> Option<&'a EntryView> {
+    entries
+        .iter()
+        .filter(|e| e.roles.iter().any(|r| r.id == role.id()))
+        .filter(|e| language.is_empty() || e.languages.iter().any(|l| l == language))
+        // `min_by_key` keeps the first of equals, and `entries` arrives in the catalog's own
+        // best-first order, so anything the criterion cannot separate keeps that order.
+        .min_by_key(|e| role_key(e, role, language).unwrap_or((i32::MAX, i32::MAX)))
+}
+
+/// Every language any entry carries a measurement for: in practice, what the fixture set covers.
+///
+/// Needed to tell "we measured this and it is bad" apart from "nobody measured this", which look
+/// identical on screen and mean opposite things.
+pub fn measured_languages(entries: &[EntryView]) -> std::collections::BTreeSet<String> {
+    entries
+        .iter()
+        .flat_map(|e| e.measurements.iter())
+        .flat_map(|m| m.per_language.keys().cloned())
+        .collect()
+}
+
+/// Models with no credited maker.
+pub const OTHER_VENDOR: &str = "Other";
+
+/// Display name for an engine id, e.g. `nemo_transducer` -> `NeMo`.
+///
+/// The engine id says which loader runs the files; the family is what the model is *called*, and
+/// two different engine ids can be the same family. Unknown ids are title-cased rather than
+/// hidden, so a catalog that outlives this binary still reads sensibly.
+pub fn family_label(engine: &str) -> String {
+    match engine {
+        "parakeet_tdt" => "Parakeet".into(),
+        "nemo_transducer" | "nemo_ctc" => "NeMo".into(),
+        "whisper" => "Whisper".into(),
+        "moonshine" => "Moonshine".into(),
+        "sense_voice" => "SenseVoice".into(),
+        "paraformer" => "Paraformer".into(),
+        "zipformer" => "Zipformer".into(),
+        "telespeech" => "TeleSpeech".into(),
+        "fire_red_asr" => "FireRedASR".into(),
+        "dolphin" => "Dolphin".into(),
+        "canary" => "Canary".into(),
+        "wenet_ctc" => "WeNet".into(),
+        "sherpa" => "Sherpa".into(),
+        other => {
+            let words: Vec<String> = other
+                .split('_')
+                .filter(|w| !w.is_empty())
+                .map(|w| {
+                    let mut c = w.chars();
+                    match c.next() {
+                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect();
+            if words.is_empty() {
+                "—".into()
+            } else {
+                words.join(" ")
+            }
+        }
+    }
+}
+
+/// One continuous list, split by who made each model.
+///
+/// Deliberately not a filter: every model stays on screen at once, and a heading plus a little
+/// space is the whole of the grouping. Vendor tabs would hide most of the catalog behind a click,
+/// which is the opposite of what a comparison table is for.
+///
+/// Order: the recommended model's maker leads, so the recommendation stays near the top; then the
+/// makers offering the most models, alphabetically within a tie; then `Other`. It depends only on
+/// the catalog, so it does not shuffle when a model is installed or selected. Within a group the
+/// catalog's own order is kept untouched.
+pub fn group_by_vendor<'a>(
+    entries: &'a [EntryView],
+    recommended: Option<&str>,
+) -> Vec<(String, Vec<&'a EntryView>)> {
+    let name_of = |e: &EntryView| -> String {
+        match e.vendor.as_deref().map(str::trim) {
+            Some(v) if !v.is_empty() => v.to_string(),
+            _ => OTHER_VENDOR.to_string(),
+        }
+    };
+
+    let mut order: Vec<String> = Vec::new();
+    let mut buckets: std::collections::HashMap<String, Vec<&EntryView>> = Default::default();
+    for e in entries {
+        let n = name_of(e);
+        if !order.contains(&n) {
+            order.push(n.clone());
+        }
+        buckets.entry(n).or_default().push(e);
+    }
+
+    let lead = recommended
+        .and_then(|id| entries.iter().find(|e| e.id == id))
+        .map(name_of)
+        .filter(|v| v != OTHER_VENDOR);
+
+    let mut groups: Vec<(String, Vec<&EntryView>)> = order
+        .into_iter()
+        .map(|v| {
+            let list = buckets.remove(&v).unwrap_or_default();
+            (v, list)
+        })
+        .collect();
+    groups.sort_by(|a, b| {
+        use std::cmp::Ordering;
+        if a.0 == b.0 {
+            return Ordering::Equal;
+        }
+        if let Some(lead) = lead.as_deref() {
+            if a.0 == lead {
+                return Ordering::Less;
+            }
+            if b.0 == lead {
+                return Ordering::Greater;
+            }
+        }
+        if a.0 == OTHER_VENDOR {
+            return Ordering::Greater;
+        }
+        if b.0 == OTHER_VENDOR {
+            return Ordering::Less;
+        }
+        b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0))
+    });
+    groups
+}
+
 /// Where models live for a given settings file.
 ///
 /// Deliberately not `default_models_root`: the app owns its data directory, and the two must not
@@ -271,6 +464,64 @@ mod tests {
             assert!(e.contains_key(*key), "an entry lost the key {key}");
         }
         assert_eq!(e.len(), ENTRY_KEYS.len(), "an entry gained a key: {:?}", e.keys());
+    }
+
+    #[test]
+    fn choosing_chinese_suggests_the_model_measured_best_on_chinese() {
+        // The bug this logic exists for. Whisper turbo has the best blended figure in the catalog
+        // and the worst Chinese of the four entries that claim it, so any ranking that answers a
+        // per-language question with a whole-model number picks the worst option there is.
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let pick = pick_for_role(&view.entries, ModelRole::Accurate, "zh")
+            .expect("something accurate claims Chinese");
+        assert_eq!(pick.id, "sense-voice-small", "picked {} instead", pick.id);
+    }
+
+    #[test]
+    fn choosing_any_language_does_not_suggest_a_one_language_model() {
+        // The regression the language-aware version caused: ranking blended rates directly
+        // rewards narrowness, because a specialist is scored on an easier set of clips. Both
+        // suggestions went to a Russian-only model.
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        for role in [ModelRole::Fast, ModelRole::Accurate] {
+            let pick = pick_for_role(&view.entries, role, "").expect("something fills the role");
+            assert!(
+                pick.languages.len() > 1,
+                "{:?} for any language suggested {}, which claims {} language(s)",
+                role,
+                pick.id,
+                pick.languages.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_speed_difference_still_beats_language_coverage() {
+        // The coverage tiebreak must stay a tiebreak. Whisper turbo claims a hundred languages and
+        // is a whole tier slower, so it must not take the Fast pick from Parakeet.
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let fast = pick_for_role(&view.entries, ModelRole::Fast, "").expect("a fast pick");
+        assert_ne!(fast.id, "whisper-turbo");
+    }
+
+    #[test]
+    fn a_role_nothing_fills_for_a_language_has_no_pick() {
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        // Moonshine is the only compact entry and it is English-only.
+        assert!(pick_for_role(&view.entries, ModelRole::Compact, "zh").is_none());
+    }
+
+    #[test]
+    fn the_measured_languages_are_the_ones_with_fixtures() {
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let measured = measured_languages(&view.entries);
+        for code in ["en", "es", "ru", "uk", "zh"] {
+            assert!(measured.contains(code), "{code} has fixtures but no measurement");
+        }
+        assert!(
+            !measured.contains("yue"),
+            "there are no Cantonese fixtures; claiming otherwise would let a pick look founded"
+        );
     }
 
     #[test]
