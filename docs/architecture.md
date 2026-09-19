@@ -7,8 +7,10 @@ platforms and models can change without touching the rest._
 ## 1. Principles
 
 1. **UI is not the pipeline.** The Rust core owns audio capture, VAD, inference, the text pipeline
-   and OS integration. The Tauri/React frontend renders state and edits settings. **Audio samples
-   never cross the IPC boundary.**
+   and OS integration. `lw-app` turns that into application decisions, and `lw-gui` draws them.
+   **Audio samples never reach the drawing code**, and nothing in `lw-gui` decides anything about
+   models, engines or measurements -- the last time types were mirrored across a boundary by hand
+   they drifted and printed `NaN%` at a user.
 2. **Backends are pluggable and honest.** A `SpeechEngine` is selected at runtime by a capability
    detector; diagnostics always report the *actual* backend/provider/device. CPU fallback is never
    removed.
@@ -53,14 +55,15 @@ crates/
   lw-engine-whisper/    # Whisper adapter (optional fallback; thin, feature-gated)
   lw-platform/          # OS integration traits + windows/ macos/ linux/ impls
   lw-cli/               # `lw` command-line: diagnose, bench, transcribe, models, self-check
-app/
-  src-tauri/            # Tauri 2 shell: commands, events, tray, windows, wires core to UI
-  frontend/             # React + TypeScript + Vite UI
+  lw-app/               # Application layer, toolkit-independent: settings, the catalog as shown,
+                        #   installs, benchmark runs, the dictation worker, the hotkey, logging
+  lw-gui/               # The window: iced on a tiny-skia CPU rasteriser, tray, overlay
 ```
 
 Dependency direction is strictly downward: `lw-core` depends on nothing OS-specific; `lw-ort`,
-`lw-vad-silero`, `lw-engine-*` depend on `lw-core`; `lw-platform` depends on `lw-core`; `lw-cli` and
-`app/src-tauri` compose everything.
+`lw-vad-silero`, `lw-engine-*` depend on `lw-core`; `lw-platform` depends on `lw-core`; `lw-app`
+composes all of those; `lw-gui` and `lw-cli` sit on top of `lw-app` and know only about pixels and
+arguments respectively.
 
 ## 3. The `SpeechEngine` trait
 
@@ -170,8 +173,8 @@ Traits live in `lw-platform`; each has `windows`, `macos`, `linux` modules behin
 | `GlobalHotkey` | `WH_KEYBOARD_LL` hook (press/release, modifier-only) + `global-hotkey` fallback | Carbon + CGEventTap | X11 XGrabKey / portal (stub) |
 | `TextInjector` | clipboard + Ctrl+V (SendInput VK 0x56) with OLE snapshot/restore + marker | pasteboard + Cmd+V (AX-aware) | XTest / portal (stub) |
 | `Clipboard` | Win32 OLE + exclusion formats | NSPasteboard | wl-clipboard/x11 (stub) |
-| `OverlayWindow` | Tauri window `focusable(false)`→WS_EX_NOACTIVATE + SWP_NOACTIVATE | tauri-nspanel | plain window (stub) |
-| `SystemTray` | Tauri `TrayIconBuilder` | same | same |
+| `OverlayWindow` | a second iced window, then `WS_EX_NOACTIVATE \| WS_EX_TRANSPARENT \| WS_EX_TOOLWINDOW` applied to its raw handle | not implemented | not implemented |
+| `SystemTray` | `tray-icon` + `muda` | same crate, untested | same crate, untested |
 | `PlatformCapabilities` | registry CPU string + NPU device enum + HTP-arch from DriverStore | sysctl + CoreML availability | /proc + ORT providers |
 
 `TextInjector` prefers, in order: (1) save clipboard, (2) set our text with history/cloud-exclusion
@@ -181,15 +184,21 @@ private marker). It never destroys the user's clipboard.
 Linux modules compile and return `Unsupported`/no-op with a clear message so the workspace always
 builds; they are marked as scaffolding in the FINAL_REPORT.
 
-## 7. IPC (Tauri) contract
+## 7. How the window talks to the core
 
-- **Commands** (frontend → core): `get_settings`, `set_settings`, `get_diagnostics`,
-  `list_models`, `install_model`, `set_backend`, `start_benchmark`, `list_devices`,
-  `set_dictionary`, `list_profiles`, … — small, typed, low-frequency.
-- **Events** (core → frontend): `state_changed` (recording state), `level` (mic RMS, throttled),
-  `partial` / `final` transcript, `model_progress`, `error`. High-frequency streams use
-  `tauri::ipc::Channel<T>`.
-- Types are shared via `tauri-specta` (generated TypeScript). No `any` on the TS side.
+There is no IPC any more, and that is the point of the layering above: the window calls `lw-app`
+directly, in-process, with typed structs. What used to be a command is a function; what used to be
+an event is a channel.
+
+- **The dictation worker** (`lw_app::dictation`) runs on its own thread and speaks over two
+  crossbeam channels: `Command` in (`Start`, `Stop`, `ReloadSettings`, `MicTest`, `Describe`,
+  `Shutdown`), `Event` out (`State`, `Level`, `Transcript`, `Error`, `Backend`, `MicTest`). The
+  window polls the receiver on a timer -- 16 ms while something is happening, 250 ms when idle.
+- **The hotkey pump** (`lw_app::hotkey`) is a second thread between the OS keyboard hook and the
+  worker, so a key press reaches the microphone without waiting for a redraw, and works when the
+  window is closed.
+- **Audio never reaches `lw-gui`.** The only number that crosses is the input level, already
+  reduced to an RMS in 0..1.
 
 ## 8. Concurrency model
 
@@ -201,7 +210,8 @@ builds; they are marked as scaffolding in the FINAL_REPORT.
   runs mel + encoder + decode, emits transcripts. ONNX sessions are created here and never shared
   across the EP-registration boundary.
 - **Tokio runtime**: model downloads, LLM HTTP calls, file I/O.
-- **Main/UI thread** (Tauri): window and tray operations (some OS calls must run here; use
+- **Main/UI thread** (winit's event loop): window and tray operations (some OS calls must run
+  here -- the tray's hidden window is created on it before the loop starts; use
   `run_on_main_thread`).
 
 ## 9. Security & privacy (see [`licenses.md`](licenses.md), FINAL_REPORT §Security)
@@ -221,4 +231,4 @@ builds; they are marked as scaffolding in the FINAL_REPORT.
 - Capability-based hardware gating (never CPU-string) → `lw-core::capabilities` + `lw-platform`.
 - Silero VAD params, pre-roll/hangover state machine → `lw-vad-silero` + `lw-core::vad`.
 - Superwhisper/Wispr/Handy UX (modes, two-layer vocabulary, status colours, keep-alive, overlay
-  styles) → `lw-core::profiles`/`dictionary`/`settings` + frontend.
+  styles) → `lw-core::profiles`/`dictionary`/`settings` + the Settings tab.

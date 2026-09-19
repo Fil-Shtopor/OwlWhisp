@@ -364,7 +364,7 @@ all carry. That is a real feature with a real attack surface; pinning loose file
 
 ### Where models live, and keeping the app and the CLI in agreement
 
-The **desktop app** keeps models inside its own Tauri app-data directory, next to `settings.json`:
+The **desktop app** keeps models inside its own app-data directory, next to `settings.json`:
 
 | Platform | App models directory |
 |---|---|

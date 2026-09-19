@@ -4,8 +4,9 @@ Local, private, system-wide speech-to-text dictation for **Windows 11 ARM64 (Sna
 first)**, macOS (Apple Silicon) and Linux — built around a modular, hardware-aware inference core.
 
 - **Primary model:** NVIDIA Parakeet TDT 0.6B v3 (25 European languages, punctuation + capitalization).
-- **Stack:** Rust core (audio, VAD, inference orchestration, text pipeline, OS integration) +
-  Tauri 2 shell + React/TypeScript UI. Audio never crosses the UI/IPC boundary.
+- **Stack:** Rust, top to bottom. A core (audio, VAD, inference orchestration, text pipeline,
+  OS integration), an application layer above it, and a window drawn natively with `iced` on a
+  CPU rasteriser — no browser engine, no GPU context, one process. Audio never leaves the core.
 - **Backends are pluggable and honest:** Parakeet on the Qualcomm **Hexagon NPU (QNN/HTP V81)**,
   Parakeet on **CPU** (ONNX Runtime), a Whisper adapter, and a macOS CoreML path — selected
   automatically and always reported truthfully in Diagnostics. CPU fallback is never removed.

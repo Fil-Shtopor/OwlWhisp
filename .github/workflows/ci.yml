@@ -45,22 +45,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-                                  patchelf libasound2-dev libxdo-dev
+          sudo apt-get install -y libasound2-dev libxdo-dev libxkbcommon-dev \
+                                  libwayland-dev libxcb1-dev
       - name: Check workspace
         run: cargo check --workspace --target ${{ matrix.target }}
       - name: Unit tests (no hardware needed)
-        run: cargo test --workspace --exclude localwisper --target ${{ matrix.target }}
+        run: cargo test --workspace --target ${{ matrix.target }}
 
-  build-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Build frontend
-        working-directory: app/frontend
-        run: |
-          npm ci || npm install
-          npm run build

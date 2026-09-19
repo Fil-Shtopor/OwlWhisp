@@ -21,22 +21,22 @@ jobs:
             runner: windows-11-arm
             target: aarch64-pc-windows-msvc
             platform: win-arm64
-            bundles: "*.exe,*.msi"
+            packaged: true
           - name: windows-x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             platform: win-x64
-            bundles: "*.exe,*.msi"
+            packaged: true
           - name: macos-arm64
             runner: macos-14
             target: aarch64-apple-darwin
             platform: osx-arm64
-            bundles: "*.dmg,*.app.tar.gz"
+            packaged: false
           - name: linux-x64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
-            bundles: "*.deb,*.rpm,*.AppImage"
+            packaged: false
     steps:
       - uses: actions/checkout@v4
 
@@ -79,16 +79,26 @@ jobs:
           "SHERPA_ONNX_LIB_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "SHERPA_ONNX_LIB_DIR=$dir"
 
-      - name: Frontend
-        working-directory: app/frontend
-        run: |
-          npm ci || npm install
-          npm run build
+      - name: Build the app
+        run: cargo build -p lw-gui --release --target ${{ matrix.target }} --features sherpa
 
-      - name: Build bundles
-        run: cargo tauri build --target ${{ matrix.target }} --features custom-protocol,sherpa
-        env:
-          TAURI_BUNDLE_TARGETS: all
+      # Staging, zip, and an installer where makensis is available. Replaces the Tauri bundler,
+      # which went with the WebView front end. There is no macOS or Linux packager yet, so those
+      # jobs publish the bare executable and say so -- see the note at the end of this file.
+      - name: Package
+        if: matrix.packaged
+        shell: pwsh
+        run: pwsh -File scripts/build/package-windows.ps1 -Target ${{ matrix.target }}
+
+      - name: Collect the unpackaged binary
+        if: '!matrix.packaged'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem -Recurse "target/${{ matrix.target }}/release" -File |
+            Where-Object { $_.Name -in @("localwisper-gui", "localwisper-gui.exe") } |
+            Select-Object -First 1 |
+            Copy-Item -Destination dist
 
       # Two claims this project makes about every shipped binary, checked against the binary
       # rather than against the build inputs: the engine is in it, and the GPL-3.0 component is
@@ -97,7 +107,7 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Recurse "target/${{ matrix.target }}/release" -File |
-            Where-Object { $_.Name -in @("localwisper", "localwisper.exe") } |
+            Where-Object { $_.Name -in @("localwisper-gui", "localwisper-gui.exe") } |
             Select-Object -First 1
           if (-not $exe) { throw "could not find the built application binary" }
           $txt = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
@@ -116,7 +126,7 @@ jobs:
         if: matrix.platform != 'win-arm64'
         shell: pwsh
         run: |
-          $hits = Get-ChildItem -Recurse "target/${{ matrix.target }}/release/bundle" -Include "Qnn*","libQnn*","*QnnHtp*" -ErrorAction SilentlyContinue
+          $hits = Get-ChildItem -Recurse "dist" -Include "Qnn*","libQnn*","*QnnHtp*" -ErrorAction SilentlyContinue
           if ($hits) {
             $hits | ForEach-Object { Write-Error "Qualcomm binary in a non-Snapdragon package: $($_.FullName)" }
             exit 1
@@ -126,9 +136,10 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          $out = "target/${{ matrix.target }}/release/bundle"
-          $patterns = "${{ matrix.bundles }}".Split(",")
-          Get-ChildItem -Recurse $out -Include $patterns -ErrorAction SilentlyContinue |
+          # Every file a user could download, hashed. The staging folder is excluded because
+          # its contents are already inside the zip; hashing both would publish two hashes for
+          # the same bytes and invite someone to check the wrong one.
+          Get-ChildItem "dist" -File |
             ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name } |
             Out-File "SHA256SUMS-${{ matrix.name }}.txt" -Encoding utf8
           Get-Content "SHA256SUMS-${{ matrix.name }}.txt"
@@ -137,7 +148,9 @@ jobs:
         with:
           name: localwisper-${{ matrix.name }}
           path: |
-            target/${{ matrix.target }}/release/bundle/**/*
+            dist/*.zip
+            dist/*-setup.exe
+            dist/localwisper-gui*
             SHA256SUMS-${{ matrix.name }}.txt
 
 # Remaining before these are distributable to the public:
@@ -145,5 +158,11 @@ jobs:
 #   - macOS signing + notarization; unsigned .app is blocked by Gatekeeper.
 #   - Only the windows-arm64 artifact has been built and run on real hardware. The others compile
 #     the same code but have not been executed — see docs/hardware.md.
+#   - A macOS and a Linux packager. Windows gets a portable zip and an NSIS installer from
+#     scripts/build/package-windows.ps1; the other two jobs publish the bare executable, which is
+#     a build artefact, not something to hand a user. A .app/.dmg and a .deb/AppImage are still to
+#     be written.
+#   - makensis on the Windows runners. Without it the package step produces the zip and skips the
+#     installer, silently as far as the artifact list is concerned.
 #   - This workflow itself has never been run. The `sherpa` steps above were written from a local
 #     build on Windows ARM64 and are unverified on every runner, including that one.

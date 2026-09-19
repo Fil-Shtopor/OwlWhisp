@@ -20,9 +20,10 @@ At minimum, **Windows ARM64 works correctly** (CPU and NPU transcription verifie
   "MSVC v14x — ARM64/ARM64EC build tools" and a Windows 11 SDK component, **or** use a portable
   toolset and source its env script before building (this repo's dev machine uses
   `~/.msvc-arm64/env-arm64.{ps1,sh}`).
-- **Node.js 18+** and **npm** (for the Tauri frontend). `@tauri-apps/cli` has a native win32-arm64
-  binary.
-- **WebView2 runtime** (present on Windows 11 by default).
+
+There is no Node, no npm and no WebView2 requirement any more: the window is Rust, drawn on a CPU
+rasteriser. **NSIS** (optional) is needed only to build the installer; without it the packaging
+script still produces the portable folder and the zip.
 
 TLS note: the workspace deliberately uses `reqwest` with **native-TLS** (SChannel), not
 `rustls`/`aws-lc-rs` — the latter fails to assemble its ARM64 assembly under the portable MSVC
@@ -57,12 +58,11 @@ convenience.) The NPU target additionally needs a static-shape encoder; see
 source ~/.msvc-arm64/env-arm64.sh
 cargo build --release -p lw-cli --target aarch64-pc-windows-msvc
 
-# Everything (CLI + Tauri app + frontend):
+# Everything (CLI + the desktop app):
 pwsh -File scripts\build\build-windows-arm64.ps1 -Release
 ```
 
-The Tauri NSIS installer lands under
-`target/aarch64-pc-windows-msvc/release/bundle/nsis/`.
+That builds; it does not package. See [Packaging](#packaging) below.
 
 ## Run (CLI)
 
@@ -86,27 +86,20 @@ MODEL="$LOCALAPPDATA/LocalWisper/models/parakeet-tdt-0.6b-v3"
 ## Run (desktop app)
 
 ```powershell
-# One command: builds the frontend + app, stages the runtime, links a model, and launches.
+# One command: builds the app, stages the runtime, links a model, and launches.
 pwsh -File scripts\build\run-app.ps1 -ModelDir "C:\path\to\parakeet-tdt-0.6b-v3"
 ```
 
-Or step by step:
+Or plainly:
 
 ```bash
-cd app/frontend && npm install && npm run build && cd ../..
-pwsh -File scripts\build\build-windows-arm64.ps1 -App     # production build + NSIS installer
-npx @tauri-apps/cli@2 dev                                 # dev mode (hot-reload UI)
+cargo build -p lw-gui --release          # target/release/localwisper-gui.exe
 ```
 
-> **Important:** building the app with plain cargo instead of the Tauri CLI requires the production
-> feature, otherwise Tauri loads `build.devUrl` and the window shows *"localhost refused to
-> connect"*:
->
-> ```bash
-> cargo build -p localwisper --release --features custom-protocol
-> ```
->
-> `tauri build` sets this feature for you; `tauri dev` deliberately leaves it off.
+No feature flag is needed to get a usable window, and there is no dev mode distinct from a build:
+`cargo run -p lw-gui` is the whole story. A release build sets `windows_subsystem = "windows"`, so
+it opens no console -- run the debug build, or set `LW_LOG=debug`, when you want to watch it think.
+Logs go to `%APPDATA%\ai.localwisper.app\logs\` either way.
 
 At runtime the app locates its pieces as follows (the launcher script wires all three up):
 
@@ -139,7 +132,7 @@ cargo test --workspace -- --ignored   # integration tests that need the model + 
 **The shipped Windows build includes it**, because fourteen of the fifteen catalog entries need it
 and a model that downloads and verifies but cannot be loaded is not a feature.
 `scripts\build\build-windows-arm64.ps1` stages the libraries and passes `--features sherpa` to both
-the CLI and the Tauri app; `-NoSherpa` builds the Parakeet-only binary.
+the CLI and the desktop app; `-NoSherpa` builds the Parakeet-only binary.
 
 It is **not** a default *cargo* feature, and that is deliberate. Enabling it needs one extra step,
 and that step is **not optional** — building it the obvious way lets `sherpa-onnx-sys` fetch its
@@ -170,18 +163,31 @@ refuses to continue if the archive it fetched contains a real espeak-ng, so the 
 cannot silently lapse when upstream changes.
 
 **Verified** on Windows ARM64 with sherpa-onnx 1.13.6: the build links, all 44
-`lw-engine-sherpa` tests pass, and the Tauri app builds with the feature (14 tests in the app
-crate, including `a_sherpa_build_can_actually_run_the_gated_models`, which asserts that the
-feature reaches the engine crate *and* that the catalog then stops reporting a sherpa blocker on a
-gated entry). The linked `localwisper.exe` was searched for the strings the licence argument turns
-on: 390 hits for `sherpa-onnx`, **zero** for `espeak` and `piper_phonemize`.
+`lw-engine-sherpa` tests pass, and the application builds with the feature -- including
+`a_sherpa_build_can_actually_run_the_gated_models`, which asserts that the feature reaches the
+engine crate *and* that the catalog then stops reporting a sherpa blocker on a gated entry. The
+linked binary was searched for the strings the licence argument turns on: 390 hits for
+`sherpa-onnx`, **zero** for `espeak` and `piper_phonemize`. That check now runs in the release
+workflow against `localwisper-gui.exe`, so it cannot lapse quietly.
 
 ## Packaging
 
-`cargo tauri build` produces the native installers for the host platform (`bundle.targets` is
-`all`): `.exe`/`.msi` on Windows, `.dmg`/`.app` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux.
-`build.rs` copies `runtime/<platform>/` into the bundle first, so an installed application has its
-ONNX Runtime and execution providers beside it.
+```powershell
+pwsh -File scripts\build\package-windows.ps1              # after building
+```
 
-Note that `targets: "all"` on Windows builds both NSIS and WiX/MSI, and the Tauri CLI downloads
-each toolchain on first use. To build just one: `cargo tauri build --bundles nsis`.
+It stages the executable, `runtime\win-arm64\` and the licence notices into
+`dist\LocalWisper-<version>-<target>\`, zips that, and -- if `makensis` is on PATH -- builds
+`dist\LocalWisper-<version>-<target>-setup.exe` from `scripts\build\localwisper.nsi`. Without
+NSIS it says so and stops after the zip, which is a complete, runnable build on its own.
+
+The installer is per-user (`%LOCALAPPDATA%\Programs\LocalWisper`), because this application uses
+no privilege it cannot get as the user: the hotkey is a session keyboard hook, autostart is HKCU,
+and the models live under `%APPDATA%`. Its uninstaller removes the autostart registration but
+leaves settings, models and logs alone, and says where they are -- a model set is tens of
+gigabytes and an hour of downloading.
+
+**Not yet done:** there is no macOS or Linux packager. Those release jobs publish the bare
+executable, which is a build artefact rather than something to hand a user. `cargo-packager` would
+cover all three but does not build here: a dependency of a dependency needs clang, the same clang
+the `sherpa` engine needs.

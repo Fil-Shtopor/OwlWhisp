@@ -23,12 +23,16 @@ matrix and obligations.
   `Qualcomm_LICENSE.pdf` is shipped alongside the binaries.
 
 ## Frameworks & libraries (all MIT and/or Apache-2.0 unless noted)
-Tauri, tao, wry, tray-icon, and the Tauri plugins; the `ort`/`ort-sys` crates; cpal, rubato, hound,
+iced and its stack (MIT), winit (Apache-2.0), tiny-skia (BSD-3-Clause), tray-icon and muda
+(MIT/Apache-2.0); the `ort`/`ort-sys` crates; cpal, rubato, hound,
 realfft, rustfft, ndarray, half; enigo, arboard, global-hotkey, handy-keys; keyring (+ `clipboard-win`
 under BSL-1.0 on Windows, via arboard); reqwest (native-TLS / `schannel` MIT), tokio, futures, serde,
 serde_json, thiserror, anyhow, tracing, sha2, hex, directories, sysinfo, regex, unicode-normalization,
 zip, tar, bzip2, flate2, clap, indicatif, uuid, chrono, parking_lot, crossbeam-channel, tokio-util;
-React, Vite, TypeScript, @tauri-apps/api.
+None. The user interface is Rust; there is no JavaScript in a shipped build.
+
+`option-ext` 0.2.0 is **MPL-2.0** and is linked in through `directories`. Its notice and a pointer
+to its source must ship with a binary; see `docs/licenses.md`.
 
 No GPL/AGPL/LGPL code is linked into the **default** LocalWisper build.
 

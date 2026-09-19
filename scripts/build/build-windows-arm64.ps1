@@ -3,7 +3,6 @@
 # Prerequisites:
 #   - Rust stable with the aarch64-pc-windows-msvc host toolchain
 #   - MSVC ARM64 toolset + Windows SDK (or the portable toolset env script)
-#   - Node.js 18+ and npm (for the Tauri frontend)
 #   - clang on PATH, unless -NoSherpa: a build-dependency of sherpa-onnx-sys (ring, for its
 #     HTTPS fetch) has no assembly path for aarch64-windows that MSVC alone can build
 #   - The runtime DLLs staged in runtime\win-arm64 (see scripts\runtime\fetch-runtime.ps1)
@@ -73,17 +72,12 @@ if ($Cli) {
 }
 
 if ($App) {
-    Write-Host "== Building the frontend =="
-    Push-Location app\frontend
-    npm install
-    npm run build
-    Pop-Location
+    Write-Host "== Building the app ($target) =="
+    cargo build -p lw-gui $profileFlag --target $target @featureArgs
 
-    Write-Host "== Building the Tauri app ($target) =="
-    # The CLI passes --features custom-protocol itself (a plain `cargo build` would not,
-    # and the app would try to load the Vite dev server instead of the embedded assets).
-    # tauri-cli picks up the target; NSIS bundle is produced under target\$target\release\bundle
-    npx --yes @tauri-apps/cli@2 build --target $target @featureArgs
+    # Packaging is a separate step on purpose: it needs the runtime DLLs staged, which a
+    # developer building to run from the tree does not.
+    Write-Host "Package it with: scripts\build\package-windows.ps1 -Target $target"
 }
 
 Write-Host "Done. Binaries under target\$target\$(if ($Release) {'release'} else {'debug'})\"

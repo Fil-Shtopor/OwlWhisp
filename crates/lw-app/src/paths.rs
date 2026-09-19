@@ -65,16 +65,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_identifier_matches_the_tauri_bundle() {
-        // Both front ends must agree on one directory while both exist, and after that the native
-        // one still has to find what the Tauri one left behind.
-        let conf = include_str!("../../../app/src-tauri/tauri.conf.json");
-        let v: serde_json::Value = serde_json::from_str(conf).expect("tauri.conf.json parses");
-        assert_eq!(
-            v["identifier"].as_str(),
-            Some(APP_IDENTIFIER),
-            "the bundle identifier moved; every installed model and saved setting is keyed on it"
-        );
+    fn the_identifier_is_the_one_every_existing_installation_already_uses() {
+        // Pinned to a literal on purpose, and not derived from anything. This string is the name
+        // of the folder holding every installed model, the settings file and the accumulated
+        // measurements on every machine the application has ever run on. Changing it does not
+        // migrate them; it hides them, and the user sees an empty model list and a fresh
+        // settings file with no explanation. It was checked against the Tauri bundle identifier
+        // until that build was deleted; the value has to outlive the thing it was copied from.
+        assert_eq!(APP_IDENTIFIER, "ai.localwisper.app");
     }
 
     #[test]

@@ -5,6 +5,14 @@ remaining. "Verified" means it was executed and observed on the target machine (
 Extreme X2E94100, Windows 11 ARM64); "compiles" means it builds but was not runtime-exercised;
 "stub/scaffold" means an implemented interface without a full backend._
 
+> **Amended 2026-09-19 — the front end described below no longer exists.** Every mention of Tauri,
+> React, TypeScript, WebView2 or `app/` here is history. The window is now `crates/lw-gui`: Rust,
+> drawn with `iced` on a `tiny-skia` CPU rasteriser, in one process. Measured on this machine, the
+> replacement costs **37 MB of private commit in one process** against the Tauri build's **240 MB
+> across eight**. What was verified about the *core* — the NPU path, the error rates, the model
+> catalogue — is unaffected and still stands; what this report says about the shell is superseded
+> by [`architecture.md`](architecture.md) and [`build.md`](build.md).
+
 ## 0. Definition-of-Done checklist
 
 | Item | Status |
