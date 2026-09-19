@@ -1255,6 +1255,45 @@ mod tests {
     }
 
     #[test]
+    fn blended_rates_are_not_comparable_because_they_cover_different_languages() {
+        // Why the model list refuses to rank on blended rates when no language is chosen. The
+        // entry with the lowest blended figure in this catalog is a single-language specialist
+        // measured on three clips of that one language; the entries it "beats" were measured on
+        // twelve clips across four. Those are different exams, and ranking them against each other
+        // sent the Fast and Accurate suggestions for "Any" to a Russian-only model.
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        let mut best: Option<(&CatalogEntry, f32, usize)> = None;
+        for entry in &catalog.entries {
+            let Some(m) = entry.measurements.iter().find(|m| m.hardware == HardwareTarget::Cpu)
+            else {
+                continue;
+            };
+            let Some(wer) = m.wer else { continue };
+            let covered = m.per_language.len();
+            if best.is_none_or(|(_, w, _)| wer < w) {
+                best = Some((entry, wer, covered));
+            }
+        }
+        let (entry, wer, covered) = best.expect("some entry has a blended CPU figure");
+        let widest = catalog
+            .entries
+            .iter()
+            .filter_map(|e| {
+                e.measurements
+                    .iter()
+                    .find(|m| m.hardware == HardwareTarget::Cpu)
+                    .map(|m| m.per_language.len())
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(
+            covered < widest,
+            "{} has the best blended figure ({wer}) and was scored on {covered} language(s) while              another entry was scored on {widest}. If that ever stops being true the comparison              might become fair -- check before relaxing the model list's rule against it.",
+            entry.id
+        );
+    }
+
+    #[test]
     fn the_best_chinese_is_not_the_best_blended_entry() {
         // Not a rule, a guard on the specific fact that made the bug worth fixing: the catalog's
         // strongest entry overall is not its strongest on Chinese, so any ranking that answers a

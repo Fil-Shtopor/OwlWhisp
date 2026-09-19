@@ -157,47 +157,73 @@ function measuredForLanguage(entry: ModelEntry, language: string): LanguageRate 
 }
 
 /**
+ * Quarter-decade bucket, about 1.8x wide. Two numbers inside one bucket are treated as tied.
+ *
+ * Used wherever the inputs cannot support a finer ordering -- an estimate accurate to a factor of
+ * two, or two error rates that were measured on different clip sets.
+ */
+function coarse(value: number): number {
+  return Math.round(Math.log10(Math.max(value, 1e-6)) * 4);
+}
+
+/**
  * Order the candidates for one role by the thing that role actually claims.
  *
  * Every role states a criterion in its own blurb -- fewest errors, least delay, smallest download,
- * most languages -- and all four used to be answered by one global ordering that leads with the
- * editorial quality tier. For a whole-catalog question that is roughly right. For a per-language
- * question it is wrong in a way that matters: Whisper turbo is `best` quality and so led the
- * `accurate` pick for Chinese, while measuring CER 0.380 against SenseVoice's 0.141 on the same
- * three clips. The tier is a judgement about a model; the measurement is about the model *and the
- * language*, and where both exist the measurement decides.
+ * most languages -- and all four used to be answered by one global ordering led by the editorial
+ * quality tier. That is a judgement about a whole model, and it got the per-language question
+ * wrong: Whisper turbo is `best` and so led the `accurate` pick for Chinese while measuring CER
+ * 0.380 against SenseVoice's 0.141.
  *
- * Returns a comparator. Entries the key cannot rank keep their incoming (global) order.
+ * The rule that decides how hard to compare is whether the numbers are the same measurement:
+ *
+ * - **A language is chosen and both candidates were measured on it.** Same clips, same unit, so
+ *   the comparison is valid as it stands and the better number simply wins.
+ * - **Anything else.** A blended rate is not one measurement: GigaAM's 0.029 comes from three
+ *   Russian clips and Whisper turbo's 0.042 from twelve clips in four languages, and a
+ *   single-language specialist sits an easier exam. Those are compared only as coarsely as that
+ *   allows, and the tie is then broken by language coverage -- the question was "any language", so
+ *   a model that speaks one cannot be the answer to it. `fast` is always in this case, because its
+ *   input is an estimate rather than a measurement.
+ *
+ * Returns a comparator. Entries the criterion cannot rank sink below ones it can, and `sort` is
+ * stable, so anything still tied keeps the catalog's own order.
  */
 function roleOrder(roleId: string, language: string): (a: ModelEntry, b: ModelEntry) => number {
-  const rank = (e: ModelEntry): number | null => {
+  // [primary, tiebreak]; lower wins on both.
+  const keys = (e: ModelEntry): [number, number] | null => {
     switch (roleId) {
       case "accurate": {
-        // The measured rate for the chosen language when there is one; otherwise the blended
-        // figure, which is the best available answer to "how accurate is this model overall".
-        const m = measuredForLanguage(e, language);
-        if (m !== null) return m.rate;
+        const measured = measuredForLanguage(e, language);
+        // Same clips for every candidate that has this, so no bucketing and no tiebreak.
+        if (measured !== null) return [measured.rate, 0];
         const ref = e.measured_reference ?? e.measurements[0] ?? null;
-        return ref?.wer ?? null;
+        const blended = ref?.wer;
+        if (blended === null || blended === undefined) return null;
+        return [coarse(blended), -e.languages.length];
       }
-      case "fast":
-        return e.estimated_rtf;
+      case "fast": {
+        // An estimate, and a coarse one. Ranking two models on a 0.001 difference in it is how
+        // the Fast pick for "Any" became a Russian-only model.
+        if (e.estimated_rtf === null) return null;
+        return [coarse(e.estimated_rtf), -e.languages.length];
+      }
       case "compact":
-        return e.download_bytes;
+        // Exact, so no bucketing; an entry with no pinned file set has no size to rank on.
+        return e.download_bytes === null ? null : [e.download_bytes, 0];
       case "universal":
-        return -e.languages.length;
+        return [-e.languages.length, 0];
       default:
         return null;
     }
   };
   return (a, b) => {
-    const ra = rank(a);
-    const rb = rank(b);
-    // Unrankable entries sink below rankable ones rather than jumping the queue on a missing key.
-    if (ra === null && rb === null) return 0;
-    if (ra === null) return 1;
-    if (rb === null) return -1;
-    return ra - rb;
+    const ka = keys(a);
+    const kb = keys(b);
+    if (ka === null && kb === null) return 0;
+    if (ka === null) return 1;
+    if (kb === null) return -1;
+    return ka[0] !== kb[0] ? ka[0] - kb[0] : ka[1] - kb[1];
   };
 }
 
@@ -329,11 +355,18 @@ function RolePicks({
       </ul>
       <p className="sub picks-note">
         The roles themselves are editorial, but the pick within each one is not: it uses that
-        role's own criterion — fewest errors, least delay, smallest download, most languages — and
-        for accuracy it uses the rate <em>measured on the language you chose</em> where one exists.
-        That matters more than it sounds: by blended accuracy Whisper turbo is the best entry here,
-        and on Chinese it is the worst of the four that claim it. Where a language was never
-        measured, the pick says so instead of quietly ranking on a number from other languages.
+        role's own criterion — fewest errors, least delay, smallest download, most languages. For
+        accuracy with a language chosen, it uses the rate <em>measured on that language</em>: every
+        candidate was scored on the same clips, so the better number simply wins. On Chinese that
+        is the difference between SenseVoice at CER 14.1% and Whisper turbo, the best entry here by
+        blended accuracy, at 38.0%.
+        <br />
+        On <strong>Any</strong> there is no such comparison to make. A blended rate is not one
+        measurement — GigaAM's 2.9% comes from three Russian clips, Whisper turbo's 4.2% from
+        twelve across four languages, and a one-language specialist sits an easier exam. Those are
+        compared only as coarsely as that allows, and the tie goes to the model covering more
+        languages, because "any language" is the question being asked. Where a language was never
+        measured at all, the pick says so rather than ranking on a number from other languages.
       </p>
     </section>
   );
