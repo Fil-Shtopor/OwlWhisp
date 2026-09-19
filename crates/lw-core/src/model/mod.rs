@@ -18,7 +18,8 @@ pub mod paths;
 pub use archive::{ArchiveFormat, Extract, Produced};
 pub use catalog::{
     BUILTIN_CATALOG_JSON, CATALOG_SCHEMA_VERSION, Catalog, CatalogEntry, EngineKind, HardwareTarget,
-    MeasuredPoint, ModelRole, QualityTier, Recommendation, SpeedTier, available_targets, base_rtf,
+    LanguageRate, MeasuredPoint, ModelRole, QualityTier, Recommendation, SpeedTier,
+    available_targets, base_rtf,
     estimate_rtf,
 };
 pub use download::{DownloadEvent, ModelDownloader, Progress, staging_dir_for};

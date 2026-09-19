@@ -8,6 +8,7 @@ import {
   setSettings,
   type Capabilities,
   type InstallState,
+  type LanguageRate,
   type LocalMeasurement,
   type UnitScore,
   type LocalMeasurements,
@@ -132,6 +133,74 @@ function compactLanguages(entry: ModelEntry): string {
  *
  * A role with no winner says so rather than falling back to something that does not fill it.
  */
+/**
+ * The measured error rate for one language, from the measurement this machine's path would use.
+ *
+ * Prefers the entry's `best_hardware` point, the same rule the row's own figures follow, so the
+ * number quoted is the one a reader would actually get. Falls back to any point that carries the
+ * language. `null` means nobody measured this model on this language — which is not evidence of
+ * anything, good or bad.
+ */
+function measuredForLanguage(entry: ModelEntry, language: string): LanguageRate | null {
+  if (language === "") return null;
+  const want = entry.best_hardware?.replace(/_/g, "-").toLowerCase();
+  const points = [...entry.measurements].sort((a, b) => {
+    const am = want !== undefined && a.hardware.replace(/_/g, "-").toLowerCase() === want ? 0 : 1;
+    const bm = want !== undefined && b.hardware.replace(/_/g, "-").toLowerCase() === want ? 0 : 1;
+    return am - bm;
+  });
+  for (const m of points) {
+    const hit = m.per_language?.[language];
+    if (hit !== undefined) return hit;
+  }
+  return null;
+}
+
+/**
+ * Order the candidates for one role by the thing that role actually claims.
+ *
+ * Every role states a criterion in its own blurb -- fewest errors, least delay, smallest download,
+ * most languages -- and all four used to be answered by one global ordering that leads with the
+ * editorial quality tier. For a whole-catalog question that is roughly right. For a per-language
+ * question it is wrong in a way that matters: Whisper turbo is `best` quality and so led the
+ * `accurate` pick for Chinese, while measuring CER 0.380 against SenseVoice's 0.141 on the same
+ * three clips. The tier is a judgement about a model; the measurement is about the model *and the
+ * language*, and where both exist the measurement decides.
+ *
+ * Returns a comparator. Entries the key cannot rank keep their incoming (global) order.
+ */
+function roleOrder(roleId: string, language: string): (a: ModelEntry, b: ModelEntry) => number {
+  const rank = (e: ModelEntry): number | null => {
+    switch (roleId) {
+      case "accurate": {
+        // The measured rate for the chosen language when there is one; otherwise the blended
+        // figure, which is the best available answer to "how accurate is this model overall".
+        const m = measuredForLanguage(e, language);
+        if (m !== null) return m.rate;
+        const ref = e.measured_reference ?? e.measurements[0] ?? null;
+        return ref?.wer ?? null;
+      }
+      case "fast":
+        return e.estimated_rtf;
+      case "compact":
+        return e.download_bytes;
+      case "universal":
+        return -e.languages.length;
+      default:
+        return null;
+    }
+  };
+  return (a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    // Unrankable entries sink below rankable ones rather than jumping the queue on a missing key.
+    if (ra === null && rb === null) return 0;
+    if (ra === null) return 1;
+    if (rb === null) return -1;
+    return ra - rb;
+  };
+}
+
 function RolePicks({
   catalog,
   onPick,
@@ -151,6 +220,19 @@ function RolePicks({
     return [...seen.entries()]
       .map(([code, name]) => ({ code, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalog.entries]);
+
+  // Every language any entry carries a measurement for: in practice, the languages the committed
+  // fixture set covers. Needed to tell "we measured this and it is bad" apart from "nobody
+  // measured this", which look identical on screen and mean opposite things.
+  const measuredLanguages = useMemo(() => {
+    const seen = new Set<string>();
+    for (const e of catalog.entries) {
+      for (const m of e.measurements) {
+        for (const code of Object.keys(m.per_language ?? {})) seen.add(code);
+      }
+    }
+    return seen;
   }, [catalog.entries]);
 
   const eligible = useMemo(
@@ -192,7 +274,12 @@ function RolePicks({
       </div>
       <ul className="picks-list">
         {catalog.roles.map((role) => {
-          const winner = eligible.find((e) => e.roles.some((r) => r.id === role.id)) ?? null;
+          // Rank the holders of this role by this role's own criterion, not by the catalog's
+          // global order. `sort` is stable, so anything the criterion cannot separate keeps that
+          // global order as the tiebreak.
+          const holders = eligible.filter((e) => e.roles.some((r) => r.id === role.id));
+          const winner = [...holders].sort(roleOrder(role.id, language))[0] ?? null;
+          const shown = winner === null ? null : measuredForLanguage(winner, language);
           return (
             <li key={role.id} className="pick">
               <span className={`badge role role-${role.id}`}>{role.label}</span>
@@ -206,19 +293,47 @@ function RolePicks({
                       }.`}
                 </span>
               ) : (
-                <button className="pick-name" type="button" onClick={() => onPick(winner.id)}>
-                  {winner.name}
-                  {!winner.runnable && <span className="badge no"> cannot run here</span>}
-                </button>
+                <>
+                  <button className="pick-name" type="button" onClick={() => onPick(winner.id)}>
+                    {winner.name}
+                    {!winner.runnable && <span className="badge no"> cannot run here</span>}
+                  </button>
+                  {/* Show the number the pick was made on, so the suggestion can be checked. */}
+                  {shown !== null && (
+                    <span className="sub pick-why">
+                      {shown.unit === "character" ? "CER" : "WER"} {formatWer(shown.rate)} measured
+                      on {shown.clips} {languages.find((l) => l.code === language)?.name ?? language}{" "}
+                      clip{shown.clips === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {/*
+                    The honest version of a missing number. Without this the pick looks equally
+                    well-founded whether it rests on a measurement of the chosen language or on a
+                    figure from four entirely different ones. Cantonese is the live example: there
+                    are no Cantonese fixtures, so the ranking falls back to a rate measured on
+                    English, Spanish, Russian and Ukrainian, and the model it favours is the one
+                    measured worst on Chinese.
+                  */}
+                  {shown === null && language !== "" && !measuredLanguages.has(language) && (
+                    <span className="sub pick-why">
+                      Not measured: there are no{" "}
+                      {languages.find((l) => l.code === language)?.name ?? language} fixtures. Ranked
+                      on this model's overall figure, which comes from other languages.
+                    </span>
+                  )}
+                </>
               )}
             </li>
           );
         })}
       </ul>
       <p className="sub picks-note">
-        These are editorial roles, not measurements — the row below each name carries the numbers.
-        The suggestion is the highest-ranked model for this machine that carries the role and
-        claims the language.
+        The roles themselves are editorial, but the pick within each one is not: it uses that
+        role's own criterion — fewest errors, least delay, smallest download, most languages — and
+        for accuracy it uses the rate <em>measured on the language you chose</em> where one exists.
+        That matters more than it sounds: by blended accuracy Whisper turbo is the best entry here,
+        and on Chinese it is the worst of the four that claim it. Where a language was never
+        measured, the pick says so instead of quietly ranking on a number from other languages.
       </p>
     </section>
   );

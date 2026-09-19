@@ -2002,6 +2002,15 @@ input[type="radio"] {
   white-space: nowrap;
 }
 
+/* The evidence line under a role pick: the number the suggestion was actually made on.
+   `grid-column: 2` is load-bearing -- .pick is an `auto 1fr` grid whose every other child is
+   placed in column 2, so a line without it lands in column 1, whose `auto` width then stretches
+   to fit a whole sentence and crushes the rest of the row into a ribbon. */
+.pick-why {
+  grid-column: 2;
+  margin-top: 2px;
+}
+
 /* The marker saying the cell's number is not the only one measured. */
 .mine-alt {
   margin-left: 4px;

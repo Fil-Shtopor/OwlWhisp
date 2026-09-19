@@ -286,6 +286,17 @@ impl std::fmt::Display for SpeedTier {
 // Measurements
 // ---------------------------------------------------------------------------------------------
 
+/// One language's measured error rate, in whatever unit that language is scored in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LanguageRate {
+    /// Token-weighted error rate over this language's clips.
+    pub rate: f32,
+    /// Words or characters -- Chinese is not scored in words, Russian is not scored in characters.
+    pub unit: crate::bench::ErrorUnit,
+    /// How many clips contributed. Three is indicative; it is not a statistic.
+    pub clips: usize,
+}
+
 /// A number that was **actually measured**, with the machine and citation that make it meaningful.
 ///
 /// Never construct one of these from a guess. If you do not have a real run to point at, leave the
@@ -294,6 +305,15 @@ impl std::fmt::Display for SpeedTier {
 pub struct MeasuredPoint {
     /// The compute target the run used.
     pub hardware: HardwareTarget,
+    /// Error rate per language, from the same run as `rtf` and `wer`.
+    ///
+    /// A blended figure is a whole-model judgement, and choosing a model is usually a per-language
+    /// question. Whisper turbo is this catalog's best entry by blended WER (0.042) and its worst
+    /// Chinese by a distance (CER 0.380 against SenseVoice's 0.141), so a reader who picked it off
+    /// the blended number for Chinese would have picked the worst option available. These figures
+    /// used to live in each entry's free-text `notes`, where nothing could act on them.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub per_language: std::collections::BTreeMap<String, LanguageRate>,
     /// Measured real-time factor (wall-clock seconds per second of audio; lower is faster).
     pub rtf: f32,
     /// Measured word error rate as a fraction in `(0, 1]`, if the run scored one.
@@ -1093,6 +1113,7 @@ mod tests {
     fn rejects_measurement_without_machine() {
         let mut e = entry("a");
         e.measurements.push(MeasuredPoint {
+            per_language: Default::default(),
             hardware: HardwareTarget::Cpu,
             rtf: 0.03,
             wer: None,
@@ -1107,6 +1128,7 @@ mod tests {
     fn rejects_measurement_for_unsupported_target() {
         let mut e = entry("a"); // cpu only
         e.measurements.push(MeasuredPoint {
+            per_language: Default::default(),
             hardware: HardwareTarget::QnnNpu,
             rtf: 0.01,
             wer: None,
@@ -1200,6 +1222,71 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_language_a_shipped_entry_claims_and_has_fixtures_for_is_measured() {
+        // The reported bug was that picking Chinese suggested the model with the worst measured
+        // Chinese. The pick could not do better because the figure existed only as prose in
+        // `notes`. This keeps it as data: if an entry claims a language the fixture set can score,
+        // the measurement must be in `per_language` where code can reach it.
+        const FIXTURE_LANGUAGES: &[&str] = &["en", "es", "ru", "uk", "zh"];
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        for entry in &catalog.entries {
+            if entry.measurements.is_empty() {
+                continue;
+            }
+            let measured: std::collections::BTreeSet<&str> = entry
+                .measurements
+                .iter()
+                .flat_map(|m| m.per_language.keys().map(String::as_str))
+                .collect();
+            for lang in FIXTURE_LANGUAGES {
+                if !entry.languages.iter().any(|l| l == lang) {
+                    continue;
+                }
+                assert!(
+                    measured.contains(lang),
+                    "{} claims {lang} and there are fixtures for it, but no measurement is stored                      under per_language -- the model list cannot rank on a number it cannot read",
+                    entry.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_best_chinese_is_not_the_best_blended_entry() {
+        // Not a rule, a guard on the specific fact that made the bug worth fixing: the catalog's
+        // strongest entry overall is not its strongest on Chinese, so any ranking that answers a
+        // per-language question with a whole-model figure gets this one wrong.
+        let catalog = Catalog::builtin().expect("builtin catalog");
+        let zh = |id: &str| -> f32 {
+            catalog
+                .entries
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.measurements.iter().find_map(|m| m.per_language.get("zh")))
+                .unwrap_or_else(|| panic!("{id} must carry a measured zh rate"))
+                .rate
+        };
+        assert!(
+            zh("sense-voice-small") < zh("whisper-turbo"),
+            "SenseVoice {} should beat Whisper turbo {} on Chinese",
+            zh("sense-voice-small"),
+            zh("whisper-turbo")
+        );
+        let blended = |id: &str| -> f32 {
+            catalog
+                .entries
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.measurements.iter().find_map(|m| m.wer))
+                .unwrap_or_else(|| panic!("{id} must carry a blended figure"))
+        };
+        assert!(
+            blended("whisper-turbo") < blended("sense-voice-small"),
+            "and the blended figures must point the other way, or this guard proves nothing"
+        );
     }
 
     #[test]
@@ -1583,6 +1670,7 @@ mod tests {
         let mut e = entry("parakeet");
         e.hardware = vec![HardwareTarget::Cpu, HardwareTarget::QnnNpu];
         e.measurements = vec![MeasuredPoint {
+            per_language: Default::default(),
             hardware: HardwareTarget::QnnNpu,
             rtf: 0.0145,
             wer: Some(0.048),

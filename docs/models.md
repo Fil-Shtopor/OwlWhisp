@@ -123,6 +123,17 @@ written down. The number above is the one measured under the conditions stated.
 
 A single blended figure hides the thing that decides which one you want. On identical clips:
 
+These per-language rates are **stored in the catalog as data**, under each measurement's
+`per_language`, not only written up here. That is what lets the app's "Which one should you use?"
+block answer a per-language question with per-language evidence. It used to rank every role by one
+global order led by the editorial quality tier, so choosing Chinese suggested `whisper-turbo` for
+accuracy — the best entry by blended WER and the worst of the four on Chinese, 0.380 against
+SenseVoice's 0.141. Each role now ranks by its own criterion (fewest errors, least delay, smallest
+download, most languages), and for accuracy it uses the rate measured on the chosen language.
+
+Where a language has no fixtures — Cantonese, Japanese, Korean — the pick says so rather than
+quietly ranking on a figure from other languages.
+
 | Model | en | es | ru | uk |
 |---|---|---|---|---|
 | `whisper-turbo` | 0.031 | **0.000** | **0.029** | **0.148** |

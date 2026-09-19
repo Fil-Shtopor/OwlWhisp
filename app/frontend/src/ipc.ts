@@ -305,6 +305,13 @@ export interface UnitScore {
   tokens: number;
 }
 
+/** One language's measured error rate, in the unit that language is scored in. */
+export interface LanguageRate {
+  rate: number;
+  unit: "word" | "character";
+  clips: number;
+}
+
 /** A real measurement, tagged with the machine it was taken on. Never an estimate. */
 export interface MeasuredPoint {
   hardware: string;
@@ -312,6 +319,14 @@ export interface MeasuredPoint {
   wer: number | null;
   machine: string;
   source: string;
+  /**
+   * The same run, broken down by language.
+   *
+   * Absent on older entries. This is what makes a per-language question answerable with evidence:
+   * the blended `wer` is a whole-model judgement, and Whisper turbo has the best blended figure in
+   * the catalog and its worst Chinese.
+   */
+  per_language?: Record<string, LanguageRate>;
 }
 
 export interface ModelEntry {
