@@ -19,7 +19,7 @@ use lw_core::capabilities::Capabilities;
 use lw_core::engine::BackendPreference;
 use lw_core::model::{
     CancellationToken, Catalog, DownloadEvent, ModelDownloader, ModelManifest, ModelRegistry,
-    default_models_root, entry_paths, manifests_dir, preferred_targets, staging_dir_for,
+    default_models_root, manifests_dir, preferred_targets, staging_dir_for,
 };
 use serde_json::{Value, json};
 use tauri::State;
@@ -30,10 +30,6 @@ use lw_app::bench::BenchReport;
 use lw_app::machine::probe_capabilities;
 
 use crate::worker::WorkerCmd;
-
-/// The sentence the UI must show beside any estimated number.
-const ESTIMATE_DISCLAIMER: &str = "Estimated from the model's speed tier and your detected hardware - not a measurement. \
-     Run the benchmark for a real number on this machine.";
 
 /// Models live beside `settings.json`, which is also where the worker loads them from.
 ///
@@ -126,16 +122,6 @@ pub async fn list_accelerators() -> Value {
         .unwrap_or_else(|e| json!({ "error": format!("accelerator probe failed: {e}"), "items": [] }))
 }
 
-/// Engine features compiled into *this* build, which decide whether an entry is runnable here.
-fn engine_features() -> Vec<&'static str> {
-    let mut f = vec!["parakeet"];
-    // Ask the engine crate rather than testing a feature flag on this crate: it knows whether its
-    // native library is linked, and this keeps the app and the CLI from disagreeing.
-    if lw_engine_sherpa::is_available() {
-        f.push("sherpa");
-    }
-    f
-}
 
 /// The catalog, matched against this machine and this disk.
 #[tauri::command]
@@ -146,93 +132,15 @@ pub async fn list_models(state: State<'_, AppState>) -> Result<Value, String> {
         .map_err(|e| format!("catalog task failed: {e}"))?
 }
 
+/// The catalog as JSON for the web front end.
+///
+/// A thin wrapper now: the view is built and typed in `lw_app::catalog`, and this only serializes
+/// it. The field names there are the same as the keys that used to be written here by hand, so the
+/// payload is unchanged -- which is what lets the native front end be built against the same types
+/// while the web one keeps working.
 fn build_catalog_json(root: PathBuf) -> Result<Value, String> {
-    let catalog = Catalog::builtin().map_err(|e| e.to_string())?;
-    let caps = probe_capabilities();
-    let manifests = manifests_dir(None);
-    let features = engine_features();
-    let recs = catalog.recommend_with(caps, &features);
-
-    // `recommend_with` sorts best-first, so the first runnable entry is the recommendation.
-    let recommended = recs.iter().find(|r| r.runnable).map(|r| r.entry.id.clone());
-
-    let entries: Vec<Value> = recs
-        .iter()
-        .map(|r| {
-            let e = r.entry;
-            let paths = entry_paths(e, manifests.as_deref(), &root, caps);
-            json!({
-                "id": e.id,
-                "name": e.name,
-                "description": e.description,
-                "engine": e.engine.as_str(),
-                "vendor": (!e.vendor.is_empty()).then(|| e.vendor.clone()),
-                "roles": e
-                    .roles
-                    .iter()
-                    .map(|r| json!({ "id": r.id(), "label": r.label(), "blurb": r.blurb() }))
-                    .collect::<Vec<_>>(),
-                "licence": e.license,
-                "upstream_url": e.source_url,
-                "languages": e.languages,
-                // Names beside the codes rather than instead of them: the codes are what the
-                // manifests and the `--languages` flag use, so the expanded row still shows them.
-                "language_names": e.language_names(),
-                "language_summary": e.language_summary(),
-                "quality": e.quality,
-                "quality_label": e.quality.label(),
-                "speed": e.speed,
-                "speed_label": e.speed.label(),
-                "download_bytes": e.download_bytes,
-                "disk_bytes": e.disk_bytes,
-                "hardware": e.hardware.iter().map(|h| h.label()).collect::<Vec<_>>(),
-                // Which accelerators this entry could run on, answered from the catalog rather
-                // than by trying. The same call decides what a Compare-all sweep skips, so the
-                // table and the benchmark can never disagree about it.
-                "accelerators": lw_core::capabilities::accel::ALL_ACCELERATORS
-                    .iter()
-                    .filter(|a| a.supported_on_this_platform())
-                    .map(|a| {
-                        let why = e.unsupported_on(*a);
-                        json!({
-                            "id": a.id(),
-                            "label": a.label(),
-                            "kind": a.kind().label(),
-                            "supported": why.is_none(),
-                            "reason": why,
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-                "runnable": r.runnable,
-                "best_hardware": r.best_hardware.map(|h| h.label()),
-                "estimated_rtf": r.estimated_rtf,
-                "measured_reference": r.measured_reference,
-                "measurements": e.measurements,
-                "wer_estimates": e.wer_estimates,
-                "reason": r.reason,
-                "blockers": r.blockers,
-                "install_state": paths.state,
-                "install_dir": paths.dir.map(|d| d.display().to_string()),
-                "manifest_error": paths.manifest_error,
-                "notes": (!e.notes.is_empty()).then(|| e.notes.clone()),
-            })
-        })
-        .collect();
-
-    Ok(json!({
-        "machine": caps.summary(),
-        "models_root": root.display().to_string(),
-        "manifests_dir": manifests.map(|d| d.display().to_string()),
-        "recommended": recommended,
-        "estimate_disclaimer": ESTIMATE_DISCLAIMER,
-        // The role vocabulary itself, so the picker offers exactly the roles this build knows
-        // about rather than a list hardcoded in the frontend that could drift from the catalog.
-        "roles": lw_core::model::ModelRole::ALL
-            .iter()
-            .map(|r| json!({ "id": r.id(), "label": r.label(), "blurb": r.blurb() }))
-            .collect::<Vec<_>>(),
-        "entries": entries,
-    }))
+    let view = lw_app::catalog::build(&root)?;
+    serde_json::to_value(view).map_err(|e| e.to_string())
 }
 
 /// Download and SHA-256-verify a model's pinned files, streaming progress to the frontend.
@@ -641,7 +549,7 @@ mod tests {
 
     #[test]
     fn engine_features_always_include_parakeet() {
-        assert!(engine_features().contains(&"parakeet"));
+        assert!(lw_app::catalog::engine_features().contains(&"parakeet"));
     }
 
     /// The shipped Windows build turns the `sherpa` feature on (see
@@ -654,7 +562,7 @@ mod tests {
     #[cfg(feature = "sherpa")]
     fn a_sherpa_build_can_actually_run_the_gated_models() {
         assert!(
-            engine_features().contains(&"sherpa"),
+            lw_app::catalog::engine_features().contains(&"sherpa"),
             "the feature is on for this crate but the engine crate says it is not linked"
         );
 
@@ -665,7 +573,7 @@ mod tests {
             .find(|e| e.requires_engine_feature.as_deref() == Some("sherpa"))
             .expect("the catalog is supposed to contain sherpa-gated entries");
 
-        let recs = catalog.recommend_with(probe_capabilities(), &engine_features());
+        let recs = catalog.recommend_with(probe_capabilities(), &lw_app::catalog::engine_features());
         let rec = recs
             .iter()
             .find(|r| r.entry.id == gated.id)

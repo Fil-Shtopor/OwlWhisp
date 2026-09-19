@@ -15,8 +15,10 @@
 //! types were mirrored by hand across a boundary they drifted and printed `NaN%` at a user.
 
 pub mod bench;
+pub mod catalog;
 pub mod machine;
 pub mod measurements;
 
+pub use catalog::{AcceleratorView, CatalogView, EntryView, RoleView};
 pub use machine::probe_capabilities;
 pub use measurements::{LocalMeasurement, LocalMeasurements};
