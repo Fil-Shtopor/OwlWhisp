@@ -39,9 +39,12 @@ pub const SETTLED: f32 = 0.6;
 
 /// The fastest the animation will step, however quick the panel claims to be.
 ///
-/// A hundred and twenty a second. Beyond that the rasteriser cannot keep up on a large window and
-/// the ticks only queue up behind frames that are still being drawn.
-const FASTEST_STEP_MS: u64 = 8;
+/// Two hundred and forty a second. There is no need for a lower cap tied to what the rasteriser
+/// can manage: a tick that arrives while the previous frame is still being drawn does not produce
+/// an extra frame, because redraw requests coalesce -- it only advances the easing, which is a
+/// function of elapsed time and therefore already correct at any rate. The cap is here so that an
+/// absurd reported rate cannot turn into a busy loop.
+const FASTEST_STEP_MS: u64 = 4;
 
 /// The slowest, for a display that reports something implausible or nothing at all.
 const SLOWEST_STEP_MS: u64 = 16;

@@ -13,7 +13,7 @@
 use iced::widget::{button, column, container, row, text_editor, Space};
 use iced::{Color, Element, Length, Padding};
 use lw_app::dictation::{Command, Delivery, Event, Handle, RecordingState};
-use lw_core::settings::{HotkeyConfig, HotkeyMode};
+use lw_core::settings::HotkeyConfig;
 
 use crate::{theme, widgets};
 
@@ -23,11 +23,9 @@ const PULSE: std::time::Duration = std::time::Duration::from_millis(1200);
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Toggle,
     Poll,
     Scratchpad(text_editor::Action),
     CopyLast,
-    ClearScratchpad,
 }
 
 pub struct State {
@@ -170,16 +168,6 @@ impl State {
 
     pub fn update(&mut self, message: Message) {
         match message {
-            Message::Toggle => {
-                match self.state {
-                    RecordingState::Listening => self.worker.send(Command::Stop),
-                    RecordingState::Idle => self.worker.send(Command::Start {
-                        hands_free: self.hotkey.mode == HotkeyMode::HandsFree,
-                    }),
-                    // Mid-transcription: pressing again must not start a second capture.
-                    _ => {}
-                }
-            }
             Message::Poll => {
                 self.registered = self.pump.status().is_live();
                 while let Ok(ev) = self.worker.events.try_recv() {
@@ -236,7 +224,6 @@ impl State {
                     let _ = clip.set_text(text);
                 }
             }
-            Message::ClearScratchpad => self.scratchpad = text_editor::Content::new(),
         }
     }
 
@@ -384,23 +371,11 @@ impl State {
     fn scratchpad_card(&self) -> Element<'_, Message> {
         widgets::card(
             column![
-                row![
-                    iced::widget::text("TRY DICTATING HERE")
-                        .size(11)
-                        .color(theme::TEXT_DIM),
-                    Space::new(Length::Fill, 0),
-                    button(widgets::body(match self.state {
-                        RecordingState::Listening => "Stop",
-                        _ => "Start",
-                    }))
-                    .padding(Padding::from([6, 14]))
-                    .on_press(Message::Toggle),
-                    button(widgets::body("Clear"))
-                        .padding(Padding::from([6, 14]))
-                        .on_press(Message::ClearScratchpad),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
+                // No Start button, deliberately. Dictation is a hotkey; a button that starts it
+                // is also a button that takes the focus off the very box the text is meant to
+                // land in, so pressing it and then speaking put the words nowhere. The hotkey
+                // is the interface, and the line above says what it is.
+                widgets::field_label("Try dictating here"),
                 text_editor(&self.scratchpad)
                     .height(160)
                     .placeholder(

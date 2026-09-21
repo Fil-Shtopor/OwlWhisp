@@ -43,6 +43,14 @@ impl State {
                 fact("App", d.app_version.to_string()),
                 fact("Core", d.core_version.to_string()),
                 fact("OS", format!("{} {}", d.os, d.arch)),
+                // Which binary is actually running, and when it was built.
+                //
+                // Not decoration. A stale copy left running in the tray silently wins the
+                // single-instance claim, so a freshly built one exits without a word and the
+                // user goes on testing the old behaviour and reporting it as unfixed. This is
+                // the line that settles it.
+                fact("Running", running_exe()),
+                fact("Built", build_stamp()),
             ]
             .spacing(4),
         );
@@ -138,6 +146,47 @@ impl State {
     }
 }
 
+/// The executable this window is running from.
+fn running_exe() -> String {
+    std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "unknown".into())
+}
+
+/// When that executable was last written, which for a build directory is when it was built.
+fn build_stamp() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unknown".into();
+    };
+    let Ok(modified) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
+        return "unknown".into();
+    };
+    let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH) else {
+        return "unknown".into();
+    };
+    // Whole seconds, formatted by hand: a date crate for one line in one panel is a dependency to
+    // audit and pin for the rest of the project's life.
+    let secs = since.as_secs();
+    let days = secs / 86_400;
+    let (h, m, sec) = (secs % 86_400 / 3600, secs % 3600 / 60, secs % 60);
+    let (y, mo, d) = civil_from_days(days as i64);
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{sec:02} UTC")
+}
+
+/// Days since the Unix epoch to a calendar date (Howard Hinnant's algorithm).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 fn fact(label: &str, value: String) -> Element<'_, Message> {
     row![
         container(iced::widget::text(label).size(11).color(theme::TEXT_DIM)).width(160),
@@ -158,4 +207,21 @@ fn fact_flag(label: &str, yes: bool) -> Element<'_, Message> {
     ]
     .spacing(8)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::civil_from_days;
+
+    #[test]
+    fn the_epoch_and_a_few_known_days_convert_correctly() {
+        // Hand-rolled rather than pulled from a date crate, so it is worth proving on the dates
+        // that catch an off-by-one: the epoch, a leap day, and the century that is not a leap year
+        // by the four-year rule alone.
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(1), (1970, 1, 2));
+        assert_eq!(civil_from_days(365), (1971, 1, 1));
+        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
+        assert_eq!(civil_from_days(20_000), (2024, 10, 4));
+    }
 }
