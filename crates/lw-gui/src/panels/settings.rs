@@ -79,6 +79,10 @@ pub enum Message {
     CaptureToggled,
     /// Open or close the microphone-test stream.
     MicTestToggled(bool),
+    /// The window got wider or narrower; the layout has a breakpoint.
+    Resized(f32),
+    /// Speech-onset threshold for hands-free endpointing.
+    VadThreshold(f32),
     /// A combination arrived while capturing.
     Captured {
         modifiers: Vec<String>,
@@ -107,6 +111,9 @@ pub struct State {
     triggers: Vec<TriggerChoice>,
     /// Whether the next keystroke should be read as a new binding rather than typed.
     capturing: bool,
+    /// The width the panel is drawn at, pushed in by the shell from window resize events.
+    /// `responsive` cannot supply it inside a scrollable.
+    width: f32,
     /// What the hotkey pump says about the binding it registered. Pushed in by the shell, which
     /// owns the pump; this panel cannot ask the OS itself and must not guess.
     hotkey_status: lw_app::hotkey::Status,
@@ -176,6 +183,7 @@ impl State {
             .collect(),
             triggers: trigger_choices(),
             capturing: false,
+            width: 1000.0,
             hotkey_status: lw_app::hotkey::Status::default(),
             mic: Mic::default(),
             usable,
@@ -280,6 +288,8 @@ impl State {
                     .collect();
             }
             Message::CaptureToggled => self.capturing = !self.capturing,
+            Message::Resized(w) => self.width = w,
+            Message::VadThreshold(v) => self.settings.vad.threshold = v,
             // Nothing is set here. The shell forwards this to the worker, and the answer comes
             // back through `set_mic` -- the switch shows what happened, not what was asked.
             Message::MicTestToggled(_) => {}
@@ -334,20 +344,90 @@ impl State {
         wrote
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let mut body = column![].spacing(12).padding(Padding::from([0, 8]));
+    /// Below this width the form is one column; above it, two.
+    ///
+    /// The same 1200 the web version used, and for the same reason: the accelerator picker's rows
+    /// are the widest thing in the form and the hotkey editor's the narrowest, so they are given a
+    /// 1:2 split rather than an even one -- an even split wasted space on one side and wrapped
+    /// rows on the other.
+    const TWO_COLUMN_AT: f32 = 1200.0;
 
-        body = body.push(self.hotkey_card());
-        body = body.push(self.model_card());
-        body = body.push(self.accelerator_card());
-        body = body.push(self.microphone_card());
-        body = body.push(self.sound_card());
-        body = body.push(self.overlay_card());
-        body = body.push(self.autostart_card());
-        body = body.push(self.save_row());
-        body = body.push(Space::new(0, 8));
+    pub fn view(&self) -> Element<'_, Message> {
+        // Deliberate groups, not auto-flow: which setting lands where must not depend on how tall
+        // the accelerator card happens to be on this machine. What you adjust on the left, what
+        // describes the hardware on the right.
+        let adjust: Vec<Element<'_, Message>> = vec![
+            self.hotkey_card(),
+            self.model_card(),
+            self.sound_card(),
+            self.overlay_card(),
+            self.autostart_card(),
+        ];
+        let hardware: Vec<Element<'_, Message>> = vec![
+            self.accelerator_card(),
+            self.microphone_card(),
+            self.vad_card(),
+        ];
+
+        let body: Element<'_, Message> = if self.width >= Self::TWO_COLUMN_AT {
+            let mut left = column![].spacing(12).width(Length::FillPortion(1));
+            for card in adjust {
+                left = left.push(card);
+            }
+            let mut right = column![].spacing(12).width(Length::FillPortion(2));
+            for card in hardware {
+                right = right.push(card);
+            }
+            column![
+                row![left, right].spacing(20).align_y(iced::Alignment::Start),
+                // Save spans both, because it applies to both.
+                self.save_row(),
+                Space::new(0, 8),
+            ]
+            .spacing(12)
+            .padding(Padding::from([0, 8]))
+            .into()
+        } else {
+            let mut one = column![].spacing(12).padding(Padding::from([0, 8]));
+            for card in adjust.into_iter().chain(hardware) {
+                one = one.push(card);
+            }
+            one.push(self.save_row()).push(Space::new(0, 8)).into()
+        };
 
         scrollable(body).height(Length::Fill).into()
+    }
+
+    /// When hands-free decides you have finished speaking.
+    ///
+    /// The only setting here that changes what the engine hears rather than what the interface
+    /// does, which is why it says what moving it costs in both directions.
+    fn vad_card(&self) -> Element<'_, Message> {
+        widgets::card(
+            column![
+                widgets::heading("Voice activity"),
+                widgets::sub(
+                    "Used by the hands-free mode to decide an utterance has ended. The other two \
+                     hotkey modes end it when you say so, and ignore this.",
+                ),
+                row![
+                    widgets::field_label("Threshold"),
+                    slider(0.0..=1.0, self.settings.vad.threshold, Message::VadThreshold)
+                        .step(0.01_f32)
+                        .width(240),
+                    widgets::mono(format!("{:.2}", self.settings.vad.threshold)),
+                ]
+                .spacing(12)
+                .align_y(iced::Alignment::Center),
+                widgets::prose(
+                    "Higher needs louder, clearer speech before it counts as speech: it stops a \
+                     noisy room starting a recording, and it also stops a quiet voice. Lower does \
+                     the opposite.",
+                ),
+            ]
+            .spacing(8),
+        )
+        .into()
     }
 
     /// The hotkey editor, in the order the web version settled on: what is bound, how it behaves,

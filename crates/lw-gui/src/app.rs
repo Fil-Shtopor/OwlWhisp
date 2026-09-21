@@ -332,6 +332,8 @@ impl App {
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
                 // the width it is actually given.
                 self.models.update(panels::models::Message::Resized(w - 48.0));
+                self.settings
+                    .update(panels::settings::Message::Resized(w - 48.0));
             }
             Message::Models(m) => {
                 // Choosing a model writes settings.json, and the worker is holding a copy of it.
