@@ -14,7 +14,6 @@ ort = { workspace = true, features = ["std", "ndarray", "tracing", "load-dynamic
 ort-sys = { workspace = true, features = ["std", "api-27"] }
 ndarray.workspace = true
 half.workspace = true
-libloading.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
