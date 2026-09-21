@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use iced::widget::{button, column, container, pick_list, row, scrollable, Space};
+use iced::widget::{button, column, container, pick_list, row, Space};
 use iced::{Element, Length, Padding};
 use lw_app::catalog::{CatalogView, EntryView};
 use lw_core::model::{InstallState, ModelRole};
@@ -262,8 +262,7 @@ impl State {
             }
         };
 
-        scrollable(
-            column![
+        column![
                 machine_card(view),
                 row![
                     button(widgets::body("Refresh"))
@@ -278,10 +277,8 @@ impl State {
                 self.glossary_block(view),
                 self.table(view),
             ]
-            .spacing(12)
-            .padding(Padding::from([0, 8])),
-        )
-        .height(Length::Fill)
+        .spacing(12)
+        .padding(Padding::from([0, 8]))
         .into()
     }
 

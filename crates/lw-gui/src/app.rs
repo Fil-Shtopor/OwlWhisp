@@ -8,7 +8,7 @@
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Length, Padding, Task, window};
 
-use crate::{panels, theme, tray};
+use crate::{panels, smooth, theme, tray};
 
 /// Which panel is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -61,6 +61,12 @@ pub enum Message {
     TrayPoll,
     /// The user picked something in the tray menu.
     Tray(tray::Action),
+    /// A wheel notch, taken from the scrollable so it can be animated instead of applied at once.
+    Wheel(iced::mouse::ScrollDelta),
+    /// What the scrollable reports about itself after every move.
+    Scrolled(iced::widget::scrollable::Viewport),
+    /// One rendered frame, while a scroll is in flight.
+    Frame(std::time::Instant),
 }
 
 pub struct App {
@@ -72,6 +78,8 @@ pub struct App {
     /// the icon.
     tray: Option<tray::Tray>,
     tab: Tab,
+    /// The one scrollable in the window, animated rather than stepped.
+    scroll: smooth::Scroll,
     models: panels::models::State,
     diagnostics: panels::diagnostics::State,
     settings: panels::settings::State,
@@ -86,6 +94,7 @@ impl Default for App {
             overlay: None,
             tray: None,
             tab: Tab::Dictate,
+            scroll: smooth::Scroll::new(),
             models: panels::models::State::new(),
             diagnostics: panels::diagnostics::State::new(),
             settings: panels::settings::State::new(),
@@ -183,6 +192,13 @@ impl App {
             self.settings.subscription().map(Message::Settings),
             self.models.subscription().map(Message::Models),
             window::close_events().map(Message::Closed),
+            // Frames only while something is moving. A scroll that has arrived costs nothing, and
+            // an idle window redraws not at all.
+            if self.scroll.animating() {
+                iced::time::every(smooth::STEP).map(Message::Frame)
+            } else {
+                iced::Subscription::none()
+            },
             window::close_requests().map(Message::CloseRequested),
             // Only while there is a tray to poll. `tray-icon` publishes on a global channel, so
             // this is a `try_recv` and nothing more.
@@ -319,6 +335,15 @@ impl App {
                     tray::Action::Quit => Self::quit(),
                 };
             }
+            Message::Wheel(delta) => {
+                self.scroll.wheel(delta);
+            }
+            Message::Scrolled(viewport) => self.scroll.observed(viewport),
+            Message::Frame(now) => {
+                if let Some(offset) = self.scroll.tick(now) {
+                    return iced::widget::scrollable::scroll_to(self.scroll.id(), offset);
+                }
+            }
             Message::TabSelected(tab) => {
                 // Leaving Settings closes the test stream. Holding a microphone open because
                 // somebody switched tabs would be indefensible.
@@ -326,7 +351,15 @@ impl App {
                 {
                     self.dictate.set_mic_test(false);
                 }
+                let changed = self.tab != tab;
                 self.tab = tab;
+                if changed {
+                    // The content underneath has been replaced, so the old position means nothing.
+                    // Jump rather than slide: sliding through a page nobody has seen is motion
+                    // that says nothing.
+                    let top = self.scroll.reset();
+                    return iced::widget::scrollable::scroll_to(self.scroll.id(), top);
+                }
             }
             Message::Resized(w) => {
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
@@ -419,7 +452,9 @@ impl App {
                 background: Some(theme::BORDER.into()),
                 ..Default::default()
             }),
-            container(body).padding(16).height(Length::Fill),
+            container(self.scroll.view(body, Message::Wheel, Message::Scrolled))
+                .padding(16)
+                .height(Length::Fill),
         ]
         .into()
     }

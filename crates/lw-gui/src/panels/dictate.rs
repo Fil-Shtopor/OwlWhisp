@@ -10,7 +10,7 @@
 //! that is actually in force, and it says so when the registration failed -- an instruction to
 //! press keys that do nothing is the worst line this panel could print.
 
-use iced::widget::{button, column, container, row, scrollable, text_editor, Space};
+use iced::widget::{button, column, container, row, text_editor, Space};
 use iced::{Color, Element, Length, Padding};
 use lw_app::dictation::{Command, Delivery, Event, Handle, RecordingState};
 use lw_core::settings::{HotkeyConfig, HotkeyMode};
@@ -241,8 +241,7 @@ impl State {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        scrollable(
-            column![
+        column![
                 self.pill(),
                 self.backend_line(),
                 self.scratchpad_card(),
@@ -253,10 +252,8 @@ impl State {
                 ),
                 Space::new(0, 8),
             ]
-            .spacing(12)
-            .padding(Padding::from([0, 8])),
-        )
-        .height(Length::Fill)
+        .spacing(12)
+        .padding(Padding::from([0, 8]))
         .into()
     }
 

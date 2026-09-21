@@ -17,6 +17,7 @@
 
 mod app;
 mod panels;
+mod smooth;
 mod theme;
 mod tray;
 mod widgets;

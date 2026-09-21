@@ -10,8 +10,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use iced::widget::{button, column, container, pick_list, row, scrollable, Space};
-use iced::{Element, Length, Padding, Task};
+use iced::widget::{button, column, container, pick_list, row, Space};
+use iced::{Element, Padding, Task};
 use lw_app::bench::{BenchReport, BenchSuite};
 use lw_core::engine::BackendPreference;
 
@@ -494,8 +494,7 @@ impl State {
             }
         }
 
-        body = body.push(Space::new(0, 8));
-        scrollable(body).height(Length::Fill).into()
+        body.push(Space::new(0, 8)).into()
     }
 }
 

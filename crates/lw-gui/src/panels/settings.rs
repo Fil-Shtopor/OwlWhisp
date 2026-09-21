@@ -10,7 +10,7 @@
 //!   checkbox, because a managed machine can refuse and a checkbox that disagreed with the OS
 //!   would be worse than no checkbox.
 
-use iced::widget::{button, checkbox, column, container, pick_list, radio, row, scrollable, slider, Space};
+use iced::widget::{button, checkbox, column, container, pick_list, radio, row, slider, Space};
 use iced::{Element, Length, Padding};
 use lw_core::engine::BackendPreference;
 use lw_core::settings::{HotkeyMode, Settings};
@@ -395,7 +395,7 @@ impl State {
             one.push(self.save_row()).push(Space::new(0, 8)).into()
         };
 
-        scrollable(body).height(Length::Fill).into()
+        body
     }
 
     /// When hands-free decides you have finished speaking.

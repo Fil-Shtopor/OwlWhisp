@@ -6,8 +6,8 @@
 //! it enumerated a device, it is usable -- are shown separately rather than collapsed into one
 //! optimistic verdict.
 
-use iced::widget::{column, container, row, scrollable, Space};
-use iced::{Element, Length};
+use iced::widget::{column, container, row, Space};
+use iced::Element;
 use lw_app::Diagnostics;
 
 use crate::{theme, widgets};
@@ -118,8 +118,7 @@ impl State {
             accel = accel.push(card);
         }
 
-        scrollable(
-            column![
+        column![
                 row![
                     iced::widget::button(widgets::body("Refresh"))
                         .padding(iced::Padding::from([6, 14]))
@@ -134,9 +133,7 @@ impl State {
                 Space::new(0, 8),
             ]
             .spacing(12)
-            .padding(iced::Padding::from([0, 8])),
-        )
-        .height(Length::Fill)
+            .padding(iced::Padding::from([0, 8]))
         .into()
     }
 }
