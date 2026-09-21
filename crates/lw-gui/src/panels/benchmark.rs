@@ -298,16 +298,18 @@ impl State {
         let secs = self.elapsed();
         column![
             row![
-                button(widgets::body(if self.running && self.single.is_none() && self.result.is_none() {
+                button(widgets::button_label(if self.running && self.single.is_none() && self.result.is_none() {
                     format!("Running... {secs}s")
                 } else {
                     "Run benchmark".to_string()
                 }))
                 .padding(Padding::from([8, 18]))
-                .on_press_maybe((!self.running).then_some(Message::RunOne)),
-                button(widgets::body("Compare all accelerators"))
+                .on_press_maybe((!self.running).then_some(Message::RunOne))
+                .style(theme::action(false)),
+                button(widgets::button_label("Compare all accelerators"))
                     .padding(Padding::from([8, 18]))
-                    .on_press_maybe((!self.running).then_some(Message::RunAll)),
+                    .on_press_maybe((!self.running).then_some(Message::RunAll))
+                    .style(theme::action(false)),
             ]
             .spacing(10)
             .align_y(iced::Alignment::Center),

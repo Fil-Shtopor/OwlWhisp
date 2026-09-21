@@ -95,7 +95,6 @@ pub enum Message {
     PreviewSound,
     AutostartToggled(bool),
     Save,
-    Reload,
 }
 
 pub struct State {
@@ -339,6 +338,13 @@ impl State {
                 let path = lw_app::paths::settings_path();
                 match self.settings.save(&path) {
                     Ok(()) => {
+                        // Read back what landed rather than assume it. This is what the Reload
+                        // button was for, done where it belongs: some settings are not ours to
+                        // decide -- a managed machine can refuse the autostart registration, and
+                        // the file is rewritten to what the OS actually did. Showing the form the
+                        // user typed instead of the file that exists is how a setting appears to
+                        // have been accepted when it was not.
+                        self.settings = Settings::load(&path).unwrap_or_else(|_| self.settings.clone());
                         self.saved = self.settings.clone();
                         self.notice = Some("Saved.".into());
                         self.error = None;
@@ -347,7 +353,6 @@ impl State {
                     Err(e) => self.error = Some(format!("Could not save: {e}")),
                 }
             }
-            Message::Reload => *self = Self::new(),
         }
         wrote
     }
@@ -446,13 +451,14 @@ impl State {
 
         let preview = row![
             widgets::mono(lw_app::hotkey::format_hotkey(h)),
-            button(widgets::body(if self.capturing {
+            button(widgets::button_label(if self.capturing {
                 "Cancel capture"
             } else {
                 "Capture keystroke"
             }))
             .padding(Padding::from([6, 14]))
-            .on_press(Message::CaptureToggled),
+            .on_press(Message::CaptureToggled)
+            .style(theme::action(false)),
         ]
         .spacing(10)
         .align_y(iced::Alignment::Center);
@@ -756,7 +762,9 @@ impl State {
                         Message::ThemeSelected(t.value)
                     })
                     .text_size(14),
-                    button(widgets::body("Preview")).on_press(Message::PreviewSound),
+                    button(widgets::button_label("Preview"))
+                        .on_press(Message::PreviewSound)
+                        .style(theme::action(false)),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
@@ -817,12 +825,10 @@ impl State {
 
     fn save_row(&self) -> Element<'_, Message> {
         let mut r = row![
-            button(widgets::body("Save"))
+            button(widgets::button_label("Save"))
                 .padding(Padding::from([8, 18]))
-                .on_press_maybe(self.dirty().then_some(Message::Save)),
-            button(widgets::body("Reload"))
-                .padding(Padding::from([8, 18]))
-                .on_press(Message::Reload),
+                .on_press_maybe(self.dirty().then_some(Message::Save))
+                .style(theme::action(false)),
         ]
         .spacing(10)
         .align_y(iced::Alignment::Center);

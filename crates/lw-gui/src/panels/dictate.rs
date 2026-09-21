@@ -417,9 +417,10 @@ impl State {
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
                 widgets::body(text.clone()),
-                button(widgets::body("Copy"))
+                button(widgets::button_label("Copy"))
                     .padding(Padding::from([6, 14]))
-                    .on_press(Message::CopyLast),
+                    .on_press(Message::CopyLast)
+                    .style(theme::action(false)),
             ]
             .spacing(6)
             .into(),

@@ -56,6 +56,17 @@ pub fn body<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
     text(s).size(14).color(theme::TEXT)
 }
 
+/// The text on a button, which deliberately sets no colour of its own.
+///
+/// This is the whole of a bug that outlived several attempts to fix the contrast. A `text` with an
+/// explicit colour keeps it, so a label built with `body` overrides whatever the button's style
+/// asked for -- and `theme::action` has been asking for dark text on the light blue accent all
+/// along, to no effect whatsoever. White on that accent measures 2.1:1 where readable body text
+/// wants 4.5:1; the dark text the style intended measures 8.8:1.
+pub fn button_label<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
+    text(s).size(14)
+}
+
 /// A number that was measured: green, because a measurement is the thing worth trusting.
 pub fn measured<'a>(label: &str, rate: f32) -> Text<'a> {
     text(format!("{label} {:.1}%", rate * 100.0))

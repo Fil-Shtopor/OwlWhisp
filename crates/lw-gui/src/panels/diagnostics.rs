@@ -128,9 +128,10 @@ impl State {
 
         column![
                 row![
-                    iced::widget::button(widgets::body("Refresh"))
+                    iced::widget::button(widgets::button_label("Refresh"))
                         .padding(iced::Padding::from([6, 14]))
-                        .on_press(Message::Refresh),
+                        .on_press(Message::Refresh)
+                        .style(theme::action(false)),
                     widgets::sub("Probing loads the runtime, so this takes a moment."),
                 ]
                 .spacing(12)

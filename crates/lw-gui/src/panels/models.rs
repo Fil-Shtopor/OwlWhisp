@@ -265,9 +265,10 @@ impl State {
         column![
                 machine_card(view),
                 row![
-                    button(widgets::body("Refresh"))
+                    button(widgets::button_label("Refresh"))
                         .padding(Padding::from([6, 14]))
-                        .on_press(Message::Refresh),
+                        .on_press(Message::Refresh)
+                        .style(theme::action(false)),
                     widgets::mono(view.models_root.clone()),
                 ]
                 .spacing(12)
@@ -423,7 +424,7 @@ impl State {
     fn table<'a>(&'a self, view: &'a CatalogView) -> Element<'a, Message> {
         let all_open = view.entries.iter().all(|e| self.open.contains(&e.id));
         let toolbar = row![
-            button(widgets::body(if all_open {
+            button(widgets::button_label(if all_open {
                 "Collapse all"
             } else {
                 "Expand all"
@@ -433,7 +434,8 @@ impl State {
                 Message::CollapseAll
             } else {
                 Message::ExpandAll
-            }),
+            })
+            .style(theme::action(false)),
             Space::new().width(Length::Fill),
             widgets::sub(format!("{} models", view.entries.len())),
         ]
@@ -636,7 +638,7 @@ impl State {
                 .map(|h| h.state())
                 .unwrap_or_default();
             buttons = buttons.push(
-                button(widgets::body(if state.cancelling {
+                button(widgets::button_label(if state.cancelling {
                     "Stopping..."
                 } else {
                     "Cancel download"
@@ -667,7 +669,7 @@ impl State {
                 why.push("Another download is running; one at a time.".into());
             }
             buttons = buttons.push(
-                button(widgets::body(match entry.install_state {
+                button(widgets::button_label(match entry.install_state {
                     Install::Incomplete => "Resume download",
                     _ => "Download",
                 }))
@@ -681,7 +683,7 @@ impl State {
 
         // --- use -----------------------------------------------------------
         buttons = buttons.push(
-            button(widgets::body(if is_selected {
+            button(widgets::button_label(if is_selected {
                 "In use"
             } else {
                 "Use this model"
@@ -716,20 +718,20 @@ impl State {
                         .unwrap_or_default()
                 )));
                 buttons = buttons.push(
-                    button(widgets::body("Keep"))
+                    button(widgets::button_label("Keep"))
                         .padding(Padding::from([6, 12]))
                         .style(theme::action(false))
                         .on_press(Message::CancelDelete),
                 );
                 buttons = buttons.push(
-                    button(widgets::body("Delete"))
+                    button(widgets::button_label("Delete"))
                         .padding(Padding::from([6, 12]))
                         .style(theme::action(true))
                         .on_press(Message::Delete(entry.id.clone())),
                 );
             } else {
                 buttons = buttons.push(
-                    button(widgets::body("Delete"))
+                    button(widgets::button_label("Delete"))
                         .padding(Padding::from([6, 12]))
                         .style(theme::action(true))
                         .on_press_maybe(
