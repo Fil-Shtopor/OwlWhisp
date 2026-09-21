@@ -272,6 +272,43 @@ pub fn combo_active(bits: &KeyBitmap, combo: &ParsedCombo) -> bool {
     combo.trigger == 0 || bits.is_down(combo.trigger as u32)
 }
 
+/// Whether a key event belongs to the combo and must therefore not reach the focused application.
+///
+/// A global hotkey that also types into whatever is in front is not a global hotkey. Binding
+/// Ctrl+Space and watching a space appear in the text box you were about to dictate into is the
+/// clearest possible demonstration of that, and it is what the OS-level shortcut in the previous
+/// build did for us: it consumed the key.
+///
+/// Only the **trigger** is swallowed, never a modifier. Swallowing Ctrl would break Ctrl+C in
+/// every application on the machine for as long as this one runs -- an unacceptable price for a
+/// dictation hotkey, and unnecessary, because the trigger alone is what produces the character.
+///
+/// `active_now` is whether the combo is satisfied *after* this event has been applied to the
+/// tracker; `swallowing` remembers that the key-down was taken, so the matching key-up is taken
+/// too. Without that, applications see a key-up with no key-down, and some treat it as a tap.
+pub fn swallow_trigger(
+    combo: &ParsedCombo,
+    active_now: bool,
+    swallowing: &mut bool,
+    vk: u32,
+    down: bool,
+) -> bool {
+    // A modifiers-only combo has no trigger to take, and taking a modifier is out of the question.
+    if combo.trigger == 0 || vk != u32::from(combo.trigger) {
+        return false;
+    }
+    if down {
+        // `*swallowing` covers auto-repeat: the OS sends key-down over and over while the keys are
+        // held, and every one of those would otherwise reach the application.
+        if active_now || *swallowing {
+            *swallowing = true;
+            return true;
+        }
+        return false;
+    }
+    std::mem::take(swallowing)
+}
+
 /// Edge detector: feed physical key transitions, get [`HotkeyEvent`]s out.
 ///
 /// Pure and allocation-free after construction — the Windows LL-hook callback drives one of
@@ -327,6 +364,77 @@ impl ComboTracker {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod swallow_tests {
+    use super::*;
+
+    fn combo(mods: &[&str], trigger: &str) -> ParsedCombo {
+        parse_spec(&HotkeySpec {
+            modifiers: mods.iter().map(|s| s.to_string()).collect(),
+            trigger: trigger.to_string(),
+        })
+        .expect("combo parses")
+    }
+
+    #[test]
+    fn the_trigger_is_taken_while_the_combo_is_satisfied() {
+        let c = combo(&["ctrl"], "space");
+        let mut sw = false;
+        assert!(swallow_trigger(&c, true, &mut sw, 0x20, true), "key-down");
+        assert!(swallow_trigger(&c, false, &mut sw, 0x20, false), "key-up");
+        assert!(!sw, "the flag must clear on the way up");
+    }
+
+    #[test]
+    fn auto_repeat_is_taken_too() {
+        // Windows sends key-down over and over while the keys are held. One escaping into the
+        // focused window is one stray character in the middle of whatever the user was writing.
+        let c = combo(&["ctrl"], "space");
+        let mut sw = false;
+        assert!(swallow_trigger(&c, true, &mut sw, 0x20, true));
+        for _ in 0..5 {
+            assert!(swallow_trigger(&c, true, &mut sw, 0x20, true), "repeat");
+        }
+        assert!(swallow_trigger(&c, false, &mut sw, 0x20, false));
+    }
+
+    #[test]
+    fn the_same_key_without_the_modifiers_is_left_alone() {
+        // Space is Space when Ctrl is not held, and a dictation app that ate every space would be
+        // unusable.
+        let c = combo(&["ctrl"], "space");
+        let mut sw = false;
+        assert!(!swallow_trigger(&c, false, &mut sw, 0x20, true));
+        assert!(!swallow_trigger(&c, false, &mut sw, 0x20, false));
+    }
+
+    #[test]
+    fn modifiers_are_never_taken() {
+        let c = combo(&["ctrl"], "space");
+        let mut sw = false;
+        for vk in [vk::CONTROL, vk::LCONTROL, vk::RCONTROL, vk::SHIFT] {
+            assert!(!swallow_trigger(&c, true, &mut sw, u32::from(vk), true), "{vk:#x}");
+            assert!(!swallow_trigger(&c, true, &mut sw, u32::from(vk), false), "{vk:#x}");
+        }
+    }
+
+    #[test]
+    fn a_modifiers_only_combo_takes_nothing() {
+        // There is no trigger to take, and taking Ctrl would break Ctrl+C everywhere.
+        let c = combo(&["ctrl", "win"], "none");
+        let mut sw = false;
+        assert!(!swallow_trigger(&c, true, &mut sw, u32::from(vk::CONTROL), true));
+        assert!(!swallow_trigger(&c, true, &mut sw, 0x20, true));
+    }
+
+    #[test]
+    fn an_unrelated_key_is_left_alone() {
+        let c = combo(&["ctrl"], "space");
+        let mut sw = false;
+        assert!(!swallow_trigger(&c, true, &mut sw, u32::from(b'D'), true));
     }
 }
 

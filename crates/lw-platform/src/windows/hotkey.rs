@@ -28,7 +28,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
-use crate::hotkey::{ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, ParsedCombo, parse_spec};
+use crate::hotkey::{
+    ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, ParsedCombo, parse_spec, swallow_trigger,
+};
 use crate::{Error, Result};
 
 /// Active combo configuration, readable lock-free from the hook callback.
@@ -84,6 +86,8 @@ thread_local! {
     /// (combo generation, tracker) — lives on the hook thread only.
     static TRACKER: RefCell<(u32, ComboTracker)> =
         RefCell::new((u32::MAX, ComboTracker::new(ParsedCombo::default())));
+    /// Whether the trigger's key-down was taken, so its key-up is taken as well.
+    static SWALLOWING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// The low-level keyboard hook callback. Runs on the hook thread for every physical key
@@ -101,7 +105,11 @@ unsafe extern "system" fn ll_kbd_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
             let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
             if down || up {
                 LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
-                on_physical_key(kb.vkCode, down);
+                if on_physical_key(kb.vkCode, down) {
+                    // Taken: the combination is ours, so the key must not also reach whatever the
+                    // user is typing into. Returning non-zero ends the chain here.
+                    return LRESULT(1);
+                }
             }
         }
     }
@@ -110,15 +118,21 @@ unsafe extern "system" fn ll_kbd_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
 }
 
 /// Edge detection for one physical key transition (hook thread only).
-fn on_physical_key(vk_code: u32, down: bool) {
+///
+/// Returns whether the event should be swallowed rather than passed to the rest of the system.
+fn on_physical_key(vk_code: u32, down: bool) -> bool {
     TRACKER.with(|cell| {
         let mut slot = cell.borrow_mut();
         let generation = COMBO_GEN.load(Ordering::Acquire);
         if slot.0 != generation {
             *slot = (generation, ComboTracker::new(load_combo()));
+            // A new combination starts with nothing taken, or the old trigger's key-up would be
+            // swallowed on behalf of a combination that no longer exists.
+            SWALLOWING.with(|s| s.set(false));
         }
-        if slot.1.combo().is_empty() {
-            return;
+        let combo = slot.1.combo();
+        if combo.is_empty() {
+            return false;
         }
         if let Some(event) = slot.1.on_key(vk_code, down) {
             COMBO_ACTIVE.store(event == HotkeyEvent::Pressed, Ordering::Release);
@@ -126,7 +140,14 @@ fn on_physical_key(vk_code: u32, down: bool) {
             // rather than ever blocking the hook.
             let _ = events_channel().0.try_send(event);
         }
-    });
+        let active = slot.1.is_active();
+        SWALLOWING.with(|flag| {
+            let mut swallowing = flag.get();
+            let take = swallow_trigger(&combo, active, &mut swallowing, vk_code, down);
+            flag.set(swallowing);
+            take
+        })
+    })
 }
 
 /// Install the hook on its dedicated message-pump thread (idempotent). Blocks briefly
