@@ -35,7 +35,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::hotkey::{
-    ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, ParsedCombo, parse_spec, swallow_trigger,
+    ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_WIN,
+    ParsedCombo, parse_spec, swallow_trigger,
 };
 use crate::{Error, Result};
 
@@ -162,10 +163,10 @@ fn on_physical_key(vk_code: u32, down: bool) -> bool {
         let registered = USE_REGISTERED.load(Ordering::Acquire);
         if let Some(event) = slot.1.on_key(vk_code, down) {
             COMBO_ACTIVE.store(event == HotkeyEvent::Pressed, Ordering::Release);
-            // When the window manager owns the press, the hook must not announce it as well, or
-            // one press would toggle dictation twice. The release edge is still ours: a
-            // registered hotkey reports key-down only, and push-to-talk needs the other half.
-            if !(registered && event == HotkeyEvent::Pressed) {
+            // When the window manager owns the combination it owns both of its edges -- see
+            // `watch_for_release`. The hook must stay quiet or every press would be announced
+            // twice, and dictation would start and immediately stop.
+            if !registered {
                 // Pre-allocated bounded channel: try_send never allocates; drop on overflow
                 // rather than ever blocking the hook.
                 let _ = events_channel().0.try_send(event);
@@ -273,6 +274,8 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
             // whatever had focus, so there is nothing to swallow and nothing to check.
             COMBO_ACTIVE.store(true, Ordering::Release);
             let _ = events_channel().0.try_send(HotkeyEvent::Pressed);
+            // The release will not arrive on its own: a registered hotkey reports key-down only.
+            watch_for_release(load_combo());
             continue;
         }
         // SAFETY: msg came from GetMessageW and is valid for these calls.
@@ -280,6 +283,86 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+    }
+}
+
+/// How often the watcher looks at the keyboard while the combination is held down.
+///
+/// Fifteen milliseconds: far below the shortest deliberate tap, and 66 wake-ups a second on one
+/// thread that exists only while a key is actually held.
+const RELEASE_POLL_MS: u64 = 15;
+
+/// A hold this long is taken as a key that never reported itself up.
+///
+/// Push-to-talk is a thumb on a key; ten minutes of it is not a dictation, it is a watcher that
+/// has been stranded, and leaving it spinning for the life of the process would be worse than
+/// ending the utterance.
+const LONGEST_HOLD: Duration = Duration::from_secs(600);
+
+/// Whether a press is already being watched, so a repeat cannot start a second watcher.
+static WATCHING_RELEASE: AtomicBool = AtomicBool::new(false);
+
+/// Is every part of `combo` held down right now?
+fn combo_is_held(combo: &ParsedCombo) -> bool {
+    fn down(vk: i32) -> bool {
+        // SAFETY: no preconditions; reads the asynchronous state of one virtual key.
+        (unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk) } as u16
+            & 0x8000)
+            != 0
+    }
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
+    if combo.trigger != 0 && !down(i32::from(combo.trigger)) {
+        return false;
+    }
+    if combo.mods & MOD_CTRL != 0 && !down(VK_CONTROL.0 as i32) {
+        return false;
+    }
+    if combo.mods & MOD_SHIFT != 0 && !down(VK_SHIFT.0 as i32) {
+        return false;
+    }
+    if combo.mods & MOD_ALT != 0 && !down(VK_MENU.0 as i32) {
+        return false;
+    }
+    if combo.mods & MOD_WIN != 0 && !down(VK_LWIN.0 as i32) && !down(VK_RWIN.0 as i32) {
+        return false;
+    }
+    true
+}
+
+/// Watch a registered combination until it is let go, and announce the release.
+///
+/// `RegisterHotKey` reports the press and nothing else; push-to-talk is defined by the release, so
+/// the other half has to come from somewhere. It used to come from the keyboard hook, and that is
+/// the wrong place to get it: a low-level hook is the one part of this that another process can
+/// starve, that Windows removes silently when a callback runs long, and that -- measured on this
+/// machine, with a twenty-line hook of its own in a separate process -- does not see synthesized
+/// keys at all. Asking the keyboard directly asks nobody's permission and cannot be taken away.
+///
+/// The thread exists only while a key is down.
+fn watch_for_release(combo: ParsedCombo) {
+    if WATCHING_RELEASE.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("lw-hotkey-release".into())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            while combo_is_held(&combo) {
+                if started.elapsed() > LONGEST_HOLD {
+                    tracing::warn!("the hotkey has read as held for ten minutes; letting it go");
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(RELEASE_POLL_MS));
+            }
+            COMBO_ACTIVE.store(false, Ordering::Release);
+            let _ = events_channel().0.try_send(HotkeyEvent::Released);
+            WATCHING_RELEASE.store(false, Ordering::Release);
+        });
+    if spawned.is_err() {
+        // Without a watcher there is no release edge, and push-to-talk would hold the microphone
+        // open forever. Say so rather than record until the process ends.
+        tracing::error!("could not watch the hotkey for its release; push-to-talk will not stop");
+        WATCHING_RELEASE.store(false, Ordering::Release);
     }
 }
 
@@ -351,6 +434,14 @@ fn install_hook() -> std::result::Result<HHOOK, String> {
 /// case costs two calls and nothing else, which is a good trade against a hotkey that is dead for
 /// the rest of the session.
 fn watchdog(current: HHOOK) -> HHOOK {
+    // Nothing to keep alive while the window manager holds the combination: the press arrives as
+    // `WM_HOTKEY` and the release from `watch_for_release`, so the hook is not on the path at all.
+    // Without this the watchdog reinstalls a system-wide hook every few seconds for the life of
+    // the process -- its only liveness signal is a key event, and on a registered binding no key
+    // event is ever expected. Measured in the log as a re-install every 5 seconds, for ever.
+    if USE_REGISTERED.load(Ordering::Acquire) {
+        return current;
+    }
     let quiet = now_ms().saturating_sub(LAST_EVENT_MS.load(Ordering::Relaxed));
     if quiet < u64::from(WATCHDOG_MS) {
         return current;
