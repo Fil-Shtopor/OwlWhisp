@@ -77,16 +77,43 @@ pub enum Event {
     State(RecordingState),
     /// Meter position in `[0, 1]`, already mapped for display.
     Level(f32),
+    /// Where an utterance ended up.
+    ///
+    /// Four outcomes, and telling them apart is the difference between a user who knows what
+    /// happened and one who pressed a key and saw nothing.
+    /// Where an utterance ended up.
+    ///
+    /// Four outcomes, and telling them apart is the difference between a user who knows what
+    /// happened and one who pressed a key and saw nothing.
     Transcript {
         text: String,
-        /// True when the text went into the focused window; false when it went to the clipboard.
-        injected: bool,
+        delivery: Delivery,
         provider: String,
     },
     Error(String),
     Backend(Box<ActiveBackend>),
     /// Whether the microphone-test stream is open, or why it could not be opened.
     MicTest(Result<bool, String>),
+}
+
+/// Where a transcript went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Delivery {
+    /// Typed into another application's focused control.
+    Injected,
+    /// This application's own window had focus, so the text is handed to the front end to put
+    /// where the user was typing.
+    ///
+    /// Pasting into our own window means synthesizing Ctrl+V for a thread in this very process and
+    /// then restoring the clipboard 300 ms later -- while that thread is the busiest one here,
+    /// having just finished a transcription and a redraw. Losing that race pastes whatever was on
+    /// the clipboard before. The front end owns the text box; it can simply put the text in it.
+    OwnWindow,
+    /// Nowhere it could be typed, so it is on the clipboard and the user can paste it.
+    Clipboard,
+    /// The recording produced no words. Not a failure, and not something to show as an empty
+    /// transcript either.
+    Nothing,
 }
 
 /// The front end's handle: send commands, receive events.
@@ -353,10 +380,10 @@ fn worker_loop(
                 };
                 let pipeline = build_pipeline(&engine_state.settings);
                 let text = pipeline.run(&transcript.text);
-                let injected = deliver(&text);
+                let delivery = deliver(&text);
                 let _ = ctx.events.send(Event::Transcript {
                     text,
-                    injected,
+                    delivery,
                     provider,
                 });
                 ctx.set(RecordingState::Done);
@@ -374,24 +401,31 @@ fn capture_device(settings_path: &std::path::Path) -> Option<String> {
         .filter(|d| !d.trim().is_empty())
 }
 
-/// Put the text where the user was typing: into the focused window, else on the clipboard.
+/// Put the text where the user was typing.
 ///
-/// Returns whether it was injected. Falling back to the clipboard rather than dropping the text is
-/// the point -- a transcription that cannot be delivered is still the user's words.
-fn deliver(text: &str) -> bool {
+/// Three destinations in order of preference: our own window, somebody else's window, the
+/// clipboard. Falling back to the clipboard rather than dropping the text is the point -- a
+/// transcription that cannot be delivered is still the user's words.
+fn deliver(text: &str) -> Delivery {
     if text.trim().is_empty() {
-        return false;
+        return Delivery::Nothing;
+    }
+    // Our own window needs no keystrokes and no clipboard: the front end can put the text in the
+    // control the user is typing in. Doing it the other way round is a race this process holds
+    // both ends of, and it loses it often enough to look like the hotkey not working.
+    if lw_platform::platform().foreground_is_own_process() {
+        return Delivery::OwnWindow;
     }
     let platform = lw_platform::platform();
     if let Ok(mut injector) = platform.injector()
         && injector.inject(text).is_ok()
     {
-        return true;
+        return Delivery::Injected;
     }
     if let Ok(mut clip) = platform.clipboard() {
         let _ = clip.set_text(text);
     }
-    false
+    Delivery::Clipboard
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -7,7 +7,7 @@ mod hotkey;
 mod inject;
 
 pub use caps::{detect_npu, processor_name_from_registry};
-pub use foreground::foreground_app;
+pub use foreground::{foreground_app, foreground_is_own_process};
 pub use hotkey::WindowsHotkey;
 pub use inject::WindowsInjector;
 

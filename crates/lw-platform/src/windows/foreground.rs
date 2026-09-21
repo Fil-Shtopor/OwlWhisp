@@ -63,6 +63,27 @@ pub fn foreground_app() -> Result<ForegroundApp> {
     })
 }
 
+/// Whether the window in front belongs to this process.
+///
+/// Asked before typing a transcript: pasting into our own window means synthesizing Ctrl+V for a
+/// thread in this very process, and then restoring the clipboard on a timer while that thread is
+/// the busiest one here. The caller has a better way to reach its own text box, and this is how it
+/// knows to use it.
+pub fn foreground_is_own_process() -> bool {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+
+    // SAFETY: no preconditions; may return a null HWND when nothing has focus.
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_invalid() {
+        return false;
+    }
+    let mut pid = 0u32;
+    // SAFETY: hwnd is valid; pid is a valid out pointer.
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    // SAFETY: no preconditions.
+    thread_id != 0 && pid != 0 && pid == unsafe { GetCurrentProcessId() }
+}
+
 #[cfg(test)]
 mod tests {
     /// Runtime smoke test: on an interactive desktop there is normally a foreground

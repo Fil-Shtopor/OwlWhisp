@@ -29,7 +29,7 @@ pub use catalog::{
     AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role,
 };
 pub use diagnostics::{AcceleratorStatus, Diagnostics};
-pub use dictation::{Command, Event, Handle, RecordingState};
+pub use dictation::{Command, Delivery, Event, Handle, RecordingState};
 pub use hotkey::{Binding as HotkeyBinding, Pump as HotkeyPump, decide as decide_hotkey};
 pub use machine::probe_capabilities;
 pub use measurements::{LocalMeasurement, LocalMeasurements};

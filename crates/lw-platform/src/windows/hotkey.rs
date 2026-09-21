@@ -413,6 +413,45 @@ mod live_tests {
         pressed == Ok(HotkeyEvent::Pressed) && released == Ok(HotkeyEvent::Released)
     }
 
+    /// Inject a combination this process is **not** bound to, so it passes through the chain.
+    ///
+    /// The point is to drive another running application's hotkey from here. A hook that matches a
+    /// combination now swallows it, which is right for a global hotkey and makes this process
+    /// useless as a driver unless it deliberately registers something else.
+    ///
+    /// Run it with `--nocapture` and watch the application's log:
+    /// `cargo test -p lw-platform --lib live_tests::press_ctrl_space_for_another_app -- --ignored`
+    #[test]
+    #[ignore = "injects keystrokes for whatever else is running"]
+    fn press_ctrl_space_for_another_app() {
+        const VK_CONTROL: u16 = 0x11;
+        const VK_SPACE: u16 = 0x20;
+
+        let mut hotkey = WindowsHotkey::new().expect("install the keyboard hook");
+        let events = hotkey.events();
+        // Something nothing else uses, so this hook watches without taking anything.
+        hotkey
+            .register(&HotkeySpec {
+                modifiers: vec!["ctrl".into(), "alt".into(), "shift".into()],
+                trigger: "f20".into(),
+            })
+            .expect("register a combination of our own");
+        while events.try_recv().is_ok() {}
+
+        key(VK_CONTROL, false);
+        key(VK_SPACE, false);
+        std::thread::sleep(Duration::from_millis(120));
+        key(VK_SPACE, true);
+        key(VK_CONTROL, true);
+        std::thread::sleep(Duration::from_millis(200));
+
+        assert!(
+            events.try_recv().is_err(),
+            "our own hook matched, so the keys never travelled on"
+        );
+        println!("injected ctrl+space; check the other application");
+    }
+
     /// Which combinations this machine actually delivers to a low-level hook.
     ///
     /// Not a pass/fail of our code -- every one of these is registered and tracked identically, and

@@ -61,6 +61,22 @@ pub fn foreground_app() -> Result<ForegroundApp> {
     }
 }
 
+/// Whether the window in front belongs to this process.
+///
+/// `false` where the question cannot be answered, which is the safe direction: the caller then
+/// types the text the ordinary way instead of assuming it can reach its own control.
+pub fn foreground_is_own_process() -> bool {
+    #[cfg(windows)]
+    {
+        crate::windows::foreground_is_own_process()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested; used by the per-OS implementations)
 // ---------------------------------------------------------------------------

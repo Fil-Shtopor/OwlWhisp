@@ -12,7 +12,7 @@
 
 use iced::widget::{button, column, container, row, scrollable, text_editor, Space};
 use iced::{Color, Element, Length, Padding};
-use lw_app::dictation::{Command, Event, Handle, RecordingState};
+use lw_app::dictation::{Command, Delivery, Event, Handle, RecordingState};
 use lw_core::settings::{HotkeyConfig, HotkeyMode};
 
 use crate::{theme, widgets};
@@ -35,7 +35,7 @@ pub struct State {
     state: RecordingState,
     level: f32,
     backend: Option<Box<lw_app::bench::ActiveBackend>>,
-    last: Option<(String, bool, String)>,
+    last: Option<(String, Delivery, String)>,
     error: Option<String>,
     scratchpad: text_editor::Content,
     /// The binding as configured, which is what the hint is written from.
@@ -209,11 +209,18 @@ impl State {
                         }
                         Event::Transcript {
                             text,
-                            injected,
+                            delivery,
                             provider,
                         } => {
                             self.error = None;
-                            self.last = Some((text, injected, provider));
+                            // Our own window had focus, so the text comes here rather than through
+                            // a synthetic paste: this panel owns the box the user was typing in.
+                            if delivery == Delivery::OwnWindow {
+                                self.scratchpad.perform(text_editor::Action::Edit(
+                                    text_editor::Edit::Paste(std::sync::Arc::new(text.clone())),
+                                ));
+                            }
+                            self.last = Some((text, delivery, provider));
                             // Ask again: the first utterance is what loads the engine, so this is
                             // the moment the backend line stops being "nothing loaded yet".
                             self.worker.send(Command::Describe);
@@ -417,12 +424,20 @@ impl State {
     fn last_card(&self) -> Element<'_, Message> {
         let body: Element<'_, Message> = match &self.last {
             None => widgets::sub("Nothing has been dictated yet in this session.").into(),
-            Some((text, injected, provider)) => column![
+            // An empty result is a real outcome and deserves a sentence, not an empty card with a
+            // badge claiming the nothing was put somewhere.
+            Some((_, Delivery::Nothing, _)) => widgets::prose(
+                "That recording produced no words. The microphone was open and the model ran, so \
+                 either nothing was said or nothing reached it - the level meter in Settings says \
+                 which.",
+            ),
+            Some((text, delivery, provider)) => column![
                 row![
-                    if *injected {
-                        widgets::badge_yes("typed into the focused window")
-                    } else {
-                        widgets::badge("copied to the clipboard", theme::ESTIMATE)
+                    match delivery {
+                        Delivery::OwnWindow => widgets::badge_yes("put in the box above"),
+                        Delivery::Injected =>
+                            widgets::badge_yes("typed into the focused window"),
+                        _ => widgets::badge("copied to the clipboard", theme::ESTIMATE),
                     },
                     widgets::sub(provider.clone()),
                 ]

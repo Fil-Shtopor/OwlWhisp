@@ -189,6 +189,11 @@ impl Platform {
     pub fn foreground_app(&self) -> Result<ForegroundApp> {
         inject::foreground_app()
     }
+
+    /// Whether the window in front belongs to this process. See [`inject::foreground_is_own_process`].
+    pub fn foreground_is_own_process(&self) -> bool {
+        inject::foreground_is_own_process()
+    }
 }
 
 /// The crate version.

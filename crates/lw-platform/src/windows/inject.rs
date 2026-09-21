@@ -430,3 +430,24 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    /// Put text into whatever window is in front, by the exact path dictation uses.
+    ///
+    /// Ignored by default: it takes the clipboard and synthesizes a paste into somebody's window.
+    /// Run it with the application focused on the Dictate tab, caret in the scratchpad, to see
+    /// whether a transcript would actually land there:
+    /// `cargo test -p lw-platform --lib inject::live_tests -- --ignored --nocapture`
+    #[test]
+    #[ignore = "takes the clipboard and types into the focused window"]
+    fn inject_into_the_focused_window() {
+        let mut injector = WindowsInjector::new();
+        injector
+            .inject_into("LW-INJECT-PROBE", true)
+            .expect("inject");
+        println!("injected LW-INJECT-PROBE into the foreground window");
+    }
+}
