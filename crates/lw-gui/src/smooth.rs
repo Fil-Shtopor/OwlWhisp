@@ -44,15 +44,16 @@ pub const SETTLED: f32 = 0.6;
 /// an extra frame, because redraw requests coalesce -- it only advances the easing, which is a
 /// function of elapsed time and therefore already correct at any rate. The cap is here so that an
 /// absurd reported rate cannot turn into a busy loop.
-const FASTEST_STEP_MS: u64 = 4;
+const FASTEST_STEP: std::time::Duration = std::time::Duration::from_micros(4_000);
 
 /// The slowest, for a display that reports something implausible or nothing at all.
-const SLOWEST_STEP_MS: u64 = 16;
+const SLOWEST_STEP: std::time::Duration = std::time::Duration::from_micros(16_667);
 
 /// How many display frames one step may span before the motion is worse than slowing down.
 ///
-/// Three is about 40 a second on this panel, which still reads as movement. Past that the cure is
-/// worse than the disease and the right answer is a cheaper frame, not a longer wait.
+/// Three is 40 a second on this panel, which still reads as movement. Past that the wait is long
+/// enough to read as a series of jumps whatever its regularity, and the real answer becomes a
+/// cheaper frame rather than a longer slot.
 const MAX_DIVISOR: u32 = 3;
 
 /// How many steps to judge before changing the rate.
@@ -74,11 +75,23 @@ const LATE: f32 = 1.4;
 ///
 /// Not a fixed sixty either. This panel runs at 120 Hz, and stepping at 60 shows every frame
 /// twice, which the eye reads as exactly the stepping a smooth scroll exists to remove.
+///
+/// And not whole milliseconds, which is the trap this fell into first. A 120 Hz panel refreshes
+/// every 8.333 ms; `1000 / 120` is 8, four percent fast, so every twenty-fifth step landed in a
+/// refresh that already had one and was never shown -- a hitch, at a beat of about five a second,
+/// in motion that was otherwise perfectly regular. The multiples were wrong for the same reason:
+/// three refreshes are 25 ms, not 24. Measured, the same tab scrolled three times settled at 16 ms
+/// twice and 24 ms once, and the 24 ms run was half again as uneven as the 16 ms ones -- the rate
+/// was not the problem, the rounding was.
 fn step_for_display() -> std::time::Duration {
-    let ms = lw_platform::screen::refresh_hz()
-        .map(|hz| (1000 / u64::from(hz.max(1))).clamp(FASTEST_STEP_MS, SLOWEST_STEP_MS))
-        .unwrap_or(SLOWEST_STEP_MS);
-    std::time::Duration::from_millis(ms)
+    lw_platform::screen::refresh_hz()
+        .map(period_for)
+        .unwrap_or(SLOWEST_STEP)
+}
+
+/// One refresh at `hz`, within the bounds worth stepping at.
+fn period_for(hz: u32) -> std::time::Duration {
+    std::time::Duration::from_secs_f64(1.0 / f64::from(hz.max(1))).clamp(FASTEST_STEP, SLOWEST_STEP)
 }
 
 /// The scroll position of one scrollable, and where it is heading.
@@ -208,6 +221,14 @@ impl Scroll {
             // must not teleport the view. Cap it and let the next frames catch up.
             .min(0.1);
         self.last_frame = Some(now);
+        // The pacing below is decided by measurement, so the measurement is worth being able to
+        // see. At `debug` this is the only honest answer to "is it actually smooth?" -- the gaps
+        // the frames really landed in, rather than the ones that were asked for.
+        tracing::debug!(
+            gap_ms = (elapsed * 1000.0) as u32,
+            slot_ms = self.step().as_millis() as u32,
+            "scroll frame"
+        );
         self.judge(elapsed);
 
         if !self.animating() {
@@ -254,6 +275,12 @@ impl Scroll {
         }
         if self.missed * 4 >= self.judged && self.divisor < MAX_DIVISOR {
             self.divisor += 1;
+            tracing::debug!(
+                late = self.missed,
+                of = self.judged,
+                now_ms = self.step().as_millis() as u32,
+                "the window cannot draw that fast; stepping the scroll less often"
+            );
         }
         self.judged = 0;
         self.missed = 0;
@@ -388,6 +415,37 @@ mod tests {
             "one stalled frame covered {moved} of {remaining}"
         );
         assert!(s.animating(), "one stalled frame swallowed the whole scroll");
+    }
+
+    #[test]
+    fn a_refresh_is_not_a_whole_number_of_milliseconds() {
+        // The bug this exists to prevent: `1000 / 120` is 8, and a step of 8 ms against a panel
+        // that refreshes every 8.333 ms gains a whole refresh every twenty-fifth frame, where two
+        // steps share one refresh and the first is never shown. Perfectly regular arithmetic, a
+        // visible hitch about five times a second.
+        let at_120 = period_for(120);
+        assert!(
+            at_120 > Duration::from_micros(8_300) && at_120 < Duration::from_micros(8_400),
+            "120 Hz gave {at_120:?}, not a refresh"
+        );
+        // And the multiples have to be multiples of the real thing: three refreshes are 25 ms.
+        assert!(
+            at_120 * 3 > Duration::from_millis(24) && at_120 * 3 < Duration::from_millis(26),
+            "three refreshes came to {:?}",
+            at_120 * 3
+        );
+        let at_60 = period_for(60);
+        assert!(
+            at_60 > Duration::from_micros(16_600) && at_60 < Duration::from_micros(16_700),
+            "60 Hz gave {at_60:?}"
+        );
+    }
+
+    #[test]
+    fn an_implausible_refresh_rate_cannot_make_a_busy_loop_or_a_slideshow() {
+        assert_eq!(period_for(10_000), FASTEST_STEP);
+        assert_eq!(period_for(1), SLOWEST_STEP);
+        assert_eq!(period_for(0), SLOWEST_STEP);
     }
 
     #[test]
