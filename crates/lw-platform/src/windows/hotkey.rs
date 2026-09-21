@@ -22,10 +22,16 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+// Aliased: this crate has its own `MOD_*` family bits, and the two sets mean different things.
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    MOD_ALT as WIN_MOD_ALT, MOD_CONTROL as WIN_MOD_CONTROL,
+    MOD_NOREPEAT as WIN_MOD_NOREPEAT, MOD_SHIFT as WIN_MOD_SHIFT, MOD_WIN as WIN_MOD_WIN,
+    RegisterHotKey, UnregisterHotKey,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, SetTimer,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW,
+    SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP,
+    WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
 use crate::hotkey::{
@@ -44,6 +50,25 @@ static COMBO_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static HOOK_STARTED: AtomicBool = AtomicBool::new(false);
 static HOOK_HEALTHY: AtomicBool = AtomicBool::new(false);
+
+/// The hook thread, so a rebind can be handed to it -- `RegisterHotKey` delivers `WM_HOTKEY` to the
+/// thread that called it, so it has to be the thread that is pumping messages.
+static HOOK_THREAD: AtomicU32 = AtomicU32::new(0);
+
+/// Whether Windows itself is delivering the combination, rather than the hook recognising it.
+///
+/// The preferred path, and the one the build before this used. `RegisterHotKey` is arranged by the
+/// window manager: it consumes the key, it cannot be starved by a slow callback, and it does not
+/// depend on this process winning a race in a chain of hooks that other applications also install
+/// into. The hook stays for what `RegisterHotKey` cannot do -- the release edge that push-to-talk
+/// needs, and modifier-only combinations, which it refuses outright.
+static USE_REGISTERED: AtomicBool = AtomicBool::new(false);
+
+/// Our one hotkey registration.
+const HOTKEY_ID: i32 = 0x4C57; // "LW"
+
+/// Ask the hook thread to re-register with the window manager.
+const WM_REBIND: u32 = WM_APP + 1;
 
 /// Milliseconds (since [`epoch`]) at which the hook last saw any key event at all.
 ///
@@ -134,11 +159,22 @@ fn on_physical_key(vk_code: u32, down: bool) -> bool {
         if combo.is_empty() {
             return false;
         }
+        let registered = USE_REGISTERED.load(Ordering::Acquire);
         if let Some(event) = slot.1.on_key(vk_code, down) {
             COMBO_ACTIVE.store(event == HotkeyEvent::Pressed, Ordering::Release);
-            // Pre-allocated bounded channel: try_send never allocates; drop on overflow
-            // rather than ever blocking the hook.
-            let _ = events_channel().0.try_send(event);
+            // When the window manager owns the press, the hook must not announce it as well, or
+            // one press would toggle dictation twice. The release edge is still ours: a
+            // registered hotkey reports key-down only, and push-to-talk needs the other half.
+            if !(registered && event == HotkeyEvent::Pressed) {
+                // Pre-allocated bounded channel: try_send never allocates; drop on overflow
+                // rather than ever blocking the hook.
+                let _ = events_channel().0.try_send(event);
+            }
+        }
+        // Nothing to swallow when the window manager has the key: it never reached the hook
+        // chain's consumers in the first place.
+        if registered {
+            return false;
         }
         let active = slot.1.is_active();
         SWALLOWING.with(|flag| {
@@ -197,6 +233,11 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
     };
     tracing::info!("low-level keyboard hook installed");
     LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
+    // SAFETY: no preconditions; returns the calling thread's id.
+    HOOK_THREAD.store(
+        unsafe { windows::Win32::System::Threading::GetCurrentThreadId() },
+        Ordering::Release,
+    );
     let _ = ready_tx.send(Ok(()));
 
     // A timer, so the loop can wake for the watchdog without ever leaving the message call.
@@ -223,10 +264,74 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
             hook = watchdog(hook);
             continue;
         }
+        if msg.message == WM_REBIND {
+            rebind_with_window_manager();
+            continue;
+        }
+        if msg.message == WM_HOTKEY && msg.wParam.0 as i32 == HOTKEY_ID {
+            // Windows says the combination was pressed. It has already taken the key from
+            // whatever had focus, so there is nothing to swallow and nothing to check.
+            COMBO_ACTIVE.store(true, Ordering::Release);
+            let _ = events_channel().0.try_send(HotkeyEvent::Pressed);
+            continue;
+        }
         // SAFETY: msg came from GetMessageW and is valid for these calls.
         unsafe {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+    }
+}
+
+/// Hand the current combination to the window manager, on the hook thread.
+///
+/// Called only from that thread: `RegisterHotKey` binds the registration to whoever calls it, and
+/// `WM_HOTKEY` then arrives in that thread's queue.
+fn rebind_with_window_manager() {
+    // SAFETY: unregistering our own id; harmless when nothing is registered.
+    unsafe {
+        let _ = UnregisterHotKey(None, HOTKEY_ID);
+    }
+    USE_REGISTERED.store(false, Ordering::Release);
+
+    let combo = load_combo();
+    if combo.trigger == 0 {
+        // Modifiers on their own: `RegisterHotKey` will not take them, and the hook is the only
+        // way. Not a failure -- the binding still works, by the other path.
+        tracing::info!("modifier-only binding: the keyboard hook will detect it");
+        return;
+    }
+
+    // `MOD_NOREPEAT`: holding the keys down must not fire over and over. The hook's own tracker
+    // already ignores auto-repeat, and the two must agree.
+    let mut mods = WIN_MOD_NOREPEAT;
+    if combo.mods & crate::hotkey::MOD_CTRL != 0 {
+        mods |= WIN_MOD_CONTROL;
+    }
+    if combo.mods & crate::hotkey::MOD_SHIFT != 0 {
+        mods |= WIN_MOD_SHIFT;
+    }
+    if combo.mods & crate::hotkey::MOD_ALT != 0 {
+        mods |= WIN_MOD_ALT;
+    }
+    if combo.mods & crate::hotkey::MOD_WIN != 0 {
+        mods |= WIN_MOD_WIN;
+    }
+
+    // SAFETY: a thread-scoped registration with our own id; the result is checked.
+    match unsafe { RegisterHotKey(None, HOTKEY_ID, mods, u32::from(combo.trigger)) } {
+        Ok(()) => {
+            USE_REGISTERED.store(true, Ordering::Release);
+            tracing::info!("hotkey registered with the window manager");
+        }
+        Err(e) => {
+            // Almost always because another application got there first. The hook is still
+            // watching, so the binding may yet work -- but it is now at the mercy of the hook
+            // chain, and the front end is told so it can say as much.
+            tracing::warn!(
+                "the window manager refused this combination ({e}); falling back to the keyboard \
+                 hook, which another application's hook can intercept"
+            );
         }
     }
 }
@@ -287,6 +392,18 @@ impl WindowsHotkey {
         Ok(Self { registered: false })
     }
 
+    /// Post the rebind to the hook thread, which is the only one that may call `RegisterHotKey`.
+    fn ask_thread_to_rebind() {
+        let thread = HOOK_THREAD.load(Ordering::Acquire);
+        if thread == 0 {
+            return;
+        }
+        // SAFETY: a thread message to our own hook thread; failure only means it has gone.
+        unsafe {
+            let _ = PostThreadMessageW(thread, WM_REBIND, WPARAM(0), LPARAM(0));
+        }
+    }
+
     fn publish_combo(combo: ParsedCombo) {
         COMBO_MODS.store(combo.mods as u32, Ordering::Release);
         COMBO_TRIGGER.store(combo.trigger as u32, Ordering::Release);
@@ -303,6 +420,7 @@ impl GlobalHotkey for WindowsHotkey {
     fn register(&mut self, spec: &HotkeySpec) -> Result<()> {
         let combo = parse_spec(spec)?;
         Self::publish_combo(combo);
+        Self::ask_thread_to_rebind();
         self.registered = true;
         tracing::info!(?spec, "hotkey registered");
         Ok(())
@@ -311,6 +429,7 @@ impl GlobalHotkey for WindowsHotkey {
     fn unregister(&mut self) -> Result<()> {
         if self.registered {
             Self::publish_combo(ParsedCombo::default());
+            Self::ask_thread_to_rebind();
             self.registered = false;
             tracing::info!("hotkey unregistered");
         }
