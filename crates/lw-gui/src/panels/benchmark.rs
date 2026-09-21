@@ -494,7 +494,7 @@ impl State {
             }
         }
 
-        body.push(Space::new().width(0).height(8)).into()
+        body.push(Space::new().height(8)).into()
     }
 }
 

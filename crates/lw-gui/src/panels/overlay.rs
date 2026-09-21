@@ -109,7 +109,7 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
     // Centred in the window, with the window itself transparent: the 8px margin the web version had
     // is what keeps the pill's shadowless edge off the window edge.
     container(
-        column![Space::new().width(0).height(Length::Fill), pill, Space::new().width(0).height(Length::Fill)]
+        column![Space::new().height(Length::Fill), pill, Space::new().height(Length::Fill)]
             .align_x(iced::Alignment::Center),
     )
     .width(Length::Fill)

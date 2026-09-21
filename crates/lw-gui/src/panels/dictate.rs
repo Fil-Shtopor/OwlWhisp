@@ -237,7 +237,7 @@ impl State {
                     "If the bar above does not change when you press the hotkey, or nothing is \
                      transcribed, check the microphone: Settings has the input picker.",
                 ),
-                Space::new().width(0).height(8),
+                Space::new().height(8),
             ]
         .spacing(12)
         .padding(Padding::from([0, 8]))
@@ -277,17 +277,18 @@ impl State {
                 })
                 .into()
         } else {
-            Element::from(Space::new().width(0).height(4))
+            Element::from(Space::new().height(4))
         };
 
         container(
             row![
                 iced::widget::text(self.state.label()).size(17).color(fg),
                 level_bar,
-                Space::new().width(Length::Fill).height(0),
+                Space::new().width(Length::Fill),
                 self.hotkey_hint(),
             ]
             .spacing(12)
+            .width(Length::Fill)
             .align_y(iced::Alignment::Center),
         )
         .padding(Padding::from([14, 20]))

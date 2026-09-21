@@ -138,7 +138,7 @@ impl State {
                 build,
                 widgets::card(rt),
                 widgets::card(accel),
-                Space::new().width(0).height(8),
+                Space::new().height(8),
             ]
             .spacing(12)
             .padding(iced::Padding::from([0, 8]))

@@ -390,7 +390,7 @@ impl State {
                 row![left, right].spacing(20).align_y(iced::Alignment::Start),
                 // Save spans both, because it applies to both.
                 self.save_row(),
-                Space::new().width(0).height(8),
+                Space::new().height(8),
             ]
             .spacing(12)
             .padding(Padding::from([0, 8]))
@@ -400,7 +400,7 @@ impl State {
             for card in adjust.into_iter().chain(hardware) {
                 one = one.push(card);
             }
-            one.push(self.save_row()).push(Space::new().width(0).height(8)).into()
+            one.push(self.save_row()).push(Space::new().height(8)).into()
         };
 
         body
@@ -681,7 +681,7 @@ impl State {
                 if self.mic.open {
                     widgets::badge_yes("listening")
                 } else {
-                    Space::new().width(0).height(0).into()
+                    Space::new().into()
                 },
             ]
             .spacing(8)
