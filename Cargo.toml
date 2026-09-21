@@ -87,7 +87,12 @@ half = "2.7"
 sherpa-onnx = { version = "1.13.6", default-features = false, features = ["static"] }
 
 # networking / hashing / files
-reqwest = { version = "0.12", default-features = false, features = ["default-tls", "stream", "json", "charset", "http2", "blocking"] }
+# `native-tls` spelled out rather than `default-tls`: as of reqwest 0.13 that alias means
+# *rustls*, so leaving it would have quietly moved every model download onto a different TLS
+# stack with a different trust store -- and onto `aws-lc-sys`, which does not build for
+# Windows ARM64 without clang-cl. The platform's own TLS and certificate store is what this
+# has always used.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "stream", "json", "charset", "http2", "blocking"] }
 sha2 = "0.11"
 hex = "0.4"
 directories = "6.0"
