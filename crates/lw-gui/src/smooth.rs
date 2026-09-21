@@ -37,13 +37,29 @@ const NOTCH: f32 = 60.0;
 /// the exponential tail is long.
 pub const SETTLED: f32 = 0.6;
 
-/// How often the animation steps. Sixty a second, not as fast as the renderer will go.
+/// The fastest the animation will step, however quick the panel claims to be.
 ///
-/// The obvious driver is `window::frames()`, but that self-sustains: each step asks for a redraw,
-/// every redraw fires the subscription again, and the loop free-runs at whatever the rasteriser
-/// can manage -- measured at about 120 a second here, which is twice the work for no visible
-/// difference on a 60 Hz panel.
-pub const STEP: std::time::Duration = std::time::Duration::from_millis(16);
+/// A hundred and twenty a second. Beyond that the rasteriser cannot keep up on a large window and
+/// the ticks only queue up behind frames that are still being drawn.
+const FASTEST_STEP_MS: u64 = 8;
+
+/// The slowest, for a display that reports something implausible or nothing at all.
+const SLOWEST_STEP_MS: u64 = 16;
+
+/// How often the animation steps, matched to the display.
+///
+/// Not `window::frames()`, which self-sustains: each step asks for a redraw, every redraw fires
+/// the subscription again, and the loop free-runs at whatever the rasteriser can manage -- about
+/// 120 a second here, and the frames past the panel's own rate are work nobody sees.
+///
+/// Not a fixed sixty either. This panel runs at 120 Hz, and stepping at 60 shows every frame
+/// twice, which the eye reads as exactly the stepping a smooth scroll exists to remove.
+fn step_for_display() -> std::time::Duration {
+    let ms = lw_platform::screen::refresh_hz()
+        .map(|hz| (1000 / u64::from(hz.max(1))).clamp(FASTEST_STEP_MS, SLOWEST_STEP_MS))
+        .unwrap_or(SLOWEST_STEP_MS);
+    std::time::Duration::from_millis(ms)
+}
 
 /// The scroll position of one scrollable, and where it is heading.
 pub struct Scroll {
@@ -58,6 +74,8 @@ pub struct Scroll {
     max: f32,
     /// When the last frame was, so the easing is a function of time rather than of frame rate.
     last_frame: Option<Instant>,
+    /// How often to step, read from the display once.
+    step: std::time::Duration,
 }
 
 impl Default for Scroll {
@@ -74,7 +92,13 @@ impl Scroll {
             current: 0.0,
             max: f32::INFINITY,
             last_frame: None,
+            step: step_for_display(),
         }
+    }
+
+    /// How often this wants to be ticked while a scroll is in flight.
+    pub fn step(&self) -> std::time::Duration {
+        self.step
     }
 
     /// Wrap `content` in a scrollable whose wheel this type owns.

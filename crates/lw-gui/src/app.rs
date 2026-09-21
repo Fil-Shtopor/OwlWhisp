@@ -195,7 +195,7 @@ impl App {
             // Frames only while something is moving. A scroll that has arrived costs nothing, and
             // an idle window redraws not at all.
             if self.scroll.animating() {
-                iced::time::every(smooth::STEP).map(Message::Frame)
+                iced::time::every(self.scroll.step()).map(Message::Frame)
             } else {
                 iced::Subscription::none()
             },

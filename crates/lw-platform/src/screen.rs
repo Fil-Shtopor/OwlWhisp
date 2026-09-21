@@ -68,6 +68,36 @@ pub fn primary_work_area() -> Option<WorkArea> {
     })
 }
 
+/// The primary display's refresh rate in hertz, if it can be asked.
+///
+/// Animation that steps at sixty a second on a hundred-and-twenty hertz panel shows every frame
+/// twice, and the eye reads the repeats as steps -- which is the whole thing a smooth scroll is
+/// trying to avoid. Asking the display is the only way to know.
+#[cfg(windows)]
+pub fn refresh_hz() -> Option<u32> {
+    use windows::Win32::Graphics::Gdi::{
+        DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
+    };
+
+    let mut mode = DEVMODEW {
+        dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    // SAFETY: a null device name means the default display; `mode` is correctly sized above.
+    let ok = unsafe { EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &mut mode) };
+    if !ok.as_bool() {
+        return None;
+    }
+    // 0 and 1 both mean "hardware default" rather than a real rate.
+    (mode.dmDisplayFrequency > 1).then_some(mode.dmDisplayFrequency)
+}
+
+/// Not implemented away from Windows yet.
+#[cfg(not(windows))]
+pub fn refresh_hz() -> Option<u32> {
+    None
+}
+
 /// Not implemented away from Windows yet, so callers centre instead of guessing.
 #[cfg(not(windows))]
 pub fn primary_work_area() -> Option<WorkArea> {
