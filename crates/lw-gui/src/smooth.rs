@@ -49,6 +49,23 @@ const FASTEST_STEP_MS: u64 = 4;
 /// The slowest, for a display that reports something implausible or nothing at all.
 const SLOWEST_STEP_MS: u64 = 16;
 
+/// How many display frames one step may span before the motion is worse than slowing down.
+///
+/// Three is about 40 a second on this panel, which still reads as movement. Past that the cure is
+/// worse than the disease and the right answer is a cheaper frame, not a longer wait.
+const MAX_DIVISOR: u32 = 3;
+
+/// How many steps to judge before changing the rate.
+///
+/// Long enough that one slow frame -- a tooltip appearing, another process waking -- does not
+/// change the rate, short enough that the adjustment happens within the first scroll rather than
+/// the third.
+const WINDOW: u32 = 12;
+
+/// How far past its slot a step must land to count as missed. A little slack, because a step that
+/// arrives a fraction late still draws on time.
+const LATE: f32 = 1.4;
+
 /// How often the animation steps, matched to the display.
 ///
 /// Not `window::frames()`, which self-sustains: each step asks for a redraw, every redraw fires
@@ -79,6 +96,13 @@ pub struct Scroll {
     last_frame: Option<Instant>,
     /// How often to step, read from the display once.
     step: std::time::Duration,
+    /// How many display frames each step currently spans.
+    ///
+    /// One is every frame. It rises when the window cannot draw that fast -- see `judge`.
+    divisor: u32,
+    /// Steps judged since the rate last changed, and how many of them arrived late.
+    judged: u32,
+    missed: u32,
 }
 
 impl Default for Scroll {
@@ -96,12 +120,20 @@ impl Scroll {
             max: f32::INFINITY,
             last_frame: None,
             step: step_for_display(),
+            divisor: 1,
+            judged: 0,
+            missed: 0,
         }
     }
 
     /// How often this wants to be ticked while a scroll is in flight.
+    ///
+    /// The display's frame time, or a multiple of it when the window has shown it cannot draw that
+    /// fast. Asking for more frames than can be delivered does not produce more frames -- it
+    /// produces uneven ones, and unevenness is what the eye reads as stutter. A steady forty is
+    /// smoother than a sixty that is really a hundred and twenty every third frame.
     pub fn step(&self) -> std::time::Duration {
-        self.step
+        self.step * self.divisor
     }
 
     /// Wrap `content` in a scrollable whose wheel this type owns.
@@ -116,11 +148,20 @@ impl Scroll {
         wheel: impl Fn(iced::mouse::ScrollDelta) -> M + 'a,
         viewport: impl Fn(scrollable::Viewport) -> M + 'a,
     ) -> Element<'a, M> {
-        scrollable(mouse_area(content).on_scroll(wheel))
-            .id(self.id.clone())
-            .on_scroll(viewport)
-            .height(Length::Fill)
-            .into()
+        // The container makes the wheel area the whole viewport rather than just the content.
+        //
+        // `mouse_area` captures the wheel only while the pointer is within its own bounds, and its
+        // bounds are the content's. Every panel here happens to fill the width today, so this
+        // changes nothing for them -- but a panel that did not would leave a strip down the side
+        // where a notch reached the scrollable directly and jumped, and that is a trap to close
+        // rather than to remember.
+        scrollable(
+            mouse_area(iced::widget::container(content).width(Length::Fill)).on_scroll(wheel),
+        )
+        .id(self.id.clone())
+        .on_scroll(viewport)
+        .height(Length::Fill)
+        .into()
     }
 
     /// A wheel notch, or a trackpad's pixel delta.
@@ -167,6 +208,7 @@ impl Scroll {
             // must not teleport the view. Cap it and let the next frames catch up.
             .min(0.1);
         self.last_frame = Some(now);
+        self.judge(elapsed);
 
         if !self.animating() {
             self.current = self.target;
@@ -184,6 +226,39 @@ impl Scroll {
         })
     }
 
+    /// Watch whether the steps are landing in their slots, and slow down when they are not.
+    ///
+    /// The rate only ever falls, and is reset by `remeasure` when the cost of a frame has actually
+    /// changed -- a different tab, a different window size. It is tempting to let it climb back on
+    /// its own, and wrong: once slowed, every window looks clean, because it is being judged at
+    /// the slower rate. That reads as permission to speed up, the frames are missed again, and the
+    /// rate ends up alternating between the two -- which is precisely the unevenness this exists
+    /// to remove. Better a rate that is occasionally more conservative than the machine requires
+    /// than one that is never steady.
+    ///
+    /// Measured rather than assumed, because the cost of a frame is a property of this window on
+    /// this machine at this size -- a wide window drawn on the CPU costs several times a narrow
+    /// one, and which tab is showing changes it again. Nothing here can be decided ahead of time.
+    ///
+    /// A quarter late is already visible: the eye finds one frame in four arriving at double the
+    /// interval far more objectionable than every frame arriving at that interval. So the bar for
+    /// backing off is a quarter, well below the half that would mean the rate is merely nominal.
+    fn judge(&mut self, elapsed: f32) {
+        let slot = self.step().as_secs_f32();
+        self.judged += 1;
+        if elapsed > slot * LATE {
+            self.missed += 1;
+        }
+        if self.judged < WINDOW {
+            return;
+        }
+        if self.missed * 4 >= self.judged && self.divisor < MAX_DIVISOR {
+            self.divisor += 1;
+        }
+        self.judged = 0;
+        self.missed = 0;
+    }
+
     /// Jump to the top with no animation, for when the content underneath has been replaced.
     ///
     /// Sliding through a page the user has never seen, because they switched tabs, is motion that
@@ -193,7 +268,21 @@ impl Scroll {
         self.current = 0.0;
         self.max = f32::INFINITY;
         self.last_frame = None;
+        // A different tab costs a different amount to draw, so what was learnt about the last one
+        // says nothing about this one.
+        self.remeasure();
         scrollable::AbsoluteOffset { x: 0.0, y: 0.0 }
+    }
+
+    /// Forget what the last frames cost and start optimistic again.
+    ///
+    /// For when the drawing itself has changed -- another tab, another window size -- so that a
+    /// window made small, or a cheap tab, is not left stepping at the rate a large expensive one
+    /// needed.
+    pub fn remeasure(&mut self) {
+        self.divisor = 1;
+        self.judged = 0;
+        self.missed = 0;
     }
 
     /// The scrollable this drives, for `scroll_to`.
@@ -306,5 +395,109 @@ mod tests {
         let mut s = Scroll::new();
         s.wheel(iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -17.0 });
         assert_eq!(s.target, 17.0);
+    }
+}
+
+#[cfg(test)]
+mod pace_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Drive a scroll for `frames` steps, each one taking `cost_ms` to draw, and report the rate
+    /// it settled on.
+    fn settle(cost_ms: u64, frames: u32) -> Duration {
+        let mut s = Scroll::new();
+        s.step = Duration::from_millis(8);
+        s.max = f32::INFINITY;
+        let mut now = Instant::now();
+        for _ in 0..frames {
+            s.wheel(lines(-1.0));
+            // A frame lands when the step is due or when the drawing finishes, whichever is later.
+            now += s.step().max(Duration::from_millis(cost_ms));
+            s.tick(now);
+        }
+        s.step()
+    }
+
+    fn lines(y: f32) -> iced::mouse::ScrollDelta {
+        iced::mouse::ScrollDelta::Lines { x: 0.0, y }
+    }
+
+    #[test]
+    fn a_window_that_keeps_up_is_left_at_the_display_rate() {
+        assert_eq!(settle(4, 60), Duration::from_millis(8));
+    }
+
+    #[test]
+    fn a_window_that_cannot_draw_in_time_is_asked_for_fewer_frames_instead() {
+        // The Benchmark tab, measured: sixteen milliseconds a frame against an eight millisecond
+        // slot. Asking every eight produces 8/16/24 jitter; asking every sixteen produces sixteen.
+        assert_eq!(settle(16, 60), Duration::from_millis(16));
+    }
+
+    #[test]
+    fn it_never_backs_off_so_far_that_the_motion_stops_reading_as_motion() {
+        assert_eq!(
+            settle(500, 120),
+            Duration::from_millis(8 * u64::from(MAX_DIVISOR))
+        );
+    }
+
+    #[test]
+    fn a_quarter_of_the_frames_arriving_late_is_enough_to_slow_down() {
+        // Models and Diagnostics, measured: not late often enough to be a majority, late often
+        // enough to be seen.
+        let mut s = Scroll::new();
+        s.step = Duration::from_millis(8);
+        let mut now = Instant::now();
+        for i in 0..WINDOW {
+            s.wheel(lines(-1.0));
+            now += Duration::from_millis(if i % 4 == 0 { 16 } else { 8 });
+            s.tick(now);
+        }
+        assert_eq!(s.step(), Duration::from_millis(16));
+    }
+
+    #[test]
+    fn one_slow_frame_does_not_change_the_rate() {
+        let mut s = Scroll::new();
+        s.step = Duration::from_millis(8);
+        let mut now = Instant::now();
+        for i in 0..WINDOW {
+            s.wheel(lines(-1.0));
+            now += Duration::from_millis(if i == 3 { 40 } else { 8 });
+            s.tick(now);
+        }
+        assert_eq!(s.step(), Duration::from_millis(8));
+    }
+
+    #[test]
+    fn the_rate_does_not_flap_between_two_values() {
+        // Once slowed, a clean window at the slower rate must not be read as proof that the faster
+        // one would work -- that is how an adaptive rate ends up oscillating, which looks worse
+        // than either rate on its own.
+        let mut s = Scroll::new();
+        s.step = Duration::from_millis(8);
+        let mut now = Instant::now();
+        let mut rates = Vec::new();
+        for _ in 0..(WINDOW * 4) {
+            s.wheel(lines(-1.0));
+            // Twelve milliseconds: too slow for an eight millisecond slot, comfortable in sixteen.
+            now += s.step().max(Duration::from_millis(12));
+            s.tick(now);
+            rates.push(s.step());
+        }
+        assert_eq!(*rates.last().unwrap(), Duration::from_millis(16));
+        let changes = rates.windows(2).filter(|w| w[0] != w[1]).count();
+        assert_eq!(changes, 1, "the rate changed {changes} times: {rates:?}");
+    }
+
+    #[test]
+    fn switching_tabs_forgets_what_the_last_one_cost() {
+        let mut s = Scroll::new();
+        s.step = Duration::from_millis(8);
+        s.divisor = 3;
+        s.reset();
+        assert_eq!(s.step(), Duration::from_millis(8));
     }
 }

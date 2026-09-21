@@ -362,6 +362,9 @@ impl App {
                 }
             }
             Message::Resized(w) => {
+                // A window half the size costs a fraction of the drawing, so whatever rate the old
+                // size could not sustain says nothing about this one.
+                self.scroll.remeasure();
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
                 // the width it is actually given.
                 self.models.update(panels::models::Message::Resized(w - 48.0));
