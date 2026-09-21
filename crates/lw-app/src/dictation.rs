@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use lw_core::audio::AudioBuffer;
 use lw_core::settings::Settings;
+use lw_core::sound::Cue;
 use lw_platform::{AudioCapture, Capture};
 use serde::{Deserialize, Serialize};
 
@@ -220,6 +221,23 @@ pub fn spawn(settings_path: PathBuf) -> Handle {
 struct Ctx {
     events: Sender<Event>,
     state: Arc<std::sync::Mutex<RecordingState>>,
+    /// Read when a cue is due, so a setting changed mid-session takes effect on the next
+    /// utterance rather than at the next restart.
+    settings_path: PathBuf,
+}
+
+/// The cue a transition calls for, if any.
+///
+/// Only two of the five states make a sound, and they are the two the user can act on:
+/// `Listening` means "speak now" and `Processing` means "I stopped listening". `Done` and `Error`
+/// are deliberately silent -- by then the text has appeared, or not, which is feedback enough, and
+/// a cue at the end of every utterance would double the noise.
+fn cue_for(state: RecordingState) -> Option<Cue> {
+    match state {
+        RecordingState::Listening => Some(Cue::Start),
+        RecordingState::Processing => Some(Cue::Stop),
+        _ => None,
+    }
 }
 
 impl Ctx {
@@ -227,7 +245,25 @@ impl Ctx {
         if let Ok(mut s) = self.state.lock() {
             *s = next;
         }
+        self.play_cue_for(next);
         let _ = self.events.send(Event::State(next));
+    }
+
+    /// Sound the cue for a transition.
+    ///
+    /// Here rather than in the window, because the state is here: the hotkey works with no window
+    /// open at all, and a cue that only sounded while somebody was looking at the application
+    /// would be a cue for the one moment it is not needed. This is the seam the Tauri shell used
+    /// to own, and where the sound went when that shell was deleted.
+    fn play_cue_for(&self, state: RecordingState) {
+        let Some(cue) = cue_for(state) else {
+            return;
+        };
+        let settings = Settings::load(&self.settings_path).unwrap_or_default();
+        if !settings.sounds_enabled {
+            return;
+        }
+        lw_platform::play_cue(settings.sound_theme, cue, settings.sound_volume);
     }
 
     /// Report a failure and return to rest, so a front end never has to guess whether the worker
@@ -247,7 +283,11 @@ fn worker_loop(
     state: Arc<std::sync::Mutex<RecordingState>>,
     self_tx: Sender<Command>,
 ) {
-    let ctx = Ctx { events, state };
+    let ctx = Ctx {
+        events,
+        state,
+        settings_path: settings_path.clone(),
+    };
     // Lazy-load the engine on first use so startup is not blocked by a 650 MB model.
     let mut loaded: Option<Result<Loaded, String>> = None;
     let mut capture: Option<Capture> = None;
@@ -529,4 +569,26 @@ fn spawn_silence_watcher(
             }
         })
         .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cue, RecordingState, cue_for};
+
+    #[test]
+    fn only_the_two_moments_the_user_can_act_on_make_a_sound() {
+        // The cue is feedback for somebody who is not looking at the screen: one sound means
+        // "speak now", the other means "I have stopped listening". A sound on Done would arrive
+        // after the text already had, and one on Error would be the second thing announcing the
+        // same failure.
+        assert_eq!(cue_for(RecordingState::Listening), Some(Cue::Start));
+        assert_eq!(cue_for(RecordingState::Processing), Some(Cue::Stop));
+        for quiet in [
+            RecordingState::Idle,
+            RecordingState::Done,
+            RecordingState::Error,
+        ] {
+            assert_eq!(cue_for(quiet), None, "{quiet:?} made a sound");
+        }
+    }
 }
