@@ -96,7 +96,7 @@ fn period_for(hz: u32) -> std::time::Duration {
 
 /// The scroll position of one scrollable, and where it is heading.
 pub struct Scroll {
-    id: scrollable::Id,
+    id: iced::widget::Id,
     /// Where the wheel has asked to be.
     target: f32,
     /// Where the view actually is.
@@ -127,7 +127,7 @@ impl Default for Scroll {
 impl Scroll {
     pub fn new() -> Self {
         Self {
-            id: scrollable::Id::unique(),
+            id: iced::widget::Id::unique(),
             target: 0.0,
             current: 0.0,
             max: f32::INFINITY,
@@ -313,7 +313,7 @@ impl Scroll {
     }
 
     /// The scrollable this drives, for `scroll_to`.
-    pub fn id(&self) -> scrollable::Id {
+    pub fn id(&self) -> iced::widget::Id {
         self.id.clone()
     }
 }

@@ -76,6 +76,9 @@ fn palette_theme(name: &str, background: iced::Color) -> Theme {
             text: TEXT,
             primary: ACCENT,
             success: GOOD,
+            // iced 0.14 asks for a warning colour of its own. The amber this already uses for an
+            // estimate is the same idea -- "true, but not measured" -- so nothing new is invented.
+            warning: ESTIMATE,
             danger: BAD,
         },
     )
@@ -83,8 +86,8 @@ fn palette_theme(name: &str, background: iced::Color) -> Theme {
 
 /// What the window is cleared to before anything is drawn. Reads the palette, so the overlay's
 /// transparent background is honoured rather than special-cased twice.
-pub fn appearance(theme: &Theme) -> iced::daemon::Appearance {
-    iced::daemon::Appearance {
+pub fn appearance(theme: &Theme) -> iced::theme::Style {
+    iced::theme::Style {
         background_color: theme.palette().background,
         text_color: theme.palette().text,
     }
@@ -186,8 +189,10 @@ pub fn chip(_t: &Theme) -> iced::widget::container::Style {
 pub fn rule(_t: &Theme) -> iced::widget::rule::Style {
     iced::widget::rule::Style {
         color: BORDER,
-        width: 1,
         radius: 0.0.into(),
         fill_mode: iced::widget::rule::FillMode::Full,
+        // A one-pixel line drawn between two device pixels is two grey ones; snapping puts it on
+        // the grid, which is what the border it stands in for always did.
+        snap: true,
     }
 }

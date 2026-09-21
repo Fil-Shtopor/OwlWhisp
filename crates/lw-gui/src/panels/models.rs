@@ -296,7 +296,7 @@ impl State {
                 widgets::sub("A suggestion, not a switch - nothing here changes which model runs."),
             ]
             .spacing(2),
-            Space::new(Length::Fill, 0),
+            Space::new().width(Length::Fill).height(0),
             widgets::sub("Language"),
             pick_list(self.languages.clone(), selected, |l: Lang| {
                 Message::LanguageSelected(l.code)
@@ -433,7 +433,7 @@ impl State {
             } else {
                 Message::ExpandAll
             }),
-            Space::new(Length::Fill, 0),
+            Space::new().width(Length::Fill).height(0),
             widgets::sub(format!("{} models", view.entries.len())),
         ]
         .align_y(iced::Alignment::Center);
@@ -448,12 +448,12 @@ impl State {
     fn table_body<'a>(&'a self, view: &'a CatalogView, width: f32) -> Element<'a, Message> {
         let cols = columns_for(width);
         let mut body = column![header(&cols)].spacing(0);
-        body = body.push(iced::widget::horizontal_rule(1).style(theme::rule));
+        body = body.push(iced::widget::rule::horizontal(1).style(theme::rule));
 
         for (vendor, rows) in
             lw_app::catalog::group_by_vendor(&view.entries, view.recommended.as_deref())
         {
-            body = body.push(Space::new(0, 8));
+            body = body.push(Space::new().width(0).height(8));
             body = body.push(
                 row![
                     iced::widget::text(vendor.to_uppercase())
@@ -469,11 +469,11 @@ impl State {
             );
             for entry in rows {
                 body = body.push(self.row(view, entry, &cols));
-                body = body.push(iced::widget::horizontal_rule(1).style(theme::rule));
+                body = body.push(iced::widget::rule::horizontal(1).style(theme::rule));
             }
         }
 
-        body = body.push(Space::new(0, 8));
+        body = body.push(Space::new().width(0).height(8));
         body = body.push(widgets::prose(
             "Models are grouped by who made them: the maker of the recommended model first, then \
              the makers offering the most, with anything uncredited under Other. Speed is an \
@@ -595,7 +595,7 @@ impl State {
         body = body.push(fact("Quality", entry.quality_label.to_string()));
         body = body.push(fact("Speed", entry.speed_label.to_string()));
 
-        body = body.push(Space::new(0, 6));
+        body = body.push(Space::new().width(0).height(6));
         body = body.push(accelerator_table(entry, mine));
 
         if let Some(dir) = &entry.install_dir {
@@ -763,7 +763,7 @@ impl State {
     /// What the download is doing, in bytes rather than in a spinner.
     fn install_progress(&self) -> Element<'_, Message> {
         let Some(handle) = &self.install else {
-            return Space::new(0, 0).into();
+            return Space::new().width(0).height(0).into();
         };
         let s = handle.state();
         if s.finishing {
@@ -1234,7 +1234,7 @@ impl Col {
                     }
                     r.align_y(iced::Alignment::Center).into()
                 }
-                None => Space::new(0, 0).into(),
+                None => Space::new().width(0).height(0).into(),
             },
             Col::Accuracy => {
                 let mut r = row![widgets::badge(entry.quality_label, theme::TEXT_DIM)].spacing(5);
@@ -1326,7 +1326,7 @@ fn header(cols: &[Col]) -> Element<'static, Message> {
     let mut r = row![
         container(iced::widget::text("MODEL").size(11).color(theme::TEXT_DIM))
             .width(Length::FillPortion(NAME_PORTION)),
-        container(Space::new(0, 0)).width(Length::FillPortion(BADGE_PORTION)),
+        container(Space::new().width(0).height(0)).width(Length::FillPortion(BADGE_PORTION)),
     ]
     .spacing(8);
     for col in cols {

@@ -237,7 +237,7 @@ impl State {
                     "If the bar above does not change when you press the hotkey, or nothing is \
                      transcribed, check the microphone: Settings has the input picker.",
                 ),
-                Space::new(0, 8),
+                Space::new().width(0).height(8),
             ]
         .spacing(12)
         .padding(Padding::from([0, 8]))
@@ -266,7 +266,7 @@ impl State {
 
         let level_bar = if self.state == RecordingState::Listening {
             let w = (self.level.clamp(0.0, 1.0) * 160.0).max(2.0);
-            container(Space::new(w, 4))
+            container(Space::new().width(w).height(4))
                 .style(|_t| container::Style {
                     background: Some(Color { a: 0.85, ..Color::WHITE }.into()),
                     border: iced::Border {
@@ -277,14 +277,14 @@ impl State {
                 })
                 .into()
         } else {
-            Element::from(Space::new(0, 4))
+            Element::from(Space::new().width(0).height(4))
         };
 
         container(
             row![
                 iced::widget::text(self.state.label()).size(17).color(fg),
                 level_bar,
-                Space::new(Length::Fill, 0),
+                Space::new().width(Length::Fill).height(0),
                 self.hotkey_hint(),
             ]
             .spacing(12)

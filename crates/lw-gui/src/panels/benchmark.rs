@@ -494,7 +494,7 @@ impl State {
             }
         }
 
-        body.push(Space::new(0, 8)).into()
+        body.push(Space::new().width(0).height(8)).into()
     }
 }
 
@@ -582,7 +582,7 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
 }
 
 /// A fixed-width cell, so the columns line up without a table widget.
-fn cell<'a>(content: impl Into<Element<'a, Message>>, width: u16) -> Element<'a, Message> {
+fn cell<'a>(content: impl Into<Element<'a, Message>>, width: u32) -> Element<'a, Message> {
     container(content).width(width).into()
 }
 

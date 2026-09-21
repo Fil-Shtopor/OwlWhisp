@@ -42,7 +42,7 @@ lw-gui = { path = "crates/lw-gui" }
 # the same pixels on Windows, macOS and Linux by construction, which a platform GPU stack does not.
 # `tokio` gives the executor that `Task::perform` needs: a benchmark sweep takes tens of seconds
 # and must not run on the thread that draws.
-iced = { version = "0.13", default-features = false, features = ["tiny-skia", "image", "lazy", "tokio"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "image", "lazy", "tokio"] }
 # The system tray. MIT/Apache-2.0, from the Tauri authors, and the same library Tauri itself used
 # for the tray in the build this replaces.
 tray-icon = "0.25"

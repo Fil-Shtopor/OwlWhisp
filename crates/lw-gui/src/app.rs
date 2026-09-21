@@ -145,7 +145,7 @@ impl App {
         self.tab = tab;
         match self.main {
             Some(id) => Task::batch([
-                window::change_mode(id, window::Mode::Windowed),
+                window::set_mode(id, window::Mode::Windowed),
                 window::gain_focus(id),
             ]),
             None => Task::none(),
@@ -171,7 +171,7 @@ impl App {
     }
 
     /// The colour each window is cleared to. See `theme::appearance`.
-    pub fn style(&self, theme: &iced::Theme) -> iced::daemon::Appearance {
+    pub fn style(&self, theme: &iced::Theme) -> iced::theme::Style {
         theme::appearance(theme)
     }
 
@@ -251,6 +251,8 @@ impl App {
                         skip_taskbar: true,
                         drag_and_drop: false,
                         undecorated_shadow: false,
+                        // Square, like the window it decorates -- which has no decorations at all.
+                        corner_preference: Default::default(),
                     },
                     ..Default::default()
                 });
@@ -284,8 +286,10 @@ impl App {
                 // believes is hidden is a window it never asks anyone to paint -- which showed up
                 // as an overlay that existed, reported itself visible to the OS, and drew nothing.
                 let styles = window::enable_mouse_passthrough(id).chain(
-                    window::run_with_handle(id, |handle| {
-                        if let raw_window_handle::RawWindowHandle::Win32(win32) = handle.as_raw()
+                    window::run(id, |window| {
+                        if let Ok(handle) = window.window_handle()
+                            && let raw_window_handle::RawWindowHandle::Win32(win32) =
+                                handle.as_raw()
                             && let Err(e) = lw_platform::overlay::make_passive(win32.hwnd.get())
                         {
                             tracing::warn!("the overlay may take focus: {e}");
@@ -318,7 +322,7 @@ impl App {
                     // Hidden, not closed: the application goes on listening for its hotkey, and
                     // the panels keep their state -- an unsaved settings edit survives a stray
                     // click on the close button.
-                    true => return window::change_mode(id, window::Mode::Hidden),
+                    true => return window::set_mode(id, window::Mode::Hidden),
                     // With no tray there would be no way back, so the close button means what it
                     // says.
                     false => Self::quit(),
@@ -341,7 +345,7 @@ impl App {
             Message::Scrolled(viewport) => self.scroll.observed(viewport),
             Message::Frame(now) => {
                 if let Some(offset) = self.scroll.tick(now) {
-                    return iced::widget::scrollable::scroll_to(self.scroll.id(), offset);
+                    return iced::widget::operation::scroll_to(self.scroll.id(), offset);
                 }
             }
             Message::TabSelected(tab) => {
@@ -358,7 +362,7 @@ impl App {
                     // Jump rather than slide: sliding through a page nobody has seen is motion
                     // that says nothing.
                     let top = self.scroll.reset();
-                    return iced::widget::scrollable::scroll_to(self.scroll.id(), top);
+                    return iced::widget::operation::scroll_to(self.scroll.id(), top);
                 }
             }
             Message::Resized(w) => {
@@ -451,7 +455,7 @@ impl App {
                 bottom: 8.0,
                 left: 12.0,
             }),
-            container(Space::new(Length::Fill, 1)).style(|_t| container::Style {
+            container(Space::new().width(Length::Fill).height(1)).style(|_t| container::Style {
                 background: Some(theme::BORDER.into()),
                 ..Default::default()
             }),

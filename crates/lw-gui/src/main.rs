@@ -45,9 +45,18 @@ fn main() -> iced::Result {
     // machine would not give us one, and the window then becomes the only way back to the app.
     let tray = tray::Tray::new();
 
-    iced::daemon(app::App::title, app::App::update, app::App::view)
+    // A `Cell` because iced 0.14 takes the boot function as an `Fn`, and the tray can only be
+    // handed over once. It is called exactly once; a second call would boot without a tray, which
+    // is the correct answer to a question that is never asked.
+    let tray = std::cell::Cell::new(tray);
+    iced::daemon(
+        move || app::App::boot(tray.take()),
+        app::App::update,
+        app::App::view,
+    )
+        .title(app::App::title)
         .theme(app::App::theme)
         .style(app::App::style)
         .subscription(app::App::subscription)
-        .run_with(move || app::App::boot(tray))
+        .run()
 }

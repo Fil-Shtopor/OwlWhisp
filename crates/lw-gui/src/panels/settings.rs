@@ -224,7 +224,15 @@ impl State {
         if !self.capturing {
             return iced::Subscription::none();
         }
-        iced::keyboard::on_key_press(|key, modifiers| {
+        // `on_key_press` is gone in iced 0.14; `listen` reports every keyboard event and the
+        // press is picked out here. Same events, one more line.
+        iced::keyboard::listen().filter_map(|event| {
+            let iced::keyboard::Event::KeyPressed {
+                key, modifiers, ..
+            } = event
+            else {
+                return None;
+            };
             // Esc on its own cancels, exactly as it did in the web editor. Esc *with* a modifier is
             // a perfectly good trigger key and is taken as one.
             if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
@@ -382,7 +390,7 @@ impl State {
                 row![left, right].spacing(20).align_y(iced::Alignment::Start),
                 // Save spans both, because it applies to both.
                 self.save_row(),
-                Space::new(0, 8),
+                Space::new().width(0).height(8),
             ]
             .spacing(12)
             .padding(Padding::from([0, 8]))
@@ -392,7 +400,7 @@ impl State {
             for card in adjust.into_iter().chain(hardware) {
                 one = one.push(card);
             }
-            one.push(self.save_row()).push(Space::new(0, 8)).into()
+            one.push(self.save_row()).push(Space::new().width(0).height(8)).into()
         };
 
         body
@@ -475,7 +483,7 @@ impl State {
                 None => m.label.to_string(),
             };
             boxes = boxes.push(
-                checkbox(label, lw_app::hotkey::has_modifier(h, m.id))
+                checkbox(lw_app::hotkey::has_modifier(h, m.id)).label(label)
                     .on_toggle(move |v| Message::ModifierToggled(m.id, v))
                     .size(16)
                     .text_size(14),
@@ -673,14 +681,14 @@ impl State {
                 if self.mic.open {
                     widgets::badge_yes("listening")
                 } else {
-                    Space::new(0, 0).into()
+                    Space::new().width(0).height(0).into()
                 },
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),
             meter(level),
             row![
-                checkbox("Test microphone", self.mic.open)
+                checkbox(self.mic.open).label("Test microphone")
                     .on_toggle_maybe(
                         (!self.mic.dictating).then_some(Message::MicTestToggled as fn(bool) -> _)
                     )
@@ -736,7 +744,7 @@ impl State {
 
         let mut body = column![
             widgets::heading("Sound cues"),
-            checkbox("Play a sound when dictation starts and stops", enabled)
+            checkbox(enabled).label("Play a sound when dictation starts and stops")
                 .on_toggle(Message::SoundsToggled),
         ]
         .spacing(8);
@@ -779,10 +787,7 @@ impl State {
         widgets::card(
             column![
                 widgets::heading("Overlay"),
-                checkbox(
-                    "Show a floating indicator while dictating",
-                    self.settings.overlay_enabled
-                )
+                checkbox(self.settings.overlay_enabled).label("Show a floating indicator while dictating")
                 .on_toggle(Message::OverlayToggled),
                 widgets::sub(
                     "A small pill above other windows. It never takes focus and clicks pass \
@@ -798,7 +803,7 @@ impl State {
         widgets::card(
             column![
                 widgets::heading("Start with the computer"),
-                checkbox("Launch LocalWisper when I log in", self.settings.autostart)
+                checkbox(self.settings.autostart).label("Launch LocalWisper when I log in")
                     .on_toggle(Message::AutostartToggled),
                 widgets::sub(
                     "Read back from the operating system after being set, so this checkbox cannot \
@@ -919,7 +924,7 @@ fn meter<'a, M: 'a>(level: f32) -> Element<'a, M> {
     let mut bar = row![].width(Length::Fill).height(8);
     if filled > 0 {
         bar = bar.push(
-            container(Space::new(Length::Fill, 8))
+            container(Space::new().width(Length::Fill).height(8))
                 .width(Length::FillPortion(filled))
                 .style(|_t| container::Style {
                     background: Some(theme::GOOD.into()),
@@ -932,7 +937,7 @@ fn meter<'a, M: 'a>(level: f32) -> Element<'a, M> {
         );
     }
     if filled < STEPS {
-        bar = bar.push(Space::new(Length::FillPortion(STEPS - filled), 8));
+        bar = bar.push(Space::new().width(Length::FillPortion(STEPS - filled)).height(8));
     }
 
     container(bar)

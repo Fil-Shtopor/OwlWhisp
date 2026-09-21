@@ -45,7 +45,7 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
         // Nothing is happening, so nothing is drawn. The window stays where it is -- transparent,
         // click-through and off every list -- because opening one costs a stolen keyboard focus
         // and drawing nothing costs nothing.
-        return Space::new(Length::Fill, Length::Fill).into();
+        return Space::new().width(Length::Fill).height(Length::Fill).into();
     }
     let (colour, label, pulse) = visual(state);
 
@@ -60,7 +60,7 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
     let dot_size = 12.0 * scale;
     let dot_colour = Color { a: alpha, ..colour };
 
-    let dot = container(Space::new(dot_size, dot_size)).style(move |_t| container::Style {
+    let dot = container(Space::new().width(dot_size).height(dot_size)).style(move |_t| container::Style {
         background: Some(dot_colour.into()),
         border: iced::Border {
             radius: (dot_size / 2.0).into(),
@@ -109,7 +109,7 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
     // Centred in the window, with the window itself transparent: the 8px margin the web version had
     // is what keeps the pill's shadowless edge off the window edge.
     container(
-        column![Space::new(0, Length::Fill), pill, Space::new(0, Length::Fill)]
+        column![Space::new().width(0).height(Length::Fill), pill, Space::new().width(0).height(Length::Fill)]
             .align_x(iced::Alignment::Center),
     )
     .width(Length::Fill)
