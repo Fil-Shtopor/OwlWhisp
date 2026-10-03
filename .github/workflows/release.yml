@@ -101,13 +101,20 @@ jobs:
           "C:\Program Files\LLVM\bin" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
       - name: Cache Intel macOS ONNX Runtime
         if: matrix.platform == 'osx-x64'
-        uses: actions/cache@v4
+        id: ort-cache
+        uses: actions/cache/restore@v4
         with:
           path: runtime/osx-x64
           key: ort-1.28.1-osx-x64-${{ hashFiles('scripts/runtime/build-ort-macos-intel.ps1') }}
       - name: Stage ONNX Runtime
         shell: pwsh
         run: pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform ${{ matrix.platform }}
+      - name: Save Intel macOS runtime before application compilation
+        if: matrix.platform == 'osx-x64' && steps.ort-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtime/osx-x64
+          key: ${{ steps.ort-cache.outputs.cache-primary-key }}
       - name: Stage GPL-free sherpa-onnx libraries
         if: matrix.sherpa
         shell: pwsh

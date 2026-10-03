@@ -17,7 +17,9 @@ if (-not (Test-Path (Join-Path $dest 'libonnxruntime.dylib'))) {
     if ($Version -eq '1.28.1' -and (git -C $source rev-parse HEAD) -ne '5181af9bef60f46194ec30506855d74b6e6a96ff') {
         throw 'The ORT source does not match the reviewed 1.28.1 commit'
     }
-    python3 "$source/tools/ci_build/build.py" --build_dir "$source/build" --config Release --update --build --build_shared_lib --skip_tests --parallel 3 --compile_no_warning_as_error --cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=13.3
+    # --skip_tests prevents execution, but upstream still builds its test binaries by default.
+    # Build the complete CPU library, without compiling the unrelated upstream test suite.
+    python3 "$source/tools/ci_build/build.py" --build_dir "$source/build" --config Release --update --build --build_shared_lib --skip_tests --targets onnxruntime --parallel 3 --compile_no_warning_as_error --cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=13.3 onnxruntime_BUILD_UNIT_TESTS=OFF
     if ($LASTEXITCODE -ne 0) { throw 'Intel macOS ONNX Runtime build failed' }
     $libraries = @(Get-ChildItem "$source/build/Release" -File -Filter 'libonnxruntime*.dylib')
     if (-not $libraries) { throw 'ORT build produced no dylib' }
