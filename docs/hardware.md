@@ -89,89 +89,76 @@ Windows and macOS packages are unsigned.
 
 ## 4. Accelerator status
 
-`lw diagnose` prints this table for the machine it runs on, and the app shows the same in
-Settings and Diagnostics. Present / registered / device-count are reported separately on purpose:
-a driver package can be installed while the provider fails to load, and a provider can load while
-finding no device. **Usability requires a present, registered provider, a matching device and no probe error.**
+`lw diagnose` and the app's Settings/Diagnostics report hardware, provider presence, registration
+and device count separately. **Usability requires a present, registered provider, a matching device
+and no probe error.** A model must also support that provider before it can be selected.
 
-| Accelerator | Provider library | Ships with OwlWhisp | Needs its own model artifact | Status |
-|---|---|---|---|---|
-| CPU | built in | — | no | ✅ verified |
-| **Qualcomm NPU** | `onnxruntime_providers_qnn.dll` | ✅ (win-arm64 only) | **yes** — HTP context per Hexagon generation | ✅ verified on V81; ⚙️ V73 (X Elite / X Plus) |
-| **GPU, portable** | `onnxruntime_providers_webgpu.dll` | ✅ (win-x64, win-arm64, osx-arm64, linux-x64) | no — runs the shipped encoder | ✅ verified on Adreno; ⚙️ elsewhere |
-| **NVIDIA CUDA** | `onnxruntime_providers_cuda.dll` | ✅ (win-x64 package) | no | Check with the bundled GPU runtime and a model benchmark |
-| **NVIDIA TensorRT** | `onnxruntime_providers_tensorrt.dll` | ❌ | no (builds an engine cache on first run) | 📦 §5 |
-| **DirectML** | `onnxruntime_providers_dml.dll` | ❌ | no | 📦 §5 |
-| **Apple CoreML / ANE** | `libonnxruntime_providers_coreml.dylib` | ❌ | effectively yes (static fp16 export) | 📦 §6 |
-| **Intel OpenVINO** (CPU/GPU/NPU) | `onnxruntime_providers_openvino.dll` | ❌ | **yes** for the NPU | 📦 §5 |
-| **AMD Vitis AI** (Ryzen AI NPU) | `onnxruntime_providers_vitisai.dll` | ❌ | **yes** | 📦 §5 |
-
-Everything marked 📦 is **implemented in the selection, settings, diagnostics and benchmark paths
-already** — drop the provider library into the runtime directory and it appears as usable, with no
-code change. What is missing is the library itself, because each is tied to a vendor SDK we cannot
-redistribute and could not test.
-
----
-
-## 5. Getting the vendor providers
-
-The runtime directory is `runtime/<platform>/` in the repo, and `runtime/` beside the executable in
-an installed build (`LW_RUNTIME_DIR` overrides both). `scripts/runtime/fetch-runtime.ps1` stages
-ONNX Runtime, WebGPU, NVIDIA CUDA with its private CUDA 13/cuDNN 9 redistributable DLLs on win-x64,
-and Qualcomm QNN on win-arm64. CUDA's DLL is the legacy provider from Microsoft's GPU NuGet: its
-matching `onnxruntime.dll` is staged with it, and the app creates a CUDA session directly. A driver
-or CUDA Toolkit installation alone does not add this provider to an older OwlWhisp installation.
-Windows x64 standard packages omit the optional NVIDIA dependencies. Settings installs the
-pinned packages for the detected compute capability and probes them in a separate worker; no
-full CUDA Toolkit is needed. See [runtime add-ons](build.md#hardware-selected-runtime-add-ons-windows-x64).
-For providers not shipped by the application:
-
-| Provider | What to install | Then |
+| Accelerator | Standard package | Additional requirements |
 |---|---|---|
-| **CUDA** | Use the win-x64 OwlWhisp package built with `fetch-runtime.ps1`; a compatible NVIDIA display driver is required | Choose **NVIDIA GPU (CUDA)** in Settings with the Parakeet model; run Benchmark to verify it |
-| **TensorRT** | the above plus TensorRT 10 | copy `onnxruntime_providers_tensorrt.dll` |
-| **DirectML** | Windows 10 1903+ with a D3D12 GPU | copy `onnxruntime_providers_dml.dll` + `DirectML.dll` |
-| **OpenVINO** | Intel OpenVINO runtime + `Intel.ML.OnnxRuntime.EP.OpenVINO` | copy `onnxruntime_providers_openvino.dll` |
-| **Vitis AI** | AMD Ryzen AI SDK | copy `onnxruntime_providers_vitisai.dll` |
+| CPU | All six platforms | Model download; Linux ARM64 supports Parakeet only |
+| Qualcomm NPU / QNN | Windows ARM64 | Compatible Snapdragon hardware, driver and matching HTP model artifact |
+| WebGPU | Windows x64/ARM64, macOS ARM64, Linux x64 | Compatible GPU/driver; Linux needs a Vulkan loader |
+| NVIDIA CUDA | Optional Windows x64 download in Settings | Compatible NVIDIA driver; supported Parakeet model |
+| NVIDIA TensorRT | Optional Windows x64 download in Settings | Driver and supported compute capability; first run builds an engine cache |
+| DirectML | Windows x64, in a separate bundled runtime | D3D12 GPU/driver; supported Parakeet model |
+| Apple CoreML / ANE | Not included | Provider and a validated model export are still needed |
+| Intel OpenVINO | Not included | Compatible provider SDK; a dedicated artifact for an NPU |
+| AMD Vitis AI | Not included | Compatible Ryzen AI SDK and a dedicated NPU artifact |
 
-Then run `lw diagnose` — it will say `present / registered / devices` for each, and
-`lw bench --quick --backend cuda` (or `tensorrt`, `directml`, `openvino`, `vitisai`) measures it.
-A forced backend **fails loudly** if it is not usable rather than falling back, so a number can
-never be attributed to the wrong provider.
-
-TensorRT, DirectML, OpenVINO and Vitis AI remain optional. The provider-level status does not
-promise that every model can run there: sherpa models use a separate CPU-only runtime, and Parakeet
-must initialize its encoder session on the selected provider before acceleration is confirmed.
-
-**Intel and AMD NPUs specifically.** The provider integration is done, but an NPU also needs a
-quantized, static-shape encoder compiled for that NPU, produced and validated on one. That is the
-real gate, and it is why the Qualcomm path took a static export, an on-device compile and a 1.2 GB
-cached context binary to reach 0.0160 RTF. The same work is needed per NPU vendor.
+A provider library on disk alone does not make an accelerator available. The three model statuses
+are **Available**, **Need additional action** (with an executable setup action) and **Unavailable**.
+Hardware detection and library-selection policy have simulated tests; GPU/NPU performance needs
+real hardware measurements.
 
 ---
 
-## 6. Apple Silicon
+## 5. Runtime installation
 
-The macOS build compiles, bundles to `.dmg`, and the portable GPU path (WebGPU → Metal) is
-available in the same way as everywhere else. What is missing:
+The runtime directory is `runtime/<platform>/` in the repo and in the portable Windows/macOS
+layout. Linux places `runtime/` beside the executable. `LW_RUNTIME_DIR` overrides discovery.
+`scripts/runtime/fetch-runtime.ps1` stages the platform's base runtime and bundled providers.
+The Intel macOS runtime is built from pinned ONNX Runtime 1.28.1 source.
 
-- **CoreML EP / ANE** — the cheapest big win on a Mac. Needs a static-shape fp16 encoder export and
-  `MLComputeUnits` configured. Published measurements put the Parakeet encoder at ~28 ms per 15 s
-  window with 99 % of ops on the ANE, which would make it the fastest path on Apple hardware.
-- The macOS platform module still needs its hotkey (CGEventTap), text injection (Cmd+V via
-  CGEventPost) and non-activating NSPanel overlay.
+Windows x64 standard packages omit the large NVIDIA dependencies. **Settings > Models > Download
+runtime** installs pinned CUDA/TensorRT packages selected for the detected compute capability,
+then probes them in a separate worker. No full CUDA Toolkit is needed. A required driver update
+is offered separately. The bundled DirectML runtime is probed in its own worker as well, so its
+ORT version cannot conflict with the main runtime.
 
-**No Apple hardware was available**, so none of this is verified and no ANE claim is made.
+See [hardware-selected runtime add-ons](build.md#hardware-selected-runtime-add-ons-windows-x64)
+for the package catalogue and supported NVIDIA architectures. Automatic NVIDIA package installation
+is currently Windows x64 only; Linux NVIDIA support requires a separately staged compatible runtime.
+
+OpenVINO, Vitis AI and CoreML are developer integrations without automatic package installation.
+Their libraries and model artifacts must be supplied and tested on the corresponding hardware.
+Intel/AMD NPU inference is not part of the standard release.
+
+A forced backend fails when it is unusable. Run `lw diagnose` and a model benchmark to check the
+actual provider; registration alone is not evidence of accelerated inference.
+
+---
+
+## 6. Apple platforms
+
+Both Apple Silicon and Intel builds are packaged as an `.app` inside a ZIP. Both include CPU;
+Apple Silicon also includes the WebGPU/Metal provider. CoreML/ANE inference is not shipped.
+
+Native macOS CI checks the workspace, simulated configurations and loading the packaged CPU
+runtime. It does not measure Apple GPU/ANE inference. Global hotkeys, text injection,
+foreground-app detection and a native non-activating overlay still need platform implementation.
 
 ---
 
 ## 7. Linux
 
-The workspace builds, packages to `.deb` / `.rpm` / `.AppImage`, and the ORT CPU and WebGPU paths
-are available (WebGPU needs a system Vulkan loader, `libvulkan.so.1`). `lw-platform`'s Linux module
-is scaffolding: audio via cpal compiles, while global hotkeys, text injection and the overlay
-return `Unavailable`. Wayland needs the `GlobalShortcuts` portal for hotkeys and the
-`RemoteDesktop` portal (or uinput) for injection.
+Linux x64 and ARM64 builds are portable `.tar.gz` archives, with GTK 3 and ALSA system libraries
+required. The GUI supports X11 and Wayland. x64 includes CPU and WebGPU (which needs a compatible
+Vulkan loader/driver); ARM64 currently includes Parakeet CPU only because the pinned sherpa release
+has no no-TTS ARM64 Linux archive.
+
+Native CI checks both architectures and the packaged CPU runtime. Global hotkeys, text injection
+and foreground-app detection are unimplemented. Wayland integration will require suitable desktop
+portals or another supported input mechanism. Tray behavior depends on the desktop environment.
 
 ---
 
