@@ -7,6 +7,8 @@
 **Your voice stays yours.** OwlWhisp is private, local speech-to-text. Windows is the primary
 desktop platform; macOS and Linux packages are previews with incomplete desktop integration.
 Audio is transcribed on your device. No cloud account or browser engine is required.
+Built to stay out of your way: a native Rust client with a small background footprint when the
+speech model is unloaded.
 
 ## What it offers
 
@@ -15,7 +17,37 @@ Audio is transcribed on your device. No cloud account or browser engine is requi
   compatible Snapdragon Windows machines. Other CPU models use the optional sherpa engine.
 - **Desktop-native:** a Rust application with tray controls, global hotkeys, diagnostics, and no
   webview process.
+- **Lightweight by design:** a CPU-rendered native interface without Electron or a browser engine.
+  Version 0.1.1 lets you release the speech model after an idle timeout or keep it ready
+  for faster responses.
 - **Open source:** Apache-2.0 application code with third-party notices included in every package.
+
+## Background memory
+
+The client and the speech model have different memory costs. OwlWhisp loads the model on demand;
+version 0.1.1 unloads it after **5 minutes idle** by default. In **Settings → Background
+memory**, choose 1, 5, 15 or 30 minutes, or **Keep model loaded**. Explicit GPU selections run in a
+separate worker, so unloading also releases its provider libraries and driver allocations.
+
+After restarting the updated **full desktop client**, OwlWhisp used **43 MiB private resident RAM**
+and **88 MiB total working set** with the model unloaded. A simultaneous 60-second Windows x64
+snapshot on 2026-10-03 measured the following medians, including every child process:
+
+| Client | Private resident RAM, MiB | Total working set, MiB | Observed state |
+|---|---:|---:|---|
+| **OwlWhisp, updated source build** | **43** | **88** | Model unloaded |
+| OpenWhispr 1.10.1 | 1,000 | 1,513 | Parakeet 0.6B v3 INT8 CPU server running |
+| Superwhisper 1.6.5 | 685 | 1,558 | Cohere Transcribe Q4 selected; model residency unverified |
+
+This is a snapshot of the running configurations, with different model states, rather than a
+matched-model benchmark. Total working sets can count shared pages more than once; private
+resident RAM excludes those pages. A loaded Parakeet model can use hundreds of MiB to several GiB,
+depending on the backend and TensorRT cache. Reloading measured about 2.6 seconds on CPU and 4.3
+seconds with a prepared TensorRT cache on this machine.
+
+See [memory measurements and client comparison](docs/memory.md) for the recorded samples,
+conditions, startup tradeoff and repeatable measurement script. The idle-memory controls are
+available starting with v0.1.1.
 
 ## Supported platforms
 
@@ -44,16 +76,16 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The initial **0.1.0** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.1** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.0/OwlWhisp-0.1.0-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.1/OwlWhisp-0.1.1-linux-arm64.tar.gz) | — |
 
 Each platform has a `SHA256SUMS-*.txt` file. Release builds verify executable/runtime architecture,
 model manifests and licence files, then unpack and load the packaged runtime on the native runner.

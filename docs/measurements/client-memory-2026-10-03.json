@@ -1,0 +1,1207 @@
+{
+  "schema_version": 1,
+  "description": "Simultaneous current-session desktop memory snapshot; model and window states not normalized.",
+  "platform": "Windows x64",
+  "cpu": "Intel Core i9-13900HX",
+  "gpu": "NVIDIA RTX 4080 Laptop, 12 GB VRAM",
+  "sampler": "scripts/bench/measure-client-memory.ps1",
+  "counter_source": "Win32_PerfRawData_PerfProc_Process",
+  "units": "MiB (1048576 bytes)",
+  "definitions": {
+    "private_working_set": "Private resident physical RAM, summed over the process tree.",
+    "working_set": "All resident pages, summed over the process tree; shared pages may be counted more than once.",
+    "private_commit": "Committed private address space, which need not be resident in physical RAM."
+  },
+  "conditions": {
+    "owlwhisp_rebuilt_and_restarted": true,
+    "other_clients_restarted_or_reconfigured": false,
+    "workload_started_by_sampler": false,
+    "model_states_matched": false,
+    "window_states_normalized": false,
+    "gpu_vram_measured": false,
+    "idle_windows_per_client": 1
+  },
+  "clients": [
+    {
+      "client": "OwlWhisp",
+      "version": "0.1.0 + uncommitted source memory fixes",
+      "model_state": "unloaded; no inference worker",
+      "selected_model": "parakeet-tdt-0.6b-v3",
+      "selected_backend": "TensorRT",
+      "executable_sha256": "AD7512E36D82B7627A0291AE5AB7FD46E9D1FD223DD54FBF340EEA875A4FFEA7",
+      "measured_at_utc": "2026-10-03T23:20:48.6162384Z",
+      "duration_seconds": 60.64,
+      "sample_count": 46,
+      "complete_private_working_set_sample_count": 46,
+      "includes_descendants": true,
+      "working_set_median_mib": 87.91,
+      "working_set_peak_mib": 87.92,
+      "private_working_set_median_mib": 43.13,
+      "private_working_set_peak_mib": 43.13,
+      "private_commit_median_mib": 49.54,
+      "private_commit_peak_mib": 49.55,
+      "process_name_counts": {
+        "owlwhisp.exe": 1
+      },
+      "samples": [
+        {
+          "seconds": 0.729,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 2.045,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 3.319,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 4.624,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 5.911,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 7.274,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 8.578,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 9.916,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 11.234,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 12.486,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 13.85,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 15.146,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 16.506,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 17.788,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 19.106,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 20.437,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 21.693,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 22.975,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 24.292,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 25.619,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 26.896,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 28.265,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 29.546,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 30.867,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 32.227,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 33.512,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 34.81,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 36.058,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 37.382,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 38.652,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 39.912,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.91,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.54
+        },
+        {
+          "seconds": 41.212,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 42.593,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 43.866,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 45.219,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 46.479,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 47.801,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 49.112,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 50.424,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 51.714,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 52.968,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 54.345,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 55.618,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 56.995,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 58.348,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        },
+        {
+          "seconds": 59.589,
+          "process_count": 1,
+          "missing_counter_count": 0,
+          "working_set_mib": 87.92,
+          "private_working_set_mib": 43.13,
+          "private_commit_mib": 49.55
+        }
+      ]
+    },
+    {
+      "client": "OpenWhispr",
+      "version": "1.10.1",
+      "model_state": "Parakeet INT8 CPU model server running",
+      "selected_model": "parakeet-tdt-0.6b-v3",
+      "selected_backend": "sherpa-onnx CPU",
+      "quantization": "INT8 encoder, decoder and joiner",
+      "measured_at_utc": "2026-10-03T23:20:48.6142399Z",
+      "duration_seconds": 60.64,
+      "sample_count": 46,
+      "complete_private_working_set_sample_count": 46,
+      "includes_descendants": true,
+      "working_set_median_mib": 1512.77,
+      "working_set_peak_mib": 1513.1,
+      "private_working_set_median_mib": 1000.17,
+      "private_working_set_peak_mib": 1000.5,
+      "private_commit_median_mib": 1145.73,
+      "private_commit_peak_mib": 1146.03,
+      "process_name_counts": {
+        "OpenWhispr.exe": 6,
+        "windows-mic-listener.exe": 1,
+        "conhost.exe": 3,
+        "qdrant-win32-x64.exe": 1,
+        "sherpa-onnx-ws-win32-x64.exe": 1
+      },
+      "samples": [
+        {
+          "seconds": 0.723,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.3,
+          "private_working_set_mib": 999.71,
+          "private_commit_mib": 1145.25
+        },
+        {
+          "seconds": 2.04,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.32,
+          "private_working_set_mib": 999.72,
+          "private_commit_mib": 1145.25
+        },
+        {
+          "seconds": 3.313,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.32,
+          "private_working_set_mib": 999.72,
+          "private_commit_mib": 1145.25
+        },
+        {
+          "seconds": 4.619,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.32,
+          "private_working_set_mib": 999.72,
+          "private_commit_mib": 1145.25
+        },
+        {
+          "seconds": 5.905,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.32,
+          "private_working_set_mib": 999.72,
+          "private_commit_mib": 1145.25
+        },
+        {
+          "seconds": 7.269,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.46,
+          "private_working_set_mib": 999.87,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 8.57,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.46,
+          "private_working_set_mib": 999.87,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 9.909,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.46,
+          "private_working_set_mib": 999.87,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 11.228,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.48,
+          "private_working_set_mib": 999.88,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 12.48,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.48,
+          "private_working_set_mib": 999.88,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 13.844,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.48,
+          "private_working_set_mib": 999.88,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 15.139,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.48,
+          "private_working_set_mib": 999.88,
+          "private_commit_mib": 1145.47
+        },
+        {
+          "seconds": 16.499,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.53,
+          "private_working_set_mib": 999.93,
+          "private_commit_mib": 1145.49
+        },
+        {
+          "seconds": 17.781,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.53,
+          "private_working_set_mib": 999.93,
+          "private_commit_mib": 1145.49
+        },
+        {
+          "seconds": 19.1,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.8,
+          "private_working_set_mib": 1000.21,
+          "private_commit_mib": 1145.84
+        },
+        {
+          "seconds": 20.431,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.8,
+          "private_working_set_mib": 1000.21,
+          "private_commit_mib": 1145.84
+        },
+        {
+          "seconds": 21.688,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.87,
+          "private_working_set_mib": 1000.27,
+          "private_commit_mib": 1145.84
+        },
+        {
+          "seconds": 22.969,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 24.286,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 25.612,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 26.891,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 28.26,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 29.541,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 30.861,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 32.222,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 33.506,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 34.804,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 36.053,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.77,
+          "private_working_set_mib": 1000.17,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 37.377,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 38.646,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 39.907,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 41.206,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 42.587,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 43.861,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 45.213,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 46.473,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 47.795,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1512.83,
+          "private_working_set_mib": 1000.23,
+          "private_commit_mib": 1145.73
+        },
+        {
+          "seconds": 49.105,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.07,
+          "private_working_set_mib": 1000.47,
+          "private_commit_mib": 1146.03
+        },
+        {
+          "seconds": 50.418,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.07,
+          "private_working_set_mib": 1000.47,
+          "private_commit_mib": 1146.03
+        },
+        {
+          "seconds": 51.709,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.04,
+          "private_working_set_mib": 1000.44,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 52.962,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.04,
+          "private_working_set_mib": 1000.44,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 54.339,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.04,
+          "private_working_set_mib": 1000.44,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 55.613,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.04,
+          "private_working_set_mib": 1000.44,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 56.989,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.1,
+          "private_working_set_mib": 1000.5,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 58.342,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.1,
+          "private_working_set_mib": 1000.5,
+          "private_commit_mib": 1146
+        },
+        {
+          "seconds": 59.583,
+          "process_count": 12,
+          "missing_counter_count": 0,
+          "working_set_mib": 1513.1,
+          "private_working_set_mib": 1000.5,
+          "private_commit_mib": 1146
+        }
+      ]
+    },
+    {
+      "client": "Superwhisper",
+      "version": "1.6.5",
+      "model_state": "residency unverified; selected local model file present",
+      "selected_model": "cohere-transcribe-q4",
+      "model_file": "cohere-transcribe-03-2026-Q4_K_M.gguf",
+      "selected_backend": "unverified",
+      "measured_at_utc": "2026-10-03T23:20:48.5737650Z",
+      "duration_seconds": 60.61,
+      "sample_count": 46,
+      "complete_private_working_set_sample_count": 46,
+      "includes_descendants": true,
+      "working_set_median_mib": 1558.27,
+      "working_set_peak_mib": 1558.5,
+      "private_working_set_median_mib": 684.6,
+      "private_working_set_peak_mib": 684.82,
+      "private_commit_median_mib": 2861.47,
+      "private_commit_peak_mib": 2861.62,
+      "process_name_counts": {
+        "Superwhisper.exe": 2,
+        "msedgewebview2.exe": 16
+      },
+      "samples": [
+        {
+          "seconds": 0.694,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.38,
+          "private_working_set_mib": 684.7,
+          "private_commit_mib": 2861.53
+        },
+        {
+          "seconds": 2.015,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.37,
+          "private_working_set_mib": 684.69,
+          "private_commit_mib": 2861.52
+        },
+        {
+          "seconds": 3.293,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.44,
+          "private_working_set_mib": 684.76,
+          "private_commit_mib": 2861.57
+        },
+        {
+          "seconds": 4.6,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.33,
+          "private_working_set_mib": 684.65,
+          "private_commit_mib": 2861.5
+        },
+        {
+          "seconds": 5.883,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.38,
+          "private_working_set_mib": 684.7,
+          "private_commit_mib": 2861.55
+        },
+        {
+          "seconds": 7.247,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.09,
+          "private_working_set_mib": 684.4,
+          "private_commit_mib": 2861.07
+        },
+        {
+          "seconds": 8.551,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.2,
+          "private_working_set_mib": 684.52,
+          "private_commit_mib": 2861.53
+        },
+        {
+          "seconds": 9.889,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.33,
+          "private_working_set_mib": 684.64,
+          "private_commit_mib": 2861.55
+        },
+        {
+          "seconds": 11.209,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.45,
+          "private_working_set_mib": 684.76,
+          "private_commit_mib": 2861.61
+        },
+        {
+          "seconds": 12.46,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.39,
+          "private_working_set_mib": 684.71,
+          "private_commit_mib": 2861.55
+        },
+        {
+          "seconds": 13.825,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.3,
+          "private_working_set_mib": 684.62,
+          "private_commit_mib": 2861.46
+        },
+        {
+          "seconds": 15.12,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.64,
+          "private_working_set_mib": 683.95,
+          "private_commit_mib": 2860.55
+        },
+        {
+          "seconds": 16.478,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.73,
+          "private_working_set_mib": 684.04,
+          "private_commit_mib": 2860.64
+        },
+        {
+          "seconds": 17.76,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.71,
+          "private_working_set_mib": 684.03,
+          "private_commit_mib": 2860.63
+        },
+        {
+          "seconds": 19.081,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.79,
+          "private_working_set_mib": 684.11,
+          "private_commit_mib": 2860.84
+        },
+        {
+          "seconds": 20.41,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.89,
+          "private_working_set_mib": 684.21,
+          "private_commit_mib": 2860.87
+        },
+        {
+          "seconds": 21.669,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.88,
+          "private_working_set_mib": 684.2,
+          "private_commit_mib": 2860.8
+        },
+        {
+          "seconds": 22.948,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.02,
+          "private_working_set_mib": 684.35,
+          "private_commit_mib": 2861.07
+        },
+        {
+          "seconds": 24.265,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.14,
+          "private_working_set_mib": 684.46,
+          "private_commit_mib": 2861.12
+        },
+        {
+          "seconds": 25.591,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.19,
+          "private_working_set_mib": 684.51,
+          "private_commit_mib": 2861.1
+        },
+        {
+          "seconds": 26.871,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.3,
+          "private_working_set_mib": 684.63,
+          "private_commit_mib": 2861.61
+        },
+        {
+          "seconds": 28.24,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.41,
+          "private_working_set_mib": 684.73,
+          "private_commit_mib": 2861.59
+        },
+        {
+          "seconds": 29.521,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.5,
+          "private_working_set_mib": 684.82,
+          "private_commit_mib": 2861.62
+        },
+        {
+          "seconds": 30.841,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.47,
+          "private_working_set_mib": 684.79,
+          "private_commit_mib": 2861.59
+        },
+        {
+          "seconds": 32.202,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.5,
+          "private_working_set_mib": 684.82,
+          "private_commit_mib": 2861.62
+        },
+        {
+          "seconds": 33.486,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.39,
+          "private_working_set_mib": 684.72,
+          "private_commit_mib": 2861.5
+        },
+        {
+          "seconds": 34.783,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.97,
+          "private_working_set_mib": 684.3,
+          "private_commit_mib": 2861.02
+        },
+        {
+          "seconds": 36.033,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558,
+          "private_working_set_mib": 684.33,
+          "private_commit_mib": 2861.05
+        },
+        {
+          "seconds": 37.357,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.01,
+          "private_working_set_mib": 684.34,
+          "private_commit_mib": 2861.07
+        },
+        {
+          "seconds": 38.626,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.03,
+          "private_working_set_mib": 684.36,
+          "private_commit_mib": 2861.49
+        },
+        {
+          "seconds": 39.885,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.13,
+          "private_working_set_mib": 684.46,
+          "private_commit_mib": 2861.5
+        },
+        {
+          "seconds": 41.186,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.2,
+          "private_working_set_mib": 684.53,
+          "private_commit_mib": 2861.5
+        },
+        {
+          "seconds": 42.567,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.28,
+          "private_working_set_mib": 684.61,
+          "private_commit_mib": 2861.5
+        },
+        {
+          "seconds": 43.839,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.18,
+          "private_working_set_mib": 684.51,
+          "private_commit_mib": 2861.39
+        },
+        {
+          "seconds": 45.193,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.21,
+          "private_working_set_mib": 684.55,
+          "private_commit_mib": 2861.43
+        },
+        {
+          "seconds": 46.45,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.28,
+          "private_working_set_mib": 684.61,
+          "private_commit_mib": 2861.49
+        },
+        {
+          "seconds": 47.774,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.26,
+          "private_working_set_mib": 684.59,
+          "private_commit_mib": 2861.47
+        },
+        {
+          "seconds": 49.084,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.24,
+          "private_working_set_mib": 684.59,
+          "private_commit_mib": 2861.47
+        },
+        {
+          "seconds": 50.397,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.23,
+          "private_working_set_mib": 684.57,
+          "private_commit_mib": 2861.46
+        },
+        {
+          "seconds": 51.689,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.31,
+          "private_working_set_mib": 684.66,
+          "private_commit_mib": 2861.48
+        },
+        {
+          "seconds": 52.941,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.3,
+          "private_working_set_mib": 684.65,
+          "private_commit_mib": 2861.41
+        },
+        {
+          "seconds": 54.32,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.39,
+          "private_working_set_mib": 684.74,
+          "private_commit_mib": 2861.43
+        },
+        {
+          "seconds": 55.591,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.47,
+          "private_working_set_mib": 684.82,
+          "private_commit_mib": 2861.51
+        },
+        {
+          "seconds": 56.969,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.42,
+          "private_working_set_mib": 684.77,
+          "private_commit_mib": 2861.46
+        },
+        {
+          "seconds": 58.322,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1558.42,
+          "private_working_set_mib": 684.77,
+          "private_commit_mib": 2861.46
+        },
+        {
+          "seconds": 59.563,
+          "process_count": 18,
+          "missing_counter_count": 0,
+          "working_set_mib": 1557.97,
+          "private_working_set_mib": 684.32,
+          "private_commit_mib": 2861.01
+        }
+      ]
+    }
+  ]
+}

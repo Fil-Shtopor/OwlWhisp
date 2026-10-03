@@ -82,6 +82,26 @@ impl From<lw_core::engine::BackendPreference> for BackendKind {
     }
 }
 
+impl BackendKind {
+    /// Candidates only: providers are loaded when their turn is reached, never up front.
+    fn candidates(self) -> Vec<Accelerator> {
+        match self {
+            Self::ForceCpu => vec![Accelerator::Cpu],
+            Self::Exact(a) => vec![a],
+            other => ALL_ACCELERATORS
+                .iter()
+                .copied()
+                .filter(|a| a.supported_on_this_platform())
+                .filter(|a| match other {
+                    Self::ForceNpu => a.kind() == AcceleratorKind::Npu,
+                    Self::ForceGpu => a.kind() == AcceleratorKind::Gpu,
+                    _ => true,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Engine configuration.
 #[derive(Clone, Debug)]
 pub struct ParakeetConfig {
@@ -206,30 +226,10 @@ impl ParakeetEngine {
 
     /// The accelerators to try, in order, for the configured preference.
     ///
-    /// Only accelerators this machine can actually use are included -- the probe registers each
-    /// provider and asks it for devices, so an installed driver with no working provider does not
-    /// get into the plan and cannot produce a confusing failure later. `Auto` always ends at the
-    /// CPU; a forced preference never does, because falling back would misattribute the result.
+    /// Registration happens while trying each candidate. A CPU or exact-provider selection must
+    /// not load unrelated CUDA/TensorRT libraries merely to construct its plan.
     fn acceleration_plan(&self) -> Vec<Accelerator> {
-        let usable = self.runtime.usable_accelerators();
-        let keep = |a: &Accelerator| usable.contains(a);
-        match self.config.backend {
-            BackendKind::Auto => ALL_ACCELERATORS.iter().copied().filter(keep).collect(),
-            BackendKind::ForceCpu => vec![Accelerator::Cpu],
-            BackendKind::ForceNpu => ALL_ACCELERATORS
-                .iter()
-                .copied()
-                .filter(|a| a.kind() == AcceleratorKind::Npu)
-                .filter(keep)
-                .collect(),
-            BackendKind::ForceGpu => ALL_ACCELERATORS
-                .iter()
-                .copied()
-                .filter(|a| a.kind() == AcceleratorKind::Gpu)
-                .filter(keep)
-                .collect(),
-            BackendKind::Exact(a) => vec![a],
-        }
+        self.config.backend.candidates()
     }
 
     fn try_build_npu_encoder(&self) -> Result<Box<dyn EncoderBackend>> {
@@ -428,6 +428,9 @@ impl SpeechEngine for ParakeetEngine {
         let plan = self.acceleration_plan();
         let strict = !matches!(self.config.backend, BackendKind::Auto);
         for accel in plan {
+            if !strict && !self.runtime.is_present(accel) {
+                continue;
+            }
             let built = match accel {
                 Accelerator::Cpu => self
                     .build_cpu_encoder()
@@ -481,14 +484,13 @@ impl SpeechEngine for ParakeetEngine {
             }
         }
         if self.encoder.is_none() {
-            let usable = self.runtime.usable_accelerators();
             return Err(Error::Ort(format!(
-                "no encoder backend matched {:?}; usable here: {}",
+                "no encoder backend matched {:?}; attempted: {}",
                 self.config.backend,
-                if usable.is_empty() {
+                if self.notes.is_empty() {
                     "none".to_string()
                 } else {
-                    usable.iter().map(|a| a.label()).collect::<Vec<_>>().join(", ")
+                    self.notes.join("; ")
                 }
             ))
             .into());
@@ -591,6 +593,17 @@ mod tests {
     use super::*;
     use lw_core::capabilities::AcceleratorKind;
     use lw_core::engine::BackendPreference as P;
+
+    #[test]
+    fn cpu_and_exact_plans_only_consider_the_requested_provider() {
+        assert_eq!(BackendKind::ForceCpu.candidates(), vec![Accelerator::Cpu]);
+        for a in ALL_ACCELERATORS {
+            assert_eq!(BackendKind::Exact(a).candidates(), vec![a]);
+        }
+        let auto = BackendKind::Auto.candidates();
+        let cpu = auto.iter().position(|a| *a == Accelerator::Cpu).unwrap();
+        assert!(auto[..cpu].iter().all(|a| a.kind() == AcceleratorKind::Npu));
+    }
 
     #[test]
     fn every_preference_maps_to_a_plan() {

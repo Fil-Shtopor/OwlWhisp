@@ -3172,7 +3172,7 @@ checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
 
 [[package]]
 name = "lw-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossbeam-channel",
  "hex",
@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "lw-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "lw-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bzip2 0.6.1",
@@ -3251,7 +3251,7 @@ dependencies = [
 
 [[package]]
 name = "lw-engine-parakeet"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "half",
  "hound",
@@ -3269,7 +3269,7 @@ dependencies = [
 
 [[package]]
 name = "lw-engine-sherpa"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hound",
  "lw-core",
@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "lw-engine-whisper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "lw-core",
  "serde",
@@ -3294,7 +3294,7 @@ dependencies = [
 
 [[package]]
 name = "lw-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced",
  "image",
@@ -3312,7 +3312,7 @@ dependencies = [
 
 [[package]]
 name = "lw-ort"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "half",
  "hex",
@@ -3333,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "lw-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3354,7 +3354,7 @@ dependencies = [
 
 [[package]]
 name = "lw-vad-silero"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hound",
  "lw-core",

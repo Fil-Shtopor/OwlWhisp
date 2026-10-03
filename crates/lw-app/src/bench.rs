@@ -105,6 +105,15 @@ pub fn build_engine_for(
                 installed, accel,
             )));
         }
+        if accel.kind() == lw_core::capabilities::AcceleratorKind::Gpu
+            && accel != lw_core::capabilities::Accelerator::DirectMl
+        {
+            // Dropping this worker releases provider DLLs and driver allocations as well as
+            // model sessions; ORT's process-global environment otherwise retains the libraries.
+            return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                rt_dir, accel,
+            )));
+        }
         #[cfg(windows)]
         if accel == lw_core::capabilities::Accelerator::DirectMl {
             return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
@@ -137,8 +146,10 @@ pub fn build_engine_for(
                     accel,
                 )));
             }
-            if bundled.device_count(accel) > 0 {
-                break;
+            if bundled.is_present(accel) && crate::provider_worker::probe_runtime(&rt_dir, accel).is_ok() {
+                return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                    rt_dir, accel,
+                )));
             }
         }
     }

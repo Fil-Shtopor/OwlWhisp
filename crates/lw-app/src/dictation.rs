@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use lw_core::audio::AudioBuffer;
@@ -24,6 +25,38 @@ use crate::bench::{ActiveBackend, Loaded, build_pipeline, load_engine, meter_lev
 
 /// A bounded recording that stops before old speech can be overwritten.
 const MAX_DICTATION_SECONDS: u32 = 5 * 60;
+#[cfg(test)]
+const MODEL_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// Only dictation activity resets this deadline. Describing the backend or testing the
+/// microphone must not keep a multi-gigabyte model alive indefinitely.
+#[derive(Default)]
+struct IdleUnload {
+    deadline: Option<Instant>,
+}
+
+impl IdleUnload {
+    fn arm(&mut self, timeout_secs: u32, now: Instant) {
+        self.deadline = (timeout_secs > 0).then_some(now + Duration::from_secs(timeout_secs.into()));
+    }
+
+    fn cancel(&mut self) {
+        self.deadline = None;
+    }
+
+    fn remaining(&self, now: Instant) -> Option<Duration> {
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(now))
+    }
+
+    fn release<T>(&mut self, loaded: &mut Option<T>, now: Instant) -> bool {
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            self.cancel();
+            return loaded.take().is_some();
+        }
+        false
+    }
+}
 
 /// Where the recording state machine is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,15 +323,42 @@ fn worker_loop(
     };
     // Lazy-load the engine on first use so startup is not blocked by a 650 MB model.
     let mut loaded: Option<Result<Loaded, String>> = None;
+    let mut idle_unload = IdleUnload::default();
+    let mut idle_timeout_secs = Settings::load(&settings_path)
+        .unwrap_or_default()
+        .model_idle_timeout_secs;
     let mut capture: Option<Capture> = None;
     // A second capture used only to drive the level meter while the user checks their microphone.
     let mut mic_test: Option<Capture> = None;
     let mut mic_test_active: Option<Arc<AtomicBool>> = None;
 
-    while let Ok(cmd) = rx.recv() {
+    loop {
+        // Check before receiving, too: Describe commands must not postpone expiry.
+        if idle_unload.release(&mut loaded, Instant::now()) {
+            tracing::info!(idle_timeout_secs, "dictation model released after idle timeout");
+            let _ = ctx.events.send(Event::Backend(Box::default()));
+        }
+        let cmd = match idle_unload.remaining(Instant::now()) {
+            Some(timeout) => match rx.recv_timeout(timeout) {
+                Ok(cmd) => cmd,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            },
+            None => match rx.recv() {
+                Ok(cmd) => cmd,
+                Err(_) => break,
+            },
+        };
         match cmd {
             Command::Shutdown => break,
-            Command::ReloadSettings => loaded = None,
+            Command::ReloadSettings => {
+                loaded = None;
+                idle_unload.cancel();
+                idle_timeout_secs = Settings::load(&settings_path)
+                    .unwrap_or_default()
+                    .model_idle_timeout_secs;
+                let _ = ctx.events.send(Event::Backend(Box::default()));
+            }
             Command::Describe => {
                 // Deliberately does not load the engine: the honest answer before the first
                 // dictation is "nothing is running yet", not a guess dressed up as a fact.
@@ -331,6 +391,7 @@ fn worker_loop(
                 let mut cap = Capture::for_duration(device, (MAX_DICTATION_SECONDS + 1) as usize);
                 match cap.start() {
                     Ok(()) => {
+                        idle_unload.cancel();
                         ctx.set(RecordingState::Listening);
                         if hands_free {
                             spawn_silence_watcher(
@@ -399,46 +460,51 @@ fn worker_loop(
                     continue;
                 };
                 ctx.set(RecordingState::Processing);
-                let audio: AudioBuffer = match cap.stop() {
-                    Ok(a) => a,
-                    Err(e) => {
-                        ctx.fail(&format!("capture stop: {e}"));
-                        continue;
-                    }
-                };
-                if loaded.is_none() {
-                    loaded = Some(load_engine(&settings_path));
+                match cap.stop() {
+                    Ok(audio) => transcribe_audio(&ctx, &mut loaded, &audio),
+                    Err(e) => ctx.fail(&format!("capture stop: {e}")),
                 }
-                let Some(Ok(engine_state)) = loaded.as_mut() else {
-                    let msg = loaded
-                        .as_ref()
-                        .and_then(|r| r.as_ref().err())
-                        .cloned()
-                        .unwrap_or_else(|| "engine unavailable".into());
-                    ctx.fail(&msg);
-                    continue;
-                };
-                let provider = engine_state.engine.provider().to_string();
-                let transcript = match engine_state.engine.transcribe(&audio) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        ctx.fail(&format!("transcribe: {e}"));
-                        continue;
-                    }
-                };
-                let pipeline = build_pipeline(&engine_state.settings);
-                let text = pipeline.run(&transcript.text);
-                let delivery = deliver(&text);
-                let _ = ctx.events.send(Event::Transcript {
-                    text,
-                    delivery,
-                    provider,
-                });
-                ctx.set(RecordingState::Done);
-                ctx.set(RecordingState::Idle);
+                // Includes failures: a failed transcription must not strand a loaded model.
+                idle_unload.arm(
+                    if loaded.is_some() { idle_timeout_secs } else { 0 },
+                    Instant::now(),
+                );
             }
         }
     }
+}
+
+fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<Result<Loaded, String>>, audio: &AudioBuffer) {
+    if loaded.is_none() {
+        *loaded = Some(load_engine(&ctx.settings_path));
+    }
+    let Some(Ok(engine_state)) = loaded.as_mut() else {
+        let msg = loaded
+            .as_ref()
+            .and_then(|r| r.as_ref().err())
+            .cloned()
+            .unwrap_or_else(|| "engine unavailable".into());
+        ctx.fail(&msg);
+        return;
+    };
+    let provider = engine_state.engine.provider().to_string();
+    let transcript = match engine_state.engine.transcribe(audio) {
+        Ok(t) => t,
+        Err(e) => {
+            ctx.fail(&format!("transcribe: {e}"));
+            return;
+        }
+    };
+    let pipeline = build_pipeline(&engine_state.settings);
+    let text = pipeline.run(&transcript.text);
+    let delivery = deliver(&text);
+    let _ = ctx.events.send(Event::Transcript {
+        text,
+        delivery,
+        provider,
+    });
+    ctx.set(RecordingState::Done);
+    ctx.set(RecordingState::Idle);
 }
 
 /// The configured input device, or `None` for the system default.
@@ -603,7 +669,53 @@ fn spawn_silence_watcher(
 
 #[cfg(test)]
 mod tests {
-    use super::{Cue, RecordingState, cue_for};
+    use super::*;
+
+    #[test]
+    fn idle_expiry_drops_the_engine_without_another_command() {
+        struct Allocation(Arc<AtomicBool>);
+        impl Drop for Allocation {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut loaded = Some(Allocation(Arc::clone(&dropped)));
+        let now = Instant::now();
+        let mut timer = IdleUnload::default();
+        timer.arm(300, now);
+        assert!(!timer.release(&mut loaded, now + MODEL_IDLE_TIMEOUT - Duration::from_secs(1)));
+        assert!(!dropped.load(Ordering::Relaxed));
+        assert!(timer.release(&mut loaded, now + MODEL_IDLE_TIMEOUT));
+        assert!(dropped.load(Ordering::Relaxed));
+        assert!(timer.remaining(now + MODEL_IDLE_TIMEOUT).is_none());
+    }
+
+    #[test]
+    fn recording_and_keep_loaded_prevent_expiry() {
+        let now = Instant::now();
+        let mut loaded = Some(());
+        let mut timer = IdleUnload::default();
+        timer.arm(300, now);
+        timer.cancel(); // Start cancels expiry throughout capture and transcription.
+        assert!(!timer.release(&mut loaded, now + MODEL_IDLE_TIMEOUT * 2));
+        timer.arm(0, now);
+        assert!(!timer.release(&mut loaded, now + MODEL_IDLE_TIMEOUT * 2));
+        assert!(loaded.is_some());
+        assert!(timer.remaining(now).is_none());
+    }
+
+    #[test]
+    fn the_next_dictation_gets_a_fresh_idle_period() {
+        let now = Instant::now();
+        let mut loaded = Some(());
+        let mut timer = IdleUnload::default();
+        timer.arm(300, now);
+        timer.cancel();
+        timer.arm(300, now + Duration::from_secs(200));
+        assert!(!timer.release(&mut loaded, now + MODEL_IDLE_TIMEOUT));
+        assert!(timer.release(&mut loaded, now + Duration::from_secs(200) + MODEL_IDLE_TIMEOUT));
+    }
 
     #[test]
     fn only_the_two_moments_the_user_can_act_on_make_a_sound() {

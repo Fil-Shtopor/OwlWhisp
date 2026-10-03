@@ -58,6 +58,7 @@ pickable!(BackendChoice, BackendPreference);
 pickable!(ThemeChoice, SoundTheme);
 pickable!(ModeChoice, HotkeyMode);
 pickable!(TriggerChoice, String);
+pickable!(MemoryChoice, u32);
 
 /// What the shell knows about the microphone, mirrored here for drawing.
 #[derive(Default)]
@@ -89,6 +90,7 @@ impl std::fmt::Display for DeviceChoice {
 #[derive(Debug, Clone)]
 pub enum Message {
     BackendSelected(BackendPreference),
+    IdleTimeoutSelected(u32),
     OpenProviderSetup(&'static str),
     ShowProviderInfo(&'static str),
     InstallRuntime(&'static str),
@@ -457,6 +459,7 @@ impl State {
         self.notice = None;
         match message {
             Message::BackendSelected(b) => self.settings.backend = b,
+            Message::IdleTimeoutSelected(v) => self.settings.model_idle_timeout_secs = v,
             Message::OpenProviderSetup(_) => {}
             Message::ShowProviderInfo(id) => {
                 self.provider_info = (self.provider_info != Some(id)).then_some(id);
@@ -732,6 +735,7 @@ impl State {
             self.sound_card(),
             self.overlay_card(),
             self.autostart_card(),
+            self.memory_card(),
         ];
         let hardware: Vec<Element<'_, Message>> =
             vec![self.accelerator_card(), self.microphone_card(), self.vad_card()];
@@ -763,6 +767,52 @@ impl State {
         };
 
         body
+    }
+
+    fn memory_card(&self) -> Element<'_, Message> {
+        let mut choices: Vec<_> = [
+            (0, "Keep model loaded"),
+            (60, "Unload after 1 minute idle"),
+            (300, "Unload after 5 minutes idle"),
+            (900, "Unload after 15 minutes idle"),
+            (1800, "Unload after 30 minutes idle"),
+        ]
+        .into_iter()
+        .map(|(value, label)| MemoryChoice {
+            value,
+            label: label.into(),
+        })
+        .collect();
+        let secs = self.settings.model_idle_timeout_secs;
+        let selected = choices
+            .iter()
+            .find(|choice| choice.value == secs)
+            .cloned()
+            .unwrap_or_else(|| {
+                let choice = MemoryChoice {
+                    value: secs,
+                    label: format!("Unload after {secs} seconds idle"),
+                };
+                choices.push(choice.clone());
+                choice
+            });
+        widgets::card(
+            column![
+                widgets::heading("Background memory"),
+                pick_list(choices, Some(selected), |choice: MemoryChoice| {
+                    Message::IdleTimeoutSelected(choice.value)
+                })
+                .text_size(14)
+                .width(Length::Fill),
+                widgets::prose(
+                    "Frees the speech model while you are not dictating. The next transcription \
+                     reloads it and takes longer. Keep it loaded for faster \
+                     responses; RAM usage then stays higher between dictations.",
+                ),
+            ]
+            .spacing(8),
+        )
+        .into()
     }
 
     /// When hands-free decides you have finished speaking.

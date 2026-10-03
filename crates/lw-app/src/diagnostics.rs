@@ -112,7 +112,37 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
                 d.qnn_registered = rt.qnn_registered();
                 d.qnn_npu_count = rt.qnn_npu_count();
             }
-            let mut probes = rt.probe_accelerators();
+            let mut probes = lw_core::capabilities::ALL_ACCELERATORS
+                .iter()
+                .copied()
+                .map(|accel| {
+                    let present = rt.is_present(accel);
+                    let mut status = lw_ort::AcceleratorStatus {
+                        accel,
+                        present,
+                        registered: false,
+                        devices: 0,
+                        error: None,
+                    };
+                    if present {
+                        if accel.kind() == lw_core::capabilities::AcceleratorKind::Gpu {
+                            // A status check must not keep GPU DLLs/driver heaps resident in
+                            // the desktop process for the rest of its lifetime.
+                            match crate::provider_worker::probe_runtime(rt.runtime_dir(), accel) {
+                                Ok(count) => {
+                                    status.registered = true;
+                                    status.devices = count;
+                                }
+                                Err(error) => status.error = Some(error),
+                            }
+                        } else {
+                            status.devices = rt.device_count(accel);
+                            status.registered = rt.registered(accel);
+                        }
+                    }
+                    status
+                })
+                .collect::<Vec<_>>();
             #[cfg(windows)]
             if let Some(directml) = probes
                 .iter_mut()
@@ -146,7 +176,20 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
                     }
                 }
             }
-            let devices = rt.device_summary();
+            let mut devices = rt.device_summary();
+            devices.extend(
+                probes
+                    .iter()
+                    .filter(|st| st.usable())
+                    .filter(|st| st.accel.kind() == lw_core::capabilities::AcceleratorKind::Gpu)
+                    .map(|st| {
+                        format!(
+                            "{}: {} device(s), verified in an isolated process",
+                            st.accel.label(),
+                            st.devices
+                        )
+                    }),
+            );
             let nvidia = if lw_core::capabilities::Accelerator::Cuda.supported_on_this_platform() {
                 lw_ort::nvidia::devices().unwrap_or_default()
             } else {

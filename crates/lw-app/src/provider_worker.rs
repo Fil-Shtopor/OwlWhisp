@@ -93,6 +93,7 @@ pub fn run_provider_probe(runtime_dir: &Path, accel: Accelerator) -> Result<usiz
 struct Ready {
     device: DeviceInfo,
     accelerator: Option<Accelerator>,
+    notes: Vec<String>,
 }
 
 struct Worker {
@@ -118,6 +119,7 @@ pub struct ProviderEngine {
     worker: Option<Worker>,
     device: DeviceInfo,
     selected: Option<Accelerator>,
+    notes: Vec<String>,
 }
 
 impl ProviderEngine {
@@ -128,6 +130,7 @@ impl ProviderEngine {
             worker: None,
             device: DeviceInfo::new(accel.label()),
             selected: None,
+            notes: Vec::new(),
         }
     }
 
@@ -147,14 +150,22 @@ impl SpeechEngine for ProviderEngine {
             Accelerator::DirectMl => Provider::DirectMl,
             Accelerator::Cuda => Provider::Cuda,
             Accelerator::TensorRt => Provider::TensorRt,
+            Accelerator::CoreMl => Provider::CoreMl,
             _ => Provider::Gpu,
         }
     }
     fn device(&self) -> DeviceInfo {
         self.device.clone()
     }
+    fn notes(&self) -> &[String] {
+        &self.notes
+    }
     fn acceleration(&self) -> Acceleration {
-        Acceleration::Gpu
+        if self.accel == Accelerator::CoreMl {
+            Acceleration::Ane
+        } else {
+            Acceleration::Gpu
+        }
     }
     fn supported_languages(&self) -> &[Language] {
         LANGUAGES
@@ -214,6 +225,7 @@ impl SpeechEngine for ProviderEngine {
         }
         self.device = ready.device;
         self.selected = ready.accelerator;
+        self.notes = ready.notes;
         self.worker = Some(worker);
         Ok(())
     }
@@ -315,6 +327,7 @@ pub fn run_provider_worker() -> Result<(), String> {
             let ready = Ready {
                 device: engine.device(),
                 accelerator: engine.accelerator(),
+                notes: engine.notes().to_vec(),
             };
             write_response(&mut output, &Ok::<_, String>(ready))?;
             engine

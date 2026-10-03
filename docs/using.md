@@ -6,6 +6,12 @@ _What the desktop app does, and how to drive it. For the CLI see [`models.md`](m
 The window has five tabs: **Dictate**, **Settings**, **Models**, **Diagnostics** and **Benchmark**.
 Closing the window hides it to the tray; "Quit" in the tray menu exits.
 
+Version 0.1.1 includes **Settings → Background memory**: unload the speech model after
+1, 5 (default), 15 or 30 idle minutes, or keep it loaded for faster responses. A recording keeps
+the model alive; the timeout starts after transcription ends. Reloading after a pause takes longer,
+and the prepared TensorRT cache remains on disk. See [memory.md](memory.md) for measured timings
+and RAM. This setting is available starting with v0.1.1.
+
 ---
 
 ## 1. Dictating

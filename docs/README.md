@@ -6,6 +6,7 @@
 | [architecture.md](architecture.md) | Crate map, the `SpeechEngine` trait, audio/VAD data flow, platform abstraction, IPC and concurrency model |
 | [x2-npu.md](x2-npu.md) | The Snapdragon X2 Elite NPU investigation: exact procedure, what was verified, what remains |
 | [benchmarks.md](benchmarks.md) | Measured latency / RTF / WER on the X2E94100, the benchmark methodology, and the estimate-vs-measurement rules behind `lw models` / `lw bench --quick` |
+| [memory.md](memory.md) | Background model lifetime, measured RAM and reload delay, investigation of TensorRT retention, and a fair desktop-client comparison protocol |
 | [using.md](using.md) | Using the desktop app: dictation, hotkey modes (push-to-talk / toggle / hands-free), the model picker, the benchmark panel, logs and file locations |
 | [models.md](models.md) | The model catalog: choosing a model for your hardware before downloading, installing it verified, and measuring the real numbers afterwards |
 | [hardware.md](hardware.md) | Platforms, installers per OS, and every accelerator: what is verified, what is implemented, and exactly what each remaining one needs |

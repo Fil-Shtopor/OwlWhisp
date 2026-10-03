@@ -365,8 +365,7 @@ impl State {
             // *would* use is a prediction. It is labelled as one rather than shown as a fact.
             _ => (
                 widgets::badge("predicted", theme::TEXT_DIM),
-                "Nothing loaded yet - the first dictation loads the model and this becomes a fact."
-                    .to_string(),
+                "No model loaded - the next dictation loads it and reports the active backend.".to_string(),
             ),
         };
 

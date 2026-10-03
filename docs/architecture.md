@@ -14,7 +14,7 @@ platforms and models can change without touching the rest._
 2. **Backends are pluggable and honest.** A `SpeechEngine` is selected at runtime by a capability
    detector; diagnostics always report the *actual* backend/provider/device. CPU fallback is never
    removed.
-3. **One inference runtime.** ONNX Runtime (via the `ort` crate, `load-dynamic`) is the single ML
+3. **One inference runtime per process.** ONNX Runtime (via the `ort` crate, `load-dynamic`) is the single ML
    runtime, and every accelerator reaches it the same way — as a **plugin execution provider**
    registered by name (`lw_core::capabilities::Accelerator` is the vocabulary: CPU, Qualcomm NPU,
    WebGPU, CUDA, TensorRT, DirectML, CoreML, OpenVINO, Vitis AI). Adding a vendor is a variant plus
@@ -25,6 +25,11 @@ platforms and models can change without touching the rest._
    GPU vendor, while an NPU wants a graph quantized and compiled for that silicon
    (`Accelerator::needs_dedicated_artifact`). That is why GPU coverage generalizes and NPU coverage
    has to be earned per vendor.
+
+   GPU inference can live in an isolated worker: ORT's environment and loaded provider libraries
+   are process-global, so ending the worker releases memory that dropping a session alone may
+   retain. GPU diagnostics use short-lived probes. Dictation unloads its model after a configurable
+   idle timeout (five minutes by default), with an option to keep it ready. See [memory.md](memory.md).
 4. **Native ARM64 first.** The app's own code is native `aarch64-pc-windows-msvc`; no x86 emulation
    for our binary. Dependencies are native ARM64 wherever a build exists.
 5. **No Python in the shipped runtime.** Python is used only for model conversion / QNN compilation /

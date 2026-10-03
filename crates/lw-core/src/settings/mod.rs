@@ -232,6 +232,9 @@ pub struct Settings {
     pub backend: BackendPreference,
     /// Active model id.
     pub model_id: String,
+    /// Release the dictation model after this many idle seconds; zero keeps it loaded.
+    #[serde(default = "default_model_idle_timeout_secs")]
+    pub model_idle_timeout_secs: u32,
     /// VAD endpoint tuning.
     pub vad: EndpointConfig,
     /// Whether the overlay is shown.
@@ -274,6 +277,9 @@ fn default_log_level() -> String {
 fn default_sound_volume() -> f32 {
     0.55
 }
+fn default_model_idle_timeout_secs() -> u32 {
+    5 * 60
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -283,6 +289,7 @@ impl Default for Settings {
             audio: AudioConfig::default(),
             backend: BackendPreference::Automatic,
             model_id: "parakeet-tdt-0.6b-v3".into(),
+            model_idle_timeout_secs: default_model_idle_timeout_secs(),
             vad: EndpointConfig::default(),
             overlay_enabled: true,
             sounds_enabled: true,
@@ -301,6 +308,11 @@ impl Default for Settings {
 impl Settings {
     /// Validate ranges, returning a descriptive error if something is out of bounds.
     pub fn validate(&self) -> Result<()> {
+        if self.model_idle_timeout_secs > 24 * 60 * 60 {
+            return Err(Error::Config(
+                "model_idle_timeout_secs must be in [0, 86400]".into(),
+            ));
+        }
         if self.audio.min_record_secs < 0.0 {
             return Err(Error::Config("audio.min_record_secs must be >= 0".into()));
         }
@@ -416,6 +428,7 @@ mod tests {
         assert_eq!(s.sound_theme, crate::sound::SoundTheme::Chime);
         assert!((0.0..=1.0).contains(&s.sound_volume));
         assert!(!s.autostart);
+        assert_eq!(s.model_idle_timeout_secs, 300);
     }
 
     #[test]
