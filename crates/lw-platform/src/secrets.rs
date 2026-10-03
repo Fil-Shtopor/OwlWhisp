@@ -4,7 +4,7 @@
 
 use crate::{Error, Result};
 
-/// A secret store scoped to one service name (e.g. `"LocalWisper"`).
+/// A secret store scoped to one service name (e.g. `"OwlWhisp"`).
 #[derive(Clone, Debug)]
 pub struct SecureStore {
     service: String,
@@ -59,8 +59,8 @@ mod tests {
 
     #[test]
     fn service_name_is_kept() {
-        let store = SecureStore::new("LocalWisperTest");
-        assert_eq!(store.service(), "LocalWisperTest");
+        let store = SecureStore::new("OwlWhispTest");
+        assert_eq!(store.service(), "OwlWhispTest");
     }
 
     /// Round-trip against the real OS credential store. Ignored by default so plain
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     #[ignore = "touches the OS credential store"]
     fn roundtrip_in_os_store() {
-        let store = SecureStore::new("LocalWisperTest");
+        let store = SecureStore::new("OwlWhispTest");
         store.set("test-key", "s3cret").unwrap();
         assert_eq!(store.get("test-key").unwrap().as_deref(), Some("s3cret"));
         store.delete("test-key").unwrap();

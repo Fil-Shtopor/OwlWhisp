@@ -1,4 +1,4 @@
-# LocalWisper — Final Report
+# OwlWhisp — Final Report
 
 _Written 2026-08-26. This report is deliberately blunt about what is verified vs. inferred vs.
 remaining. "Verified" means it was executed and observed on the target machine (Snapdragon X2 Elite
@@ -279,7 +279,7 @@ lw --runtime-dir runtime/win-arm64 bench tests/fixtures/audio --model-dir <model
 ## 12. Model installation
 ```
 python scripts/models/download_model.py models/manifests/parakeet-tdt-0.6b-v3.json \
-    --dest "$LOCALAPPDATA/LocalWisper/models" --target cpu_int8
+    --dest "$LOCALAPPDATA/OwlWhisp/models" --target cpu_int8
 ```
 CPU needs `nemo128.onnx`, `vocab.txt`, `decoder_joint-model.int8.onnx`, `encoder-model.int8.onnx`.
 NPU additionally needs a static-shape encoder (`encoder-static-tNNNN.onnx` + `.data`); the app

@@ -1,6 +1,6 @@
 //! # lw-platform
 //!
-//! OS integration for LocalWisper: microphone capture, global hotkeys, text injection,
+//! OS integration for OwlWhisp: microphone capture, global hotkeys, text injection,
 //! clipboard access, foreground-app inspection, hardware-capability detection, and secret
 //! storage.
 //!
@@ -23,7 +23,9 @@
 
 pub mod audio;
 pub mod autostart;
+pub mod browser;
 pub mod caps;
+pub mod drivers;
 pub mod clipboard;
 pub mod hotkey;
 pub mod inject;
@@ -44,7 +46,7 @@ pub mod linux;
 
 pub use audio::{AudioCapture, Capture, LevelHandle};
 pub use clipboard::Clipboard;
-pub use hotkey::{GlobalHotkey, HotkeyEvent, HotkeySpec};
+pub use hotkey::{Captured, GlobalHotkey, HotkeyCapture, HotkeyEvent, HotkeySpec, RawCombo};
 pub use inject::{ForegroundApp, TextInjector};
 pub use overlay::{NoopOverlay, NoopTray, OverlayWindow, SystemTray};
 pub use secrets::SecureStore;
@@ -136,6 +138,51 @@ impl Platform {
             Err(Error::Unavailable(
                 "global hotkeys are not supported on this OS".into(),
             ))
+        }
+    }
+
+    /// Listen for the next combination the user presses, for the shortcut editor.
+    ///
+    /// Not the same listener as [`hotkeys`](Platform::hotkeys), and not the same thing as reading
+    /// the window's own key events. A window sees what the shell has left for it, and the shell
+    /// keeps most of what the Windows key is part of -- which is why capture used to be unable to
+    /// read a binding the hotkey backend would have been perfectly happy to detect.
+    ///
+    /// The session takes every key while it lasts, so that arming it cannot open the Start menu
+    /// or leave a stray character in the field behind the window. Drop the returned box to stop.
+    ///
+    /// Windows: the process-wide keyboard hook. macOS/Linux: [`Error::Unavailable`], and callers
+    /// are expected to fall back to their own window's key events.
+    pub fn hotkey_capture(&self) -> Result<Box<dyn HotkeyCapture>> {
+        #[cfg(windows)]
+        {
+            Ok(Box::new(windows::WindowsCapture::new()?))
+        }
+        #[cfg(not(windows))]
+        {
+            Err(Error::Unavailable(
+                "reading a shortcut off the keyboard needs a system-wide keyboard hook, \
+                 which only the Windows backend has"
+                    .into(),
+            ))
+        }
+    }
+
+    /// How many key transitions the system-wide keyboard hook has seen, if this OS has one.
+    ///
+    /// `Some(0)` after the machine has been typed on is the one fact that separates two faults
+    /// that look identical from the outside: a shortcut that does nothing because the binding is
+    /// wrong, and a shortcut that does nothing because the hook this process installed is not
+    /// being called at all. Nothing else in the application can tell them apart, so the number is
+    /// put where a user can read it out.
+    pub fn keyboard_hook_keys_seen(&self) -> Option<u64> {
+        #[cfg(windows)]
+        {
+            Some(windows::keyboard_hook_key_counts().0)
+        }
+        #[cfg(not(windows))]
+        {
+            None
         }
     }
 

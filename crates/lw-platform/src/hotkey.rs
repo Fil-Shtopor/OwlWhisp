@@ -85,6 +85,8 @@ pub mod vk {
     pub const RWIN: u16 = 0x5C;
     /// Return / Enter.
     pub const RETURN: u16 = 0x0D;
+    /// Escape.
+    pub const ESCAPE: u16 = 0x1B;
 }
 
 /// The modifier family a virtual-key code belongs to, if any.
@@ -159,6 +161,36 @@ pub fn trigger_vk(name: &str) -> Option<u16> {
         }
     };
     Some(code)
+}
+
+/// The name a settings file uses for a virtual-key code, if this build has one for it.
+///
+/// The partial inverse of [`trigger_vk`], and deliberately *narrower* than it: only the keys a
+/// saved binding is known to survive are named here. The shortcut editor captures whatever the
+/// keyboard sends, and a name the rest of the app would later refuse is worse than no name --
+/// it would be shown as bound and then fail to save, with nothing on screen saying why.
+///
+/// `None` therefore means "this key cannot be part of a shortcut", which is a sentence the editor
+/// can show. It is what a laptop's media keys give, and what the Fn key gives on the rare keyboard
+/// that reports it at all.
+pub fn vk_name(code: u16) -> Option<String> {
+    let name = match code {
+        // Not a key at all: the name a modifiers-only binding writes into the settings file.
+        0 => "none",
+        0x20 => "space",
+        0x09 => "tab",
+        vk::RETURN => "enter",
+        vk::ESCAPE => "esc",
+        0x14 => "capslock",
+        0x2D => "insert",
+        0xC0 => "backquote",
+        0x41..=0x5A => return Some(((code as u8) as char).to_ascii_lowercase().to_string()),
+        0x30..=0x39 => return Some(((code as u8) as char).to_string()),
+        // f1..f20: past f20 `lw-core` has no accelerator name, so neither has this.
+        0x70..=0x83 => return Some(format!("f{}", code - 0x70 + 1)),
+        _ => return None,
+    };
+    Some(name.to_string())
 }
 
 /// A parsed, validated combo: a modifier-family bitmask plus an optional trigger key.
@@ -363,6 +395,379 @@ impl ComboTracker {
             Some(HotkeyEvent::Released)
         } else {
             None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reading a combination off the keyboard, for the shortcut editor
+// ---------------------------------------------------------------------------
+
+/// A combination exactly as the keyboard delivered it: which modifier families were held, and
+/// the key that completed it.
+///
+/// Raw codes rather than names because this is built inside the low-level hook callback, which
+/// must not allocate. Naming happens on the other side of the channel, with [`vk_name`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RawCombo {
+    /// Bitwise OR of [`MOD_CTRL`], [`MOD_SHIFT`], [`MOD_ALT`], [`MOD_WIN`], as held at the moment
+    /// the trigger went down.
+    pub mods: u8,
+    /// The non-modifier key that completed the combination.
+    pub vk: u16,
+}
+
+/// What a capture session produced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Captured {
+    /// A combination. Whether it is *bindable* is [`vk_name`]'s answer, not this one's: the
+    /// keyboard is entitled to send keys no shortcut can hold, and the editor should say so.
+    Combo(RawCombo),
+    /// Esc on its own — the user changed their mind.
+    Cancelled,
+}
+
+/// Listening to the physical keyboard for the shortcut editor.
+///
+/// Separate from [`GlobalHotkey`] because it answers a different question. `GlobalHotkey` watches
+/// for one known combination and stays out of everything else's way; this watches for *any* one
+/// combination and takes every key while it does, so that arming it cannot open the Start menu or
+/// type into whatever is behind the window.
+///
+/// Dropping the session stops the capture. Implementations also stop themselves after a short
+/// while: a capture is a modal grab of the whole keyboard, and one that outlived the window that
+/// started it would be indistinguishable from a machine that had stopped responding.
+pub trait HotkeyCapture: Send {
+    /// The channel the result arrives on. One event ends the session.
+    fn events(&self) -> Receiver<Captured>;
+
+    /// `(key transitions the backend has seen at all, transitions handed to the grab)`.
+    ///
+    /// For saying *why* a capture read nothing. Both numbers frozen means the backend is not on
+    /// the keyboard; the first moving and the second not means the grab was not armed when the
+    /// keys went by; both moving means the keys arrived and were not a binding.
+    fn key_counts(&self) -> (u64, u64);
+}
+
+/// The presses this process has taken, so that their releases can be taken too.
+///
+/// A grab that swallows a key-down and then lets the key-up through leaves every application
+/// behind it believing the key is still held: Ctrl sticks, and the next letter typed is a
+/// shortcut instead of a letter. The reverse is just as bad -- taking a release whose press the
+/// application *did* see leaves it holding a key nobody is pressing.
+///
+/// So the rule is exact and has no exceptions: **a release is taken if and only if its press was
+/// taken.** That obligation is not part of the capture session and must outlive it, because the
+/// session ends the instant a combination is read, while the user's fingers are still down.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SwallowLedger {
+    keys: KeyBitmap,
+}
+
+impl SwallowLedger {
+    /// A ledger owing nothing.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record that this key's press was taken.
+    pub fn took_press(&mut self, code: u32) {
+        self.keys.set(code, true);
+    }
+
+    /// Whether this key's release must be taken too. Clears the record either way, so one press
+    /// buys exactly one release: a second key-up for the same key belongs to the application.
+    pub fn owes_release(&mut self, code: u32) -> bool {
+        let owed = self.keys.is_down(code);
+        self.keys.set(code, false);
+        owed
+    }
+
+    /// Whether any release is still owed.
+    pub fn any_owed(&self) -> bool {
+        self.keys.0.iter().any(|&w| w != 0)
+    }
+}
+
+#[cfg(test)]
+mod swallow_ledger_tests {
+    use super::*;
+
+    #[test]
+    fn a_release_is_taken_exactly_when_its_press_was() {
+        let mut led = SwallowLedger::new();
+        assert!(!led.owes_release(0x41), "a release we never took a press for");
+        led.took_press(0x41);
+        assert!(led.owes_release(0x41));
+        assert!(!led.owes_release(0x41), "one press buys one release, not two");
+    }
+
+    #[test]
+    fn a_key_held_when_the_grab_opened_is_not_stolen_on_the_way_up() {
+        // The stuck-key case, exactly. The application saw Ctrl go down before the editor took
+        // the keyboard; if the editor then ate the key-up, that application would hold Ctrl for
+        // ever and every subsequent letter would be a shortcut.
+        let mut led = SwallowLedger::new();
+        assert!(!led.owes_release(u32::from(vk::LCONTROL)));
+    }
+
+    #[test]
+    fn the_ledger_tracks_each_key_on_its_own() {
+        let mut led = SwallowLedger::new();
+        led.took_press(u32::from(vk::LCONTROL));
+        led.took_press(0x44);
+        assert!(led.any_owed());
+        assert!(led.owes_release(0x44));
+        assert!(led.any_owed(), "Ctrl is still owed");
+        assert!(led.owes_release(u32::from(vk::LCONTROL)));
+        assert!(!led.any_owed());
+    }
+
+    #[test]
+    fn keys_it_cannot_record_are_never_claimed() {
+        let mut led = SwallowLedger::new();
+        led.took_press(999);
+        assert!(!led.any_owed());
+        assert!(!led.owes_release(999));
+    }
+}
+
+/// The pure half of a capture session: feed physical key transitions, get a [`Captured`] out.
+///
+/// Two ways a gesture ends, because there are two kinds of binding.
+///
+/// - A key ends it the moment it goes **down**. A bare modifier does not: the user is still on the
+///   way to the real key, and holding Ctrl and then pressing D must bind Ctrl+D, not Ctrl.
+/// - Modifiers alone end it when the last of them comes back **up**, and only if at least two were
+///   held. That is the Ctrl+Meta push-to-talk the hook backend exists for, and waiting for the
+///   release is what tells it apart from a user on their way to Ctrl+Meta+D. One modifier alone
+///   is not offered: it would fire every time the user pressed Ctrl for any other reason.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CaptureTracker {
+    keys: KeyBitmap,
+    /// Every modifier family held at any point in the gesture so far.
+    ///
+    /// The *peak*, not what is down now, because the gesture is read when the keys come up: by the
+    /// time the last one is released, none of them is still down to be counted.
+    peak: u8,
+}
+
+impl CaptureTracker {
+    /// A tracker with all keys up.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether any key at all is held right now.
+    ///
+    /// The capture ends on a key-*down*, but the keys are still under the user's fingers at that
+    /// moment. The grab has to outlive the gesture by exactly that much, or the releases of keys
+    /// whose presses it swallowed would reach the window behind it -- a key-up with no key-down,
+    /// which some applications read as a tap.
+    pub fn any_down(&self) -> bool {
+        self.keys.0.iter().any(|&w| w != 0)
+    }
+
+    /// Which modifier families are held right now.
+    pub fn mods_down(&self) -> u8 {
+        [MOD_CTRL, MOD_SHIFT, MOD_ALT, MOD_WIN]
+            .into_iter()
+            .filter(|&f| family_down(&self.keys, f))
+            .fold(0, |acc, f| acc | f)
+    }
+
+    /// Process one key transition; returns a result on the transition that completes the gesture.
+    pub fn on_key(&mut self, code: u32, down: bool) -> Option<Captured> {
+        if code > 255 {
+            // Same rule as [`KeyBitmap`], which cannot record these: a key the tracker could not
+            // then see released must not start a gesture it could never end.
+            return None;
+        }
+        self.keys.set(code, down);
+        if !down {
+            // A key going up ends the gesture only once nothing at all is held, and only for a
+            // binding made of modifiers alone -- a key binding was settled on the way down.
+            if self.any_down() {
+                return None;
+            }
+            let peak = std::mem::take(&mut self.peak);
+            return (peak.count_ones() >= 2)
+                .then_some(Captured::Combo(RawCombo { mods: peak, vk: 0 }));
+        }
+        let vk = u16::try_from(code).ok()?;
+        self.peak |= self.mods_down();
+        if vk_family(vk).is_some() {
+            // Still holding modifiers -- on the way to a real key, or to letting go.
+            return None;
+        }
+        let mods = self.mods_down();
+        // The gesture is settled here, so the modifier releases that follow belong to nothing.
+        self.peak = 0;
+        if vk == vk::ESCAPE && mods == 0 {
+            return Some(Captured::Cancelled);
+        }
+        Some(Captured::Combo(RawCombo { mods, vk }))
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+
+    #[test]
+    fn the_windows_key_counts_as_a_modifier() {
+        // The whole point of capturing through the keyboard hook rather than through the window:
+        // Win+D never reaches a window, because the shell takes it first.
+        let mut t = CaptureTracker::new();
+        assert_eq!(t.on_key(u32::from(vk::LWIN), true), None, "Win alone waits");
+        assert_eq!(
+            t.on_key(0x44, true),
+            Some(Captured::Combo(RawCombo { mods: MOD_WIN, vk: 0x44 })),
+        );
+    }
+
+    #[test]
+    fn every_held_family_is_reported() {
+        let mut t = CaptureTracker::new();
+        t.on_key(u32::from(vk::LCONTROL), true);
+        t.on_key(u32::from(vk::RWIN), true);
+        t.on_key(u32::from(vk::LSHIFT), true);
+        assert_eq!(
+            t.on_key(0x20, true),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_CTRL | MOD_WIN | MOD_SHIFT,
+                vk: 0x20,
+            })),
+        );
+    }
+
+    #[test]
+    fn a_released_modifier_is_no_longer_part_of_it() {
+        let mut t = CaptureTracker::new();
+        t.on_key(u32::from(vk::LCONTROL), true);
+        t.on_key(u32::from(vk::LSHIFT), true);
+        assert_eq!(t.on_key(u32::from(vk::LSHIFT), false), None);
+        assert_eq!(
+            t.on_key(0x20, true),
+            Some(Captured::Combo(RawCombo { mods: MOD_CTRL, vk: 0x20 })),
+        );
+    }
+
+    #[test]
+    fn esc_on_its_own_cancels_but_esc_with_a_modifier_binds() {
+        let mut t = CaptureTracker::new();
+        assert_eq!(t.on_key(u32::from(vk::ESCAPE), true), Some(Captured::Cancelled));
+
+        let mut t = CaptureTracker::new();
+        t.on_key(u32::from(vk::LCONTROL), true);
+        assert_eq!(
+            t.on_key(u32::from(vk::ESCAPE), true),
+            Some(Captured::Combo(RawCombo { mods: MOD_CTRL, vk: vk::ESCAPE })),
+        );
+    }
+
+    #[test]
+    fn two_modifiers_and_nothing_else_are_read_when_the_last_one_is_let_go() {
+        // Ctrl+Meta push-to-talk, which is a binding the hook backend supports and which capture
+        // previously could not produce at all -- it waited for a key that was never coming.
+        let mut t = CaptureTracker::new();
+        assert_eq!(t.on_key(u32::from(vk::LCONTROL), true), None);
+        assert_eq!(t.on_key(u32::from(vk::LWIN), true), None);
+        assert_eq!(t.on_key(u32::from(vk::LWIN), false), None, "one still held");
+        assert_eq!(
+            t.on_key(u32::from(vk::LCONTROL), false),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_CTRL | MOD_WIN,
+                vk: 0,
+            })),
+        );
+    }
+
+    #[test]
+    fn one_modifier_on_its_own_is_not_a_binding_and_the_capture_waits() {
+        // Brushing Ctrl must not end the capture, and must not leave that Ctrl in whatever is
+        // captured next.
+        let mut t = CaptureTracker::new();
+        assert_eq!(t.on_key(u32::from(vk::LCONTROL), true), None);
+        assert_eq!(t.on_key(u32::from(vk::LCONTROL), false), None);
+        assert_eq!(
+            t.on_key(u32::from(vk::LSHIFT), true),
+            None,
+            "the tracker is still listening",
+        );
+        assert_eq!(
+            t.on_key(0x44, true),
+            Some(Captured::Combo(RawCombo { mods: MOD_SHIFT, vk: 0x44 })),
+            "the abandoned Ctrl is not part of it",
+        );
+    }
+
+    #[test]
+    fn letting_go_after_a_key_has_been_read_produces_nothing_more() {
+        // Ctrl+D is settled on D's way down. The releases that follow are the same gesture, and a
+        // second event from them would rebind the shortcut to Ctrl+Shift by accident.
+        let mut t = CaptureTracker::new();
+        t.on_key(u32::from(vk::LCONTROL), true);
+        t.on_key(u32::from(vk::LSHIFT), true);
+        assert!(t.on_key(0x44, true).is_some());
+        assert_eq!(t.on_key(0x44, false), None);
+        assert_eq!(t.on_key(u32::from(vk::LSHIFT), false), None);
+        assert_eq!(t.on_key(u32::from(vk::LCONTROL), false), None);
+    }
+
+    #[test]
+    fn a_modifiers_only_capture_names_no_trigger_key() {
+        assert_eq!(vk_name(0).as_deref(), Some("none"));
+        assert_eq!(trigger_vk("none"), Some(0));
+    }
+
+    #[test]
+    fn a_key_going_up_never_ends_the_capture() {
+        let mut t = CaptureTracker::new();
+        assert_eq!(t.on_key(0x44, false), None);
+    }
+
+    #[test]
+    fn an_unbindable_key_still_arrives_so_the_editor_can_say_so() {
+        // VK_VOLUME_UP: what a laptop sends for Fn+F3 on many keyboards. Reported, then refused
+        // by name -- silence would look like a capture that simply does not work.
+        let mut t = CaptureTracker::new();
+        let out = t.on_key(0xAF, true);
+        assert_eq!(out, Some(Captured::Combo(RawCombo { mods: 0, vk: 0xAF })));
+        assert_eq!(vk_name(0xAF), None);
+    }
+}
+
+#[cfg(test)]
+mod vk_name_tests {
+    use super::*;
+
+    #[test]
+    fn every_name_it_gives_round_trips_back_to_the_same_code() {
+        for code in 0u16..=0xFF {
+            let Some(name) = vk_name(code) else { continue };
+            assert_eq!(trigger_vk(&name), Some(code), "{name} came from {code:#x}");
+        }
+    }
+
+    #[test]
+    fn the_keys_the_editor_offers_are_all_nameable() {
+        let offered = ["space", "tab", "enter", "esc"]
+            .into_iter()
+            .map(String::from)
+            .chain((b'a'..=b'z').map(|c| (c as char).to_string()))
+            .chain((0..10).map(|d| d.to_string()))
+            .chain((1..=20).map(|n| format!("f{n}")));
+        for name in offered {
+            let code = trigger_vk(&name).expect("the editor only offers parseable names");
+            assert_eq!(vk_name(code).as_deref(), Some(name.as_str()));
+        }
+    }
+
+    #[test]
+    fn a_modifier_has_no_trigger_name() {
+        for code in [vk::LWIN, vk::RWIN, vk::LCONTROL, vk::SHIFT, vk::LMENU] {
+            assert_eq!(vk_name(code), None, "{code:#x}");
         }
     }
 }

@@ -151,7 +151,7 @@ mod tests {
         overlay.hide().unwrap();
 
         let mut tray: Box<dyn SystemTray> = Box::new(NoopTray);
-        tray.set_tooltip("LocalWisper").unwrap();
+        tray.set_tooltip("OwlWhisp").unwrap();
         tray.set_state(OverlayState::Idle).unwrap();
         tray.notify("done", "text pasted").unwrap();
     }

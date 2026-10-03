@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Whisper speech engine adapter for LocalWisper (optional fallback backend)"
+description = "Whisper speech engine adapter for OwlWhisp (optional fallback backend)"
 
 [dependencies]
 lw-core.workspace = true

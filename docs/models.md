@@ -1,4 +1,4 @@
-# LocalWisper — Choosing a model
+# OwlWhisp — Choosing a model
 
 _How to see what exists, decide what suits your machine **before** downloading a gigabyte, and get
 real numbers for your own hardware **after**._
@@ -318,7 +318,7 @@ model does on *your* audio, accent, or vocabulary. The only way to know that is 
 ## 4. Install
 
 ```bash
-lw models install parakeet-tdt-0.6b-v3 --dest "$LOCALAPPDATA/LocalWisper/models"
+lw models install parakeet-tdt-0.6b-v3 --dest "$LOCALAPPDATA/OwlWhisp/models"
 ```
 
 The install resolves the entry's manifest under `models/manifests/`, picks the best artifact set
@@ -332,7 +332,7 @@ If an entry has **no pinned manifest**, install refuses:
 
 ```
 error: `<id>` has no pinned manifest, so there is nothing safe to download.
-Its file set has not been hash-pinned yet (see `lw models info <id>`); LocalWisper refuses
+Its file set has not been hash-pinned yet (see `lw models info <id>`); OwlWhisp refuses
 to fetch unverified model files. A manifest is added once the files are downloaded, hashed and
 committed under models/manifests/.
 ```
@@ -368,17 +368,17 @@ The **desktop app** keeps models inside its own app-data directory, next to `set
 
 | Platform | App models directory |
 |---|---|
-| Windows | `%APPDATA%\ai.localwisper.app\models` |
-| macOS | `~/Library/Application Support/ai.localwisper.app/models` |
-| Linux | `~/.local/share/ai.localwisper.app/models` |
+| Windows | `%APPDATA%\ai.owlwhisp.app\models` |
+| macOS | `~/Library/Application Support/ai.owlwhisp.app/models` |
+| Linux | `~/.local/share/ai.owlwhisp.app/models` |
 
-The **CLI** defaults somewhere else (`%LOCALAPPDATA%\LocalWisper\models` /
-`~/.local/share/LocalWisper/models`), because it is usable without the app ever being installed.
+The **CLI** defaults somewhere else (`%LOCALAPPDATA%\OwlWhisp\models` /
+`~/.local/share/OwlWhisp/models`), because it is usable without the app ever being installed.
 That means the two can disagree about what is installed unless you tell them not to. Set
 `LW_MODELS_ROOT` (or pass `--dest`) to point the CLI at the app's copy:
 
 ```bash
-LW_MODELS_ROOT="$APPDATA/ai.localwisper.app/models" lw models list
+LW_MODELS_ROOT="$APPDATA/ai.owlwhisp.app/models" lw models list
 #   parakeet-tdt-0.6b-v3 ... INSTALLED: yes
 ```
 

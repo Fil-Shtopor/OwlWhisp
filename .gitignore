@@ -44,6 +44,7 @@ Thumbs.db
 
 # Logs / local artifacts
 *.log
+.owlwhisp-test/
 /benchmarks/results/*.json
 /scratch/
 

@@ -27,7 +27,7 @@ pub fn log_dir() -> PathBuf {
     crate::paths::app_data_dir().join("logs")
 }
 
-/// Start logging to `<app-data>/logs/localwisper.log.<date>`. Answers whether it worked.
+/// Start logging to `<app-data>/logs/owlwhisp.log.<date>`. Answers whether it worked.
 pub fn init() -> bool {
     let guard = init_in(&log_dir());
     let started = guard.is_some();
@@ -53,7 +53,7 @@ pub fn init_in(logs: &Path) -> Option<WorkerGuard> {
     use tracing_subscriber::EnvFilter;
 
     std::fs::create_dir_all(logs).ok()?;
-    let appender = tracing_appender::rolling::daily(logs, "localwisper.log");
+    let appender = tracing_appender::rolling::daily(logs, "owlwhisp.log");
     let (writer, guard) = tracing_appender::non_blocking(appender);
     let filter = EnvFilter::try_from_env("LW_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
     let subscriber = tracing_subscriber::fmt()
@@ -65,7 +65,7 @@ pub fn init_in(logs: &Path) -> Option<WorkerGuard> {
         .finish();
     tracing::subscriber::set_global_default(subscriber).ok()?;
     tracing::info!(
-        "LocalWisper {} starting; logs in {}",
+        "OwlWhisp {} starting; logs in {}",
         env!("CARGO_PKG_VERSION"),
         logs.display()
     );

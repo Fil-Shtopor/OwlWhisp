@@ -1,4 +1,4 @@
-//! `lw` — LocalWisper command-line tool.
+//! `lw` — OwlWhisp command-line tool.
 //!
 //! Subcommands:
 //! - `diagnose`  — print the capability/runtime report (JSON or text).
@@ -29,7 +29,7 @@ use lw_ort::OrtRuntime;
 #[command(
     name = "lw",
     version,
-    about = "LocalWisper CLI: diagnostics, transcription, benchmarks"
+    about = "OwlWhisp CLI: diagnostics, transcription, benchmarks"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -214,7 +214,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             threads,
         } => {
             let rt = init_runtime(&cli.runtime_dir)?;
-            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
+            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("owlwhisp-cache"));
             let mut engine = build_engine(rt, &model_dir, &cache, backend.into(), threads)?;
             let audio = load_wav(&wav)?;
             let t0 = Instant::now();
@@ -242,7 +242,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             include_unsupported,
             quick,
         } => {
-            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
+            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("owlwhisp-cache"));
             if quick {
                 return models::bench_quick(models::QuickArgs {
                     runtime_dir: cli.runtime_dir.clone(),
@@ -286,7 +286,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             device,
         } => {
             let rt = init_runtime(&cli.runtime_dir)?;
-            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("localwisper-cache"));
+            let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("owlwhisp-cache"));
             let mut engine = build_engine(rt, &model_dir, &cache, backend.into(), 0)?;
             record_and_transcribe(engine.as_mut(), seconds, device)
         }
@@ -346,7 +346,17 @@ fn build_engine(
     // Pick the engine from what is actually in the directory rather than from a flag: a user who
     // points at a Whisper export should get Whisper, not an unhelpful error from the Parakeet
     // loader about a missing vocab.txt.
-    if let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+    let parakeet_accelerated = model_dir
+        .file_name()
+        .is_some_and(|name| name == "parakeet-tdt-0.6b-v3")
+        && !matches!(backend, BackendKind::Auto | BackendKind::ForceCpu);
+    if !parakeet_accelerated && let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+        if !matches!(backend, BackendKind::Auto | BackendKind::ForceCpu) {
+            anyhow::bail!(
+                "{} uses the CPU-only sherpa engine; choose the Parakeet model for CUDA or select CPU",
+                model_dir.display()
+            );
+        }
         // Only the message below needs the family name, and that branch is compiled out of a
         // sherpa build -- binding it unconditionally warns in exactly the configuration we ship.
         #[cfg(not(feature = "sherpa"))]
@@ -403,20 +413,22 @@ fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
             report.insert("qnn_registered".into(), rt.qnn_registered().into());
             report.insert("qnn_npu".into(), has_npu.into());
             report.insert("qnn_npu_count".into(), (rt.qnn_npu_count() as u64).into());
+            let usable = rt.usable_accelerators();
+            let probes = rt.probe_accelerators();
+            let devices = rt.device_summary();
+            accelerators = probes.into_iter().collect();
             report.insert(
                 "devices".into(),
-                serde_json::Value::Array(rt.device_summary().into_iter().map(Into::into).collect()),
+                serde_json::Value::Array(devices.into_iter().map(Into::into).collect()),
             );
-            let usable = rt.usable_accelerators();
-            accelerators = rt.probe_accelerators();
             report.insert(
                 "accelerators".into(),
                 serde_json::to_value(&accelerators).unwrap_or_default(),
             );
-            // The recommendation is the first usable accelerator in preference order, which is
-            // exactly what `--backend auto` will choose -- not a guess from DLL presence.
+            // Hardware policy only: the fastest provider depends on the installed model graph.
+            // Calling this a recommendation incorrectly labelled CPU as the fastest on RTX 4080.
             report.insert(
-                "recommended_backend".into(),
+                "automatic_backend".into(),
                 usable
                     .first()
                     .map(|a| a.id().to_string())
@@ -432,7 +444,7 @@ fn diagnose(runtime_dir: &Option<PathBuf>, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!("LocalWisper diagnostics");
+        println!("OwlWhisp diagnostics");
         // The accelerator table is the useful part; print it separately rather than as raw JSON.
         report.remove("accelerators");
         if !accelerators.is_empty() {

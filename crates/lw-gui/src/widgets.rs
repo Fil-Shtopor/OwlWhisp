@@ -75,14 +75,6 @@ pub fn measured<'a>(label: &str, rate: f32) -> Text<'a> {
         .color(theme::GOOD)
 }
 
-/// A number that was estimated: amber, and prefixed with the tilde used throughout the project.
-pub fn estimated<'a>(rtf: f32) -> Text<'a> {
-    text(format!("~{rtf:.4}"))
-        .size(13)
-        .font(iced::Font::MONOSPACE)
-        .color(theme::ESTIMATE)
-}
-
 /// Monospace, for paths and figures that should line up.
 pub fn mono<'a>(s: impl text::IntoFragment<'a>) -> Text<'a> {
     text(s).size(13).font(iced::Font::MONOSPACE).color(theme::TEXT)

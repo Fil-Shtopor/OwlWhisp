@@ -22,6 +22,10 @@ use crate::{Error, Result};
 /// Default rolling-window capacity: 120 s at 48 kHz mono (~23 MiB of f32).
 pub const DEFAULT_RING_CAPACITY: usize = 120 * 48_000;
 
+fn capacity_for_duration(sample_rate: u32, seconds: usize) -> usize {
+    (sample_rate as usize).saturating_mul(seconds.max(1)).max(1)
+}
+
 /// Platform-neutral microphone capture.
 pub trait AudioCapture {
     /// Open the input device and start pushing mono samples into the ring buffer.
@@ -95,6 +99,7 @@ pub fn mono_from_i32(interleaved: &[i32], channels: u16) -> Vec<f32> {
 pub struct Capture {
     device_name: Option<String>,
     ring: RingBuffer,
+    duration_secs: Option<usize>,
     stream: Option<cpal::Stream>,
     native_rate: u32,
     last_rms: Arc<AtomicU32>,
@@ -117,10 +122,19 @@ impl Capture {
         Self {
             device_name,
             ring: RingBuffer::new(ring_capacity_samples.max(1)),
+            duration_secs: None,
             stream: None,
             native_rate: 0,
             last_rms: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    /// Capture a duration at the microphone's native sample rate. Unlike a fixed sample count,
+    /// this keeps the same amount of speech on 16, 48 and 96 kHz devices.
+    pub fn for_duration(device_name: Option<String>, seconds: usize) -> Self {
+        let mut capture = Self::new(device_name, 1);
+        capture.duration_secs = Some(seconds.max(1));
+        capture
     }
 
     /// The native sample rate of the last-opened stream (0 before the first start).
@@ -175,7 +189,11 @@ impl AudioCapture for Capture {
         let sample_format = supported.sample_format();
         let config = supported.config();
 
-        self.ring.reset();
+        if let Some(seconds) = self.duration_secs {
+            self.ring = RingBuffer::new(capacity_for_duration(sample_rate, seconds));
+        } else {
+            self.ring.reset();
+        }
         self.last_rms.store(0, Ordering::Relaxed);
         self.native_rate = sample_rate;
 
@@ -252,6 +270,12 @@ impl std::fmt::Debug for Capture {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duration_capacity_tracks_native_rate() {
+        assert_eq!(super::capacity_for_duration(16_000, 300), 4_800_000);
+        assert_eq!(super::capacity_for_duration(48_000, 300), 14_400_000);
+        assert_eq!(super::capacity_for_duration(96_000, 300), 28_800_000);
+    }
     /// Open the microphone **by name**, the way a configured `audio.input_device` does.
     ///
     /// Ignored: needs an input device. Run with
@@ -352,6 +376,17 @@ mod tests {
         assert!(peak.is_finite(), "level must be a real number, got {peak}");
         assert!((0.0..=1.0).contains(&peak), "RMS must stay in [0, 1], got {peak}");
     }
+
+    #[test]
+    #[ignore = "needs an input device; checks duration sizing at its native rate"]
+    fn recording_window_uses_native_sample_rate() {
+        let mut capture = Capture::for_duration(None, 3);
+        capture.start().expect("open the default input device");
+        println!("native rate: {} Hz", capture.native_sample_rate());
+        assert_eq!(capture.ring().capacity(), capture.native_sample_rate() as usize * 3);
+        let _ = capture.stop();
+    }
+
 
     use super::*;
 

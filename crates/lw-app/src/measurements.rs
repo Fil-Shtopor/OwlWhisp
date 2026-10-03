@@ -25,6 +25,9 @@ pub struct LocalMeasurement {
     pub accelerator: String,
     /// The label the engine reported, for showing.
     pub accelerator_label: String,
+    /// Parakeet encoder variant used for this timing; a GPU add-on changes the graph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder_artifact: Option<String>,
     /// Real-time factor of the first clip, which carries the one-time warm-up.
     pub cold_rtf: f32,
     /// Mean real-time factor after the first clip, when there was more than one.
@@ -127,6 +130,20 @@ pub fn from_report(report: &crate::bench::BenchReport) -> Option<LocalMeasuremen
             .clone()
             .unwrap_or_else(|| "unknown".to_string()),
         accelerator_label: report.backend.clone(),
+        encoder_artifact: if report.model_id == "parakeet-tdt-0.6b-v3"
+            && matches!(report.accelerator.as_deref(), Some("cuda" | "web_gpu"))
+        {
+            let model = Path::new(&report.model_dir);
+            Some(if model.join("encoder-model.onnx").exists()
+                && model.join("encoder-model.onnx.data").exists()
+            {
+                "gpu_fp32".to_string()
+            } else {
+                "cpu_int8".to_string()
+            })
+        } else {
+            None
+        },
         cold_rtf: report.cold_rtf,
         warm_rtf: report.warm_rtf,
         wer: report.wer,
@@ -173,6 +190,7 @@ mod tests {
         LocalMeasurement {
             accelerator: accel.into(),
             accelerator_label: accel.into(),
+            encoder_artifact: None,
             cold_rtf: 0.1,
             warm_rtf: Some(0.05),
             wer: Some(wer),
@@ -255,6 +273,21 @@ mod tests {
         let back = LocalMeasurements::load(&p);
         assert_eq!(back.for_model("parakeet"), set.for_model("parakeet"));
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn a_later_benchmark_replaces_the_saved_run() {
+        let dir = std::env::temp_dir().join(format!("lw-measurements-replace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("measurements.json");
+        let mut first = LocalMeasurements::default();
+        first.record("parakeet", m("cpu", 0.10));
+        first.save(&path).unwrap();
+        let mut later = LocalMeasurements::load(&path);
+        later.record("parakeet", m("cpu", 0.08));
+        later.save(&path).unwrap();
+        assert_eq!(LocalMeasurements::load(&path).for_model("parakeet")[0].wer, Some(0.08));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

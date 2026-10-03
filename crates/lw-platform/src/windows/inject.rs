@@ -46,7 +46,7 @@ const TYPE_CHUNK_UNITS: usize = 256;
 ///
 /// TODO(seam): if the user is still physically holding hotkey modifiers when `inject_into`
 /// runs, the synthesized Ctrl+V combines with them (e.g. Ctrl+Win+V). The app layer should
-/// inject only after the hotkey `Released` event, as LocalWisper's worker does.
+/// inject only after the hotkey `Released` event, as OwlWhisp's worker does.
 pub struct WindowsInjector {
     restore_delay: Duration,
 }

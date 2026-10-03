@@ -89,8 +89,49 @@ impl State {
             notice: None,
             error: None,
         };
+        // A fresh install has no settings file yet. Persist the defaults before starting the
+        // background download, both to make the selected Parakeet model explicit and to ensure a
+        // restart resumes rather than starts a second first-run download.
+        let settings_path = lw_app::paths::settings_path();
+        let first_run = !settings_path.exists();
         s.load();
+        if first_run {
+            if let Err(e) = lw_core::settings::Settings::default().save(&settings_path) {
+                tracing::warn!("could not save first-run settings: {e}");
+            } else {
+                s.start_default_download();
+            }
+        }
         s
+    }
+
+    /// Fetch Parakeet once for a newly installed application. This deliberately happens after
+    /// the first window exists, rather than inside the installer: downloads can be resumed,
+    /// cancelled, and reported in the Models tab instead of leaving an installer apparently hung
+    /// on a 600+ MiB network operation.
+    fn start_default_download(&mut self) {
+        const DEFAULT_MODEL: &str = "parakeet-tdt-0.6b-v3";
+        let missing = self.catalog.as_ref().is_ok_and(|catalog| {
+            catalog
+                .entries
+                .iter()
+                .find(|entry| entry.id == DEFAULT_MODEL)
+                .is_some_and(|entry| matches!(
+                    entry.install_state,
+                    lw_core::model::InstallState::Missing | lw_core::model::InstallState::Incomplete
+                ))
+        });
+        if missing {
+            self.notice = Some("Downloading the default Parakeet model…".into());
+            self.install = Some(lw_app::install::start(
+                &lw_app::paths::settings_path(),
+                DEFAULT_MODEL,
+            ));
+        } else if self.catalog.is_err() {
+            self.error = Some(
+                "The default model could not be prepared because its bundled download manifest is missing. Reinstall OwlWhisp.".into(),
+            );
+        }
     }
 
     fn load(&mut self) {
@@ -380,7 +421,7 @@ impl State {
         widgets::card(body).into()
     }
 
-    fn glossary_block<'a>(&'a self, view: &'a CatalogView) -> Element<'a, Message> {
+    fn glossary_block<'a>(&'a self, _view: &'a CatalogView) -> Element<'a, Message> {
         let head = button(
             row![
                 widgets::sub(if self.glossary { "v" } else { ">" }),
@@ -399,17 +440,13 @@ impl State {
         let mut block = column![head].spacing(6);
         if self.glossary {
             block = block
-                .push(widgets::prose(format!(
-                    "The error rate in the Accuracy column is neither the model publisher's \
-                     published figure nor something measured live on this computer. It was \
-                     measured by this project with `lw bench` on {}, and committed to the catalog.",
-                    view.machine
-                )))
                 .push(widgets::prose(
-                    "Speed is an estimate - arithmetic on the model's speed tier and the detected \
-                     hardware, marked with a tilde, never a measurement. A green error rate is a \
-                     measurement. The quality pill beside it is an editorial ranking of the model \
-                     family, not either of those.",
+                    "RTF and Accuracy show the catalog's ASUS Zenbook A16 measurements. Parakeet \
+                     uses its NPU run. Benchmarks on this computer appear only under On your machine."
+                ))
+                .push(widgets::prose(
+                    "The Fast recommendation still uses an estimated speed tier. It does not \
+                     change the measured RTF in the table."
                 ))
                 .push(widgets::prose(
                     "WER is the word error rate and CER the character error rate: the share of \
@@ -808,7 +845,7 @@ fn machine_card(view: &CatalogView) -> Element<'_, Message> {
                 .size(11)
                 .color(theme::TEXT_DIM),
             widgets::mono(view.machine.clone()),
-            widgets::sub("Recommendations and estimates below are computed for this machine."),
+            widgets::sub("RTF and accuracy below use the ASUS Zenbook A16 reference runs."),
         ]
         .spacing(4),
     )
@@ -879,13 +916,13 @@ fn accelerator_table<'a>(
         )
         .width(Length::FillPortion(3)),
         container(
-            iced::widget::text("Runs this model")
+            iced::widget::text("Model supports")
                 .size(11)
                 .color(theme::TEXT_DIM)
         )
         .width(Length::FillPortion(3)),
         container(
-            iced::widget::text("Measured on this machine")
+            iced::widget::text("On your machine")
                 .size(11)
                 .color(theme::TEXT_DIM)
         )
@@ -917,9 +954,7 @@ fn accelerator_table<'a>(
             .spacing(2)
             .into()
         };
-        // Measured here and in the catalog stay in separate columns: they were taken on different
-        // machines on different days, and one column would invite reading one as a check on the
-        // other.
+        // Local benchmark records and the fixed A16 catalog runs stay in separate columns.
         let here: Element<'_, Message> =
             match mine.iter().find(|m| same_accel(&m.accelerator, a.id)) {
                 Some(local) => {
@@ -1007,11 +1042,10 @@ fn accelerator_table<'a>(
     }
 
     table = table.push(widgets::prose(
-        "\u{201c}Runs this model\u{201d} is the backend's own answer - the same one that decides \
-         which accelerators a Compare-all sweep skips, so the table cannot promise a run the \
-         benchmark then refuses. \u{201c}Measured on this machine\u{201d} is empty until you run \
-         a benchmark; \u{201c}in the catalog\u{201d} was measured on the developer's machine, and \
-         the two are kept in separate columns because neither checks the other.",
+        "\u{201c}Model supports\u{201d} describes the model and engine, not whether this package \
+         has the provider or this PC has the hardware. Settings shows actual readiness. \
+         \u{201c}On your machine\u{201d} is empty until you run a benchmark; \
+         \u{201c}in the catalog\u{201d} contains the ASUS Zenbook A16 reference runs.",
     ));
 
     // A run of ours filed under an accelerator this build does not recognise. Listed rather than
@@ -1194,7 +1228,7 @@ impl Col {
             Col::Family => "FAMILY",
             Col::Download => "DOWNLOAD",
             Col::Languages => "LANGUAGES",
-            Col::Speed => "SPEED",
+            Col::Speed => "RTF (A16)",
             Col::Accuracy => "ACCURACY",
             Col::Mine => "ON YOUR MACHINE",
             Col::Status => "STATUS",
@@ -1206,7 +1240,7 @@ impl Col {
             Col::Family => 8,
             Col::Download => 8,
             Col::Languages => 10,
-            Col::Speed => 12,
+            Col::Speed => 16,
             Col::Accuracy => 15,
             Col::Mine => 12,
             Col::Status => 9,
@@ -1217,7 +1251,7 @@ impl Col {
         self,
         entry: &'a EntryView,
         mine: &'a [lw_app::LocalMeasurement],
-        wide: bool,
+        _wide: bool,
     ) -> Element<'a, Message> {
         match self {
             Col::Family => widgets::sub(lw_app::catalog::family_label(&entry.engine)).into(),
@@ -1230,39 +1264,26 @@ impl Col {
                 .color(theme::TEXT_DIM)
                 .wrapping(iced::widget::text::Wrapping::None)
                 .into(),
-            Col::Speed => match entry.estimated_rtf {
-                Some(rtf) => {
-                    let mut r = row![widgets::estimated(rtf)].spacing(5);
-                    if let Some(hw) = entry.best_hardware {
-                        r = r.push(widgets::chip(short_hardware(hw)));
-                    }
-                    r.align_y(iced::Alignment::Center).into()
+            Col::Speed => {
+                match entry.a16_reference() {
+                    Some(reference) => row![
+                        widgets::mono(format!("{:.4}", reference.rtf)),
+                        widgets::chip(short_hardware(reference.hardware.label())),
+                    ].spacing(5).into(),
+                    None => widgets::sub("-").into(),
                 }
-                None => Space::new().into(),
             },
             Col::Accuracy => {
-                let mut r = row![widgets::badge(entry.quality_label, theme::TEXT_DIM)].spacing(5);
-                let point = entry
-                    .measured_reference
-                    .as_ref()
-                    .or(entry.measurements.first());
-                if let Some((m, wer)) = point.and_then(|m| m.wer.map(|w| (m, w))) {
-                    r = r.push(widgets::measured("WER", wer));
-                    // The accelerator chip is dropped when narrow: the Speed column already names
-                    // the accelerator on almost every row, and squeezed it read as "c / p / u".
-                    if wide {
-                        r = r.push(widgets::chip(short_hardware(m.hardware.label())));
-                    }
+                match entry.a16_reference().and_then(|m| m.wer) {
+                    Some(wer) => widgets::measured("WER", wer).into(),
+                    None => widgets::sub("-").into(),
                 }
-                // Fixed inner width for the same reason as the badges: three things in a row get
-                // squeezed rather than clipped, and a squeezed chip wraps "cpu" into three lines.
-                container(r.align_y(iced::Alignment::Center))
-                    .into()
             }
             Col::Mine => match pick_local(mine, entry.best_hardware) {
                 None => widgets::sub("not yet").into(),
                 Some(local) => {
-                    let mut r = row![].spacing(5).align_y(iced::Alignment::Center);
+                    let mut r = row![widgets::chip(short_hardware(&local.accelerator))]
+                        .spacing(5).align_y(iced::Alignment::Center);
                     match headline_rate(local) {
                         Some((rate, extra)) => {
                             r = r.push(
@@ -1349,20 +1370,18 @@ fn header(cols: &[Col]) -> Element<'static, Message> {
 
 /// The local measurement worth putting in the row, out of however many accelerators were tried.
 ///
-/// Prefers the accelerator this machine would actually use, because that is the run that predicts
-/// what the user will experience; falls back to the fastest so a row is never blank when something
-/// was measured.
+/// Show the newest run in the collapsed row so the value changes after a benchmark.
+/// When a sweep records several accelerators in one second, prefer the selected target.
 fn pick_local<'m>(
     mine: &'m [lw_app::LocalMeasurement],
     best: Option<&str>,
 ) -> Option<&'m lw_app::LocalMeasurement> {
-    if let Some(hit) = best.and_then(|b| mine.iter().find(|m| same_accel(&m.accelerator, b))) {
-        return Some(hit);
-    }
-    mine.iter().min_by(|a, b| {
-        let av = a.warm_rtf.unwrap_or(a.cold_rtf);
-        let bv = b.warm_rtf.unwrap_or(b.cold_rtf);
-        av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
+    mine.iter().max_by(|a, b| {
+        a.measured_at.cmp(&b.measured_at).then_with(|| {
+            let a_selected = best.is_some_and(|target| same_accel(&a.accelerator, target));
+            let b_selected = best.is_some_and(|target| same_accel(&b.accelerator, target));
+            a_selected.cmp(&b_selected)
+        })
     })
 }
 

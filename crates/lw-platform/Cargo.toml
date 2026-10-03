@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "OS integration for LocalWisper: audio capture, global hotkeys, text injection, clipboard, foreground app, hardware capabilities (Windows, macOS, Linux)"
+description = "OS integration for OwlWhisp: audio capture, global hotkeys, text injection, clipboard, foreground app, hardware capabilities (Windows, macOS, Linux)"
 
 [dependencies]
 lw-core.workspace = true
@@ -34,4 +34,3 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_Wind
 
 [dev-dependencies]
 hound.workspace = true
-

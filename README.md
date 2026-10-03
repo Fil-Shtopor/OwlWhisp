@@ -1,57 +1,48 @@
-# LocalWisper
+# OwlWhisp
 
-Local, private, system-wide speech-to-text dictation for **Windows 11 ARM64 (Snapdragon X2 Elite
-first)**, macOS (Apple Silicon) and Linux — built around a modular, hardware-aware inference core.
+<p align="center">
+  <img src="assets/icons/icon-256.png" width="180" alt="OwlWhisp owl and voice-wave icon">
+</p>
 
-- **Primary model:** NVIDIA Parakeet TDT 0.6B v3 (25 European languages, punctuation + capitalization).
-- **Stack:** Rust, top to bottom. A core (audio, VAD, inference orchestration, text pipeline,
-  OS integration), an application layer above it, and a window drawn natively with `iced` on a
-  CPU rasteriser — no browser engine, no GPU context, one process. Audio never leaves the core.
-- **Backends are pluggable and honest:** Parakeet on the Qualcomm **Hexagon NPU (QNN/HTP V81)**,
-  Parakeet on **CPU** (ONNX Runtime), a Whisper adapter, and a macOS CoreML path — selected
-  automatically and always reported truthfully in Diagnostics. CPU fallback is never removed.
+**Your voice stays yours.** OwlWhisp is private, local, on-device speech-to-text for Windows,
+macOS, and Linux. It listens on your machine, transcribes locally, and places the result into the
+active application. No cloud account and no browser engine are required.
 
-## Status (verified on a Snapdragon X2 Elite Extreme, Windows 11 ARM64)
+## What it offers
 
-- ✅ **Parakeet runs on the X2 Hexagon NPU** via ONNX Runtime's QNN plugin EP — `lw bench`:
-  **RTF 0.0145, WER 4.8%** over 12 FLEURS clips (en/ru/es/uk); HTP context binary cached.
-- ✅ **CPU fallback** verified independently — **RTF 0.032, WER 5.4%**.
-- ✅ **Live microphone** capture → transcribe verified (`lw record`).
-- ✅ ~140 unit/integration tests green; full workspace builds; fmt + clippy clean.
+- **Private by design:** microphone audio and models stay on the device.
+- **Fast local inference:** Parakeet runs on CPU and, on supported Snapdragon Windows hardware,
+  the Qualcomm Hexagon NPU. Other engines remain available for a wider model catalog.
+- **Desktop-native:** a Rust application with tray controls, global hotkeys, diagnostics, and no
+  webview process.
+- **Open source:** Apache-2.0 application code with third-party notices included in every package.
 
-Read the honest, detailed status in **[docs/FINAL_REPORT.md](docs/FINAL_REPORT.md)**.
+## Downloads
 
-## Quick start (Windows ARM64)
+Every `v*` tag builds downloadable artifacts in the matching GitHub Release:
+
+| Platform | Download |
+|---|---|
+| Windows ARM64 / x64 | NSIS installer and portable ZIP |
+| macOS Apple Silicon / Intel | `.app` bundle in a ZIP |
+| Linux x64 / ARM64 | portable `.tar.gz` |
+
+Release files include a per-platform `SHA256SUMS-*.txt`. Windows installers are unsigned until code-signing is
+configured; macOS packages need signing and notarization before Gatekeeper will treat them as
+identified-developer applications.
+
+## Build from source
 
 ```powershell
-pwsh -File scripts\runtime\fetch-runtime.ps1          # stage ORT + QNN EP DLLs (native ARM64)
-```
-```bash
-python scripts/models/download_model.py models/manifests/parakeet-tdt-0.6b-v3.json \
-    --dest "$LOCALAPPDATA/LocalWisper/models" --target cpu_int8
-cargo build --release -p lw-cli --target aarch64-pc-windows-msvc      # source ~/.msvc-arm64/env-arm64.sh first on the dev box
-lw --runtime-dir runtime/win-arm64 diagnose
-lw --runtime-dir runtime/win-arm64 transcribe clip.wav --model-dir "$LOCALAPPDATA/LocalWisper/models/parakeet-tdt-0.6b-v3" --backend auto
+pwsh -File scripts/runtime/fetch-runtime.ps1
+cargo build --release -p lw-gui --features sherpa
 ```
 
-Full build/run instructions: **[docs/build.md](docs/build.md)**. Documentation index:
-**[docs/README.md](docs/README.md)**.
-
-## Documentation
-
-| Doc | What |
-|---|---|
-| [research.md](docs/research.md) | Phase-0 ecosystem research + the verified X2-NPU result |
-| [architecture.md](docs/architecture.md) | Crate map, `SpeechEngine` trait, data flow, IPC, concurrency |
-| [x2-npu.md](docs/x2-npu.md) | The Snapdragon X2 NPU investigation: exact procedure & caveats |
-| [benchmarks.md](docs/benchmarks.md) | Measured latency / RTF / WER on the X2 |
-| [licenses.md](docs/licenses.md) | Every redistributed component and its obligations |
-| [build.md](docs/build.md) | Build matrix + per-platform build/run |
-| [FINAL_REPORT.md](docs/FINAL_REPORT.md) | Honest status: what works, what was tested, what remains |
+Run `target/release/owlwhisp` (or `owlwhisp.exe` on Windows). For platform-specific build,
+runtime, and packaging instructions, see [docs/build.md](docs/build.md). The documentation index
+is in [docs/README.md](docs/README.md).
 
 ## Licensing
 
-Application code **Apache-2.0**. NVIDIA Parakeet **CC-BY-4.0** (attributed); ONNX Runtime + QNN EP
-MIT; Qualcomm QNN runtime under the Qualcomm AI Stack License (object-code-only, PDF shipped); Silero
-VAD MIT. No GPL/AGPL code is linked. See [docs/licenses.md](docs/licenses.md) and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Application code is **Apache-2.0**. Model and runtime licences are documented in
+[docs/licenses.md](docs/licenses.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

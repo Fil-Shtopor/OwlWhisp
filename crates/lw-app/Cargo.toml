@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Application logic shared by every LocalWisper front end: settings state, the model catalog as it is shown, install and benchmark orchestration, and the numbers this machine has measured. Knows nothing about Tauri, egui or any other UI toolkit."
+description = "Application logic shared by every OwlWhisp front end: settings state, the model catalog as it is shown, install and benchmark orchestration, and the numbers this machine has measured. Knows nothing about Tauri, egui or any other UI toolkit."
 
 [features]
 default = []

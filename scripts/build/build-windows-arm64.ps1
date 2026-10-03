@@ -1,4 +1,4 @@
-# Build LocalWisper for Windows 11 ARM64 (native aarch64-pc-windows-msvc).
+# Build OwlWhisp for Windows 11 ARM64 (native aarch64-pc-windows-msvc).
 #
 # Prerequisites:
 #   - Rust stable with the aarch64-pc-windows-msvc host toolchain

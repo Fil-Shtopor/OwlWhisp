@@ -1,5 +1,5 @@
 import os, time, numpy as np, onnxruntime as ort, soundfile as sf, json
-M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-LocalWisper\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
+M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-OwlWhisp\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
 SH = os.path.join(M,'sherpa','sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8')
 pre = ort.InferenceSession(os.path.join(M,'istupakov','nemo128.onnx'), providers=['CPUExecutionProvider'])
 wav, sr = sf.read(os.path.join(SH,'test_wavs','en.wav'), dtype='float32')

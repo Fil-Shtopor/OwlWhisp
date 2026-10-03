@@ -1,4 +1,4 @@
-# LocalWisper — Architecture
+# OwlWhisp — Architecture
 
 _Companion to [`research.md`](research.md). This document defines the module boundaries, the core
 traits, the data flow, and the concurrency model. It is meant to be stable: individual engines,

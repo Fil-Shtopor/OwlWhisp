@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Silero VAD (ONNX) voice activity detector for LocalWisper"
+description = "Silero VAD (ONNX) voice activity detector for OwlWhisp"
 
 [dependencies]
 lw-core.workspace = true

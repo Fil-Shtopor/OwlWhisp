@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use lw_core::model::{
-    CancellationToken, Catalog, DownloadEvent, ModelDownloader, ModelManifest, ModelRegistry,
+    ArtifactTarget, CancellationToken, Catalog, DownloadEvent, ModelDownloader, ModelManifest, ModelRegistry,
     manifests_dir, preferred_targets, staging_dir_for,
 };
 use lw_core::settings::Settings;
@@ -158,11 +158,29 @@ impl Handle {
 /// with its own single-threaded Tokio runtime, because the downloader is async and the front end
 /// is not -- and because a download that outlives a repaint must not be tied to one.
 pub fn start(settings_path: &Path, id: &str) -> Handle {
+    start_with_target(settings_path, id, None, None)
+}
+
+/// Download the optional full-precision Parakeet encoder for this machine's GPU.
+pub fn start_gpu_encoder(
+    settings_path: &Path,
+    accel: lw_core::capabilities::Accelerator,
+) -> Handle {
+    start_with_target(settings_path, "parakeet-tdt-0.6b-v3", Some(ArtifactTarget::GpuFp32), Some(accel))
+}
+
+fn start_with_target(
+    settings_path: &Path,
+    id: &str,
+    addon: Option<ArtifactTarget>,
+    verify_backend: Option<lw_core::capabilities::Accelerator>,
+) -> Handle {
     let (tx, rx) = unbounded::<Progress>();
     let cancel = CancellationToken::new();
     let state = Arc::new(Mutex::new(InstallState::default()));
 
     let root = models_root(settings_path);
+    let settings_path = settings_path.to_path_buf();
     let id_owned = id.to_string();
     let cancel_thread = cancel.clone();
     let tx_thread = tx.clone();
@@ -186,9 +204,21 @@ pub fn start(settings_path: &Path, id: &str) -> Handle {
             let result = runtime.block_on(install_inner(
                 &id_owned,
                 &root,
+                addon,
                 cancel_thread,
                 &tx_thread,
             ));
+            let result = result.and_then(|dir| {
+                if let Some(accel) = verify_backend {
+                    crate::bench::run_benchmark_job(
+                        &settings_path,
+                        Some(id_owned.clone()),
+                        Some(lw_core::engine::BackendPreference::for_accelerator(accel)),
+                        None,
+                    ).map_err(|e| format!("GPU files installed but {} could not run the model: {e}", accel.label()))?;
+                }
+                Ok(dir)
+            });
             match result {
                 Ok(dir) => {
                     let _ = tx_thread.send(Progress::Done { dir });
@@ -215,13 +245,19 @@ pub fn start(settings_path: &Path, id: &str) -> Handle {
 async fn install_inner(
     id: &str,
     root: &Path,
+    addon: Option<ArtifactTarget>,
     cancel: CancellationToken,
     tx: &Sender<Progress>,
 ) -> Result<String, String> {
     let manifest = manifest_for(id)?;
-    let (target, files) = manifest
-        .select_files(&preferred_targets(probe_capabilities()))
-        .ok_or_else(|| format!("no artifact in the manifest for '{id}' matches this machine"))?;
+    let (target, files) = if let Some(addon) = addon {
+        let set = manifest.artifacts.iter().find(|a| a.target == addon)
+            .ok_or_else(|| format!("no {addon:?} files in the manifest for '{id}'"))?;
+        (addon, set.files.clone())
+    } else {
+        manifest.select_files(&preferred_targets(probe_capabilities()))
+            .ok_or_else(|| format!("no artifact in the manifest for '{id}' matches this machine"))?
+    };
     tracing::info!("installing {id} ({} files, target {target:?})", files.len());
 
     let registry = ModelRegistry::new(root);
@@ -233,32 +269,36 @@ async fn install_inner(
     // `Progress` carries indices, not a name, so remember the file the last `FileStarted`
     // announced and report bytes against it.
     let mut current = String::new();
-    downloader
-        .install(&files, &staging, &final_dir, cancel, move |ev| {
-            let mapped = match ev {
-                DownloadEvent::FileStarted { path, total } => {
-                    current = path.clone();
-                    Progress::FileStarted { path, total }
-                }
-                DownloadEvent::Progress(p) => Progress::Bytes {
-                    path: current.clone(),
-                    received: p.file_downloaded,
-                    total: p.file_total,
-                    file_index: p.file_index,
-                    file_count: p.file_count,
-                },
-                DownloadEvent::FileVerified { path } => Progress::Verified { path },
-                DownloadEvent::Completed => Progress::Done {
-                    dir: String::new(),
-                },
-            };
-            // The completion event is sent by the caller, with the directory filled in.
-            if !matches!(mapped, Progress::Done { .. }) {
-                let _ = out.send(mapped);
+    let report = move |ev| {
+        let mapped = match ev {
+            DownloadEvent::FileStarted { path, total } => {
+                current = path.clone();
+                Progress::FileStarted { path, total }
             }
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+            DownloadEvent::Progress(p) => Progress::Bytes {
+                path: current.clone(),
+                received: p.file_downloaded,
+                total: p.file_total,
+                file_index: p.file_index,
+                file_count: p.file_count,
+            },
+            DownloadEvent::FileVerified { path } => Progress::Verified { path },
+            DownloadEvent::Completed => Progress::Done {
+                dir: String::new(),
+            },
+        };
+        // The completion event is sent by the caller, with the directory filled in.
+        if !matches!(mapped, Progress::Done { .. }) {
+            let _ = out.send(mapped);
+        }
+    };
+    if addon.is_some() {
+        downloader.install_addon(&files, &final_dir, cancel, report)
+            .await.map_err(|e| e.to_string())?;
+    } else {
+        downloader.install(&files, &staging, &final_dir, cancel, report)
+            .await.map_err(|e| e.to_string())?;
+    }
 
     Ok(final_dir.display().to_string())
 }

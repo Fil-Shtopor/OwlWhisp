@@ -18,8 +18,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/localwisper/localwisper"
-authors = ["LocalWisper contributors"]
+repository = "https://github.com/Fil-Shtopor/OwlWhisp"
+authors = ["OwlWhisp contributors"]
 
 [workspace.dependencies]
 # internal

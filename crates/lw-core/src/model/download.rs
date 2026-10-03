@@ -60,7 +60,7 @@ impl ModelDownloader {
     /// New downloader with a default client and a 128 MiB free-space margin.
     pub fn new() -> Result<Self> {
         let client = reqwest::Client::builder()
-            .user_agent(concat!("LocalWisper/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("OwlWhisp/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| Error::Model(format!("http client: {e}")))?;
@@ -68,6 +68,73 @@ impl ModelDownloader {
             client,
             margin_bytes: 128 * 1024 * 1024,
         })
+    }
+
+    /// Add verified files to an already installed model without replacing its CPU files.
+    ///
+    /// Data files are listed before the graph that refers to them. Each file is promoted only
+    /// after its pinned hash matches, and an interrupted download resumes from `.addon/`.
+    pub async fn install_addon<F>(
+        &self,
+        files: &[FileEntry],
+        model_dir: &Path,
+        cancel: CancellationToken,
+        mut on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(DownloadEvent),
+    {
+        if !model_dir.is_dir() {
+            return Err(Error::Model(format!(
+                "model is not installed: {}",
+                model_dir.display()
+            )));
+        }
+        let need = files.iter().filter(|f| !model_dir.join(&f.path).exists())
+            .map(|f| f.bytes).sum::<u64>() + self.margin_bytes;
+        if let Some(free) = available_space(model_dir)
+            && free < need
+        {
+            return Err(Error::Model(format!(
+                "insufficient disk space: need ~{} MiB, have {} MiB",
+                need / 1_048_576,
+                free / 1_048_576
+            )));
+        }
+        let staging = model_dir.join(".addon");
+        std::fs::create_dir_all(&staging)
+            .map_err(|e| Error::io(staging.display().to_string(), e))?;
+        for (index, f) in files.iter().enumerate() {
+            if cancel.is_cancelled() {
+                return Err(Error::Model("download cancelled".into()));
+            }
+            if !f.path_is_safe() || f.extract.is_some() {
+                return Err(Error::Model(format!("unsafe add-on entry: {}", f.path)));
+            }
+            let final_path = model_dir.join(&f.path);
+            if final_path.exists() {
+                super::verify_file(model_dir, f)?;
+                on_event(DownloadEvent::FileVerified { path: f.path.clone() });
+                continue;
+            }
+            let staged = staging.join(&f.path);
+            if let Some(parent) = staged.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::io(parent.display().to_string(), e))?;
+            }
+            on_event(DownloadEvent::FileStarted { path: f.path.clone(), total: f.bytes });
+            self.download_one(f, &staged, index, files.len(), &cancel, &mut on_event).await?;
+            super::verify_file(&staging, f)?;
+            if let Some(parent) = final_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::io(parent.display().to_string(), e))?;
+            }
+            std::fs::rename(&staged, &final_path)
+                .map_err(|e| Error::io(final_path.display().to_string(), e))?;
+            on_event(DownloadEvent::FileVerified { path: f.path.clone() });
+        }
+        on_event(DownloadEvent::Completed);
+        Ok(())
     }
 
     /// Download `files` into `staging_dir`, then atomically rename to `final_dir`.
@@ -299,6 +366,36 @@ pub fn staging_dir_for(final_dir: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[tokio::test]
+    async fn addon_keeps_the_existing_cpu_model_and_verifies_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("model");
+        std::fs::create_dir(&model).unwrap();
+        std::fs::write(model.join("cpu.onnx"), b"cpu model").unwrap();
+
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/gpu.onnx", server.local_addr().unwrap());
+        let serving = std::thread::spawn(move || {
+            let (mut stream, _) = server.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\ngpu model").unwrap();
+        });
+        let file = FileEntry {
+            path: "gpu.onnx".into(),
+            url,
+            bytes: 9,
+            sha256: sha256_bytes(b"gpu model"),
+            extract: None,
+        };
+        ModelDownloader::new().unwrap()
+            .install_addon(&[file], &model, CancellationToken::new(), |_| {})
+            .await.unwrap();
+        serving.join().unwrap();
+        assert_eq!(std::fs::read(model.join("cpu.onnx")).unwrap(), b"cpu model");
+        assert_eq!(std::fs::read(model.join("gpu.onnx")).unwrap(), b"gpu model");
+    }
 
     #[test]
     fn promote_moves_staging_into_place() {

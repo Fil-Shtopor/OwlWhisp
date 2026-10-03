@@ -74,6 +74,44 @@ pub fn detect() -> Capabilities {
     caps
 }
 
+/// Physical GPU adapters, independent of whether an ONNX provider is installed.
+/// On other platforms the runtime's device list remains the available GPU probe.
+pub fn physical_gpu_descriptions() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        return crate::windows::display_adapters()
+            .into_iter()
+            .map(|a| format!("Windows display: {} GPU ({})", a.name, a.hardware_id))
+            .collect();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(cards) = std::fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        return cards
+            .flatten()
+            .filter(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("card") && name[4..].chars().all(|c| c.is_ascii_digit())
+            })
+            .filter_map(|entry| {
+                let vendor = std::fs::read_to_string(entry.path().join("device/vendor")).ok()?;
+                let name = match vendor.trim().to_ascii_lowercase().as_str() {
+                    "0x10de" => "NVIDIA",
+                    "0x8086" => "Intel",
+                    "0x1002" => "AMD",
+                    _ => "Other",
+                };
+                Some(format!("Linux display: {name} GPU ({})", entry.file_name().to_string_lossy()))
+            })
+            .collect();
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    Vec::new()
+}
+
 // ---------------------------------------------------------------------------
 // Pure parsers (unit-tested)
 // ---------------------------------------------------------------------------

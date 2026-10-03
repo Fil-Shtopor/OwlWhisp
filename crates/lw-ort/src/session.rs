@@ -111,11 +111,82 @@ pub fn build_accel_session(
                 .unwrap_or_else(|| "unavailable".to_string())
         )));
     }
+    #[cfg(windows)]
+    if accel == Accelerator::DirectMl {
+        // DirectML lives in the Windows ML core. It is a legacy session EP, not an OrtEpDevice.
+        // Its execution mode and memory-pattern requirements are set before registering it.
+        return Session::builder()
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .with_parallel_execution(false)
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .with_memory_pattern(false)
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .with_execution_providers([
+                ort::ep::DirectML::default()
+                    .with_device_filter(ort::ep::directml::DeviceFilter::Gpu)
+                    .build()
+                    .error_on_failure(),
+            ])
+            .map_err(|e| RuntimeError::Other(format!("enable DirectML: {e}")))?
+            .with_optimization_level(if cfg.optimize {
+                GraphOptimizationLevel::Level3
+            } else {
+                GraphOptimizationLevel::Disable
+            })
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .commit_from_file(model_path)
+            .map_err(|e| RuntimeError::Other(format!("DirectML model session {}: {e}", model_path.display())));
+    }
+    if accel == Accelerator::TensorRt {
+        let cache_dir = model_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("tensorrt-cache");
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| RuntimeError::Other(format!("create TensorRT cache: {e}")))?;
+        return Session::builder()
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .with_execution_providers([
+                ort::ep::TensorRT::default()
+                    .with_engine_cache(true)
+                    .with_engine_cache_path(cache_dir.to_string_lossy())
+                    .with_timing_cache(true)
+                    .build()
+                    .error_on_failure(),
+                ort::ep::CUDA::default().build().error_on_failure(),
+            ])
+            .map_err(|e| RuntimeError::Other(format!("enable TensorRT: {e}")))?
+            .with_optimization_level(if cfg.optimize {
+                GraphOptimizationLevel::Level3
+            } else {
+                GraphOptimizationLevel::Disable
+            })
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .commit_from_file(model_path)
+            .map_err(|e| RuntimeError::Other(format!("TensorRT model session {}: {e}", model_path.display())));
+    }
     let name = accel
         .ep_name()
         .ok_or_else(|| RuntimeError::Unsupported(format!("{} has no provider", accel.label())))?;
     let env = Environment::current().map_err(|e| RuntimeError::Other(e.to_string()))?;
-    let devices: Vec<_> = env
+    if accel == Accelerator::Cuda && env.devices().all(|d| d.ep().ok() != Some(name)) {
+        // The official GPU NuGet exposes legacy CUDA as a session EP, not an OrtEpDevice.
+        // Require successful registration so a broken CUDA stack cannot silently use CPU.
+        let mut builder = Session::builder()
+            .map_err(|e| RuntimeError::Other(e.to_string()))?
+            .with_execution_providers([ort::ep::CUDA::default().build().error_on_failure()])
+            .map_err(|e| RuntimeError::Other(format!("enable CUDA: {e}")))?
+            .with_optimization_level(if cfg.optimize {
+                GraphOptimizationLevel::Level3
+            } else {
+                GraphOptimizationLevel::Disable
+            })
+            .map_err(|e| RuntimeError::Other(e.to_string()))?;
+        return builder.commit_from_file(model_path).map_err(|e| {
+            RuntimeError::Other(format!("CUDA model session {}: {e}", model_path.display()))
+        });
+    }
+    let mut devices: Vec<_> = env
         .devices()
         .filter(|d| d.ep().map(|n| n == name).unwrap_or(false))
         .collect();
@@ -124,6 +195,11 @@ pub fn build_accel_session(
             "{} enumerated no device",
             accel.label()
         )));
+    }
+    // WebGPU currently creates one device per session. A hybrid laptop can enumerate both its
+    // discrete and integrated GPU; passing both makes the provider reject every model.
+    if accel == Accelerator::WebGpu {
+        devices.truncate(1);
     }
     let mut builder = Session::builder().map_err(|e| RuntimeError::Other(e.to_string()))?;
     builder = builder

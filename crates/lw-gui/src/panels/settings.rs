@@ -10,13 +10,108 @@
 //!   checkbox, because a managed machine can refuse and a checkbox that disagreed with the OS
 //!   would be worse than no checkbox.
 
-use iced::widget::{button, checkbox, column, container, pick_list, radio, row, slider, Space};
+use iced::widget::{Space, button, checkbox, column, container, pick_list, radio, row, slider};
 use iced::{Element, Length, Padding};
 use lw_core::engine::BackendPreference;
 use lw_core::settings::{HotkeyMode, Settings};
 use lw_core::sound::{Cue, SoundTheme};
 
 use crate::{theme, widgets};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModelAvailability {
+    Available,
+    Unavailable,
+    NeedAdditionalAction,
+}
+
+impl ModelAvailability {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Available => "Available",
+            Self::Unavailable => "Unavailable",
+            Self::NeedAdditionalAction => "Need additional action",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AcceleratorAction {
+    DownloadGpuModel,
+    InstallDriver,
+}
+
+struct AcceleratorReadiness {
+    parakeet: bool,
+    model_ready: bool,
+    gpu_model_ready: bool,
+    npu_model_ready: bool,
+    probe_ok: bool,
+    hardware_present: bool,
+    provider_registered: bool,
+    usable: bool,
+    gpu_check_failed: bool,
+    driver_install_failed: bool,
+}
+
+fn model_availability(
+    accel: lw_core::capabilities::Accelerator,
+    r: &AcceleratorReadiness,
+) -> (ModelAvailability, Option<AcceleratorAction>) {
+    use lw_core::capabilities::{Accelerator as A, AcceleratorKind};
+    use ModelAvailability as Status;
+
+    if !r.probe_ok || !accel.supported_on_this_platform() || !r.model_ready {
+        return (Status::Unavailable, None);
+    }
+    if !r.parakeet && accel != A::Cpu {
+        return (Status::Unavailable, None);
+    }
+    if accel.kind() == AcceleratorKind::Npu
+        && (accel != A::QnnNpu || !r.npu_model_ready)
+    {
+        // No pinned NPU artifact can be downloaded from the app for this combination.
+        return (Status::Unavailable, None);
+    }
+    if !r.hardware_present {
+        return (Status::Unavailable, None);
+    }
+    if !r.usable {
+        if r.driver_install_failed {
+            return (Status::Unavailable, None);
+        }
+        let driver_installable = cfg!(windows)
+            && r.provider_registered
+            && matches!(accel, A::Cuda | A::TensorRt | A::WebGpu | A::DirectMl);
+        return if driver_installable {
+            (Status::NeedAdditionalAction, Some(AcceleratorAction::InstallDriver))
+        } else {
+            (Status::Unavailable, None)
+        };
+    }
+    if r.gpu_check_failed {
+        // The provider enumerated, but the real model check failed. Keep retry available while
+        // reporting the current state honestly.
+        return (Status::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel));
+    }
+    if accel.kind() == AcceleratorKind::Gpu && !r.gpu_model_ready {
+        return (Status::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel));
+    }
+    (Status::Available, None)
+}
+
+fn selected_model_ready(id: &str) -> bool {
+    use lw_core::model::{Catalog, InstallState, entry_paths, manifests_dir};
+
+    let Ok(catalog) = Catalog::builtin() else { return false };
+    let Some(entry) = catalog.get(id) else { return false };
+    entry_paths(
+        entry,
+        manifests_dir(None).as_deref(),
+        &lw_app::paths::models_root(),
+        lw_app::machine::probe_capabilities(),
+    ).state == InstallState::Installed
+}
 
 /// A pickable wrapper, so a list can show a label while carrying the value.
 macro_rules! pickable {
@@ -34,7 +129,6 @@ macro_rules! pickable {
     };
 }
 
-pickable!(ModelChoice, String);
 pickable!(BackendChoice, BackendPreference);
 pickable!(ThemeChoice, SoundTheme);
 pickable!(ModeChoice, HotkeyMode);
@@ -69,14 +163,22 @@ impl std::fmt::Display for DeviceChoice {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    ModelSelected(String),
     BackendSelected(BackendPreference),
+    OpenProviderSetup(&'static str),
+    ShowProviderInfo(&'static str),
+    InstallDriver(&'static str),
+    DriverFinished(std::sync::Arc<Result<String, String>>),
+    InstallGpuEncoder(&'static str),
+    GpuInstallTick,
+    RefreshAccelerators,
     DeviceSelected(String),
     ModeSelected(HotkeyMode),
     TriggerSelected(String),
     ModifierToggled(&'static str, bool),
     /// Start or abandon "press the combination you want".
     CaptureToggled,
+    /// Look at what the keyboard grab has produced, while one is open.
+    CapturePoll,
     /// Open or close the microphone-test stream.
     MicTestToggled(bool),
     /// The window got wider or narrower; the layout has a breakpoint.
@@ -92,17 +194,25 @@ pub enum Message {
     SoundsToggled(bool),
     ThemeSelected(SoundTheme),
     VolumeChanged(f32),
-    PreviewSound,
+    /// Play one of the two cues, so both can be heard before either is bound to anything.
+    PreviewSound(Cue),
     AutostartToggled(bool),
     Save,
 }
 
+/// How long the editor listens before giving the keyboard back.
+///
+/// A hair under the grab's own window, so the panel is the one that says so: the grab releasing
+/// first would leave the button claiming to be listening when nothing was. Short, because while
+/// it is open no other application receives a key -- see `CAPTURE_WINDOW_MS` in `lw-platform`.
+const CAPTURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(6);
+
 pub struct State {
     settings: Settings,
+    selected_model_ready: bool,
     /// What is on disk, to tell whether anything is unsaved.
     saved: Settings,
     devices: Vec<DeviceChoice>,
-    models: Vec<ModelChoice>,
     backends: Vec<BackendChoice>,
     themes: Vec<ThemeChoice>,
     modes: Vec<ModeChoice>,
@@ -110,6 +220,16 @@ pub struct State {
     triggers: Vec<TriggerChoice>,
     /// Whether the next keystroke should be read as a new binding rather than typed.
     capturing: bool,
+    /// The keyboard grab, while one is open.
+    ///
+    /// `None` while capturing means this OS has no grab to offer and the window's own key events
+    /// are being read instead -- which is what the editor did everywhere before, and what it still
+    /// does off Windows.
+    capture: Option<Box<dyn lw_platform::HotkeyCapture>>,
+    /// When an open capture gives up. The grab hands the keyboard back by itself after a while --
+    /// see `Platform::hotkey_capture` -- and a button still reading "Cancel capture" after it had
+    /// would be inviting the user to press keys nothing was listening for.
+    capture_until: Option<std::time::Instant>,
     /// The width the panel is drawn at, pushed in by the shell from window resize events.
     /// `responsive` cannot supply it inside a scrollable.
     width: f32,
@@ -121,6 +241,19 @@ pub struct State {
     mic: Mic,
     /// Which accelerators this machine can really use, by preference value.
     usable: std::collections::BTreeMap<String, bool>,
+    accelerator_hardware: std::collections::BTreeMap<String, bool>,
+    accelerator_provider_present: std::collections::BTreeMap<String, bool>,
+    accelerator_provider_registered: std::collections::BTreeMap<String, bool>,
+    accelerator_details: std::collections::BTreeMap<String, String>,
+    /// Present when ONNX Runtime could not be loaded at all. In that case a missing accelerator
+    /// row means "not checked", never "your hardware is absent".
+    accelerator_probe_error: Option<String>,
+    provider_info: Option<&'static str>,
+    installing_driver: Option<&'static str>,
+    driver_install_failed: std::collections::BTreeSet<&'static str>,
+    gpu_install: Option<lw_app::install::Handle>,
+    gpu_target: Option<&'static str>,
+    gpu_check_failed: Option<&'static str>,
     notice: Option<String>,
     error: Option<String>,
 }
@@ -129,39 +262,54 @@ impl State {
     pub fn new() -> Self {
         let path = lw_app::paths::settings_path();
         let settings = Settings::load(&path).unwrap_or_default();
+        let selected_model_ready = selected_model_ready(&settings.model_id);
         let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
         let usable = diag
             .accelerators
             .iter()
             .map(|a| (a.id.to_string(), a.usable))
             .collect();
-
-        let models = lw_app::catalog::build(&lw_app::paths::models_root())
-            .map(|v| {
-                v.entries
-                    .iter()
-                    .map(|e| ModelChoice {
-                        value: e.id.clone(),
-                        label: e.name.clone(),
-                    })
-                    .collect()
+        let accelerator_details = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.detail.clone()))
+            .collect();
+        let accelerator_hardware = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.hardware_present))
+            .collect();
+        let accelerator_provider_present = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.present))
+            .collect();
+        let accelerator_provider_registered = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.registered))
+            .collect();
+        let accelerator_probe_error = diag.accelerators_error.or(diag.runtime_error);
+        let backends = BackendPreference::all()
+            .into_iter()
+            .map(|p| BackendChoice {
+                value: p,
+                label: p.label().to_string(),
             })
-            .unwrap_or_default();
+            .collect();
 
         Self {
             saved: settings.clone(),
             settings,
+            selected_model_ready,
             devices: std::iter::once(DeviceChoice(String::new()))
-                .chain(lw_platform::audio::list_input_devices().into_iter().map(DeviceChoice))
+                .chain(
+                    lw_platform::audio::list_input_devices()
+                        .into_iter()
+                        .map(DeviceChoice),
+                )
                 .collect(),
-            models,
-            backends: BackendPreference::all()
-                .into_iter()
-                .map(|p| BackendChoice {
-                    value: p,
-                    label: p.label().to_string(),
-                })
-                .collect(),
+            backends,
             themes: lw_core::sound::ALL_SOUND_THEMES
                 .iter()
                 .map(|t| ThemeChoice {
@@ -172,7 +320,10 @@ impl State {
             modes: [
                 (HotkeyMode::PushToTalk, "Push to talk - hold, release to stop"),
                 (HotkeyMode::Toggle, "Toggle - tap to start, tap to stop"),
-                (HotkeyMode::HandsFree, "Hands free - tap to start, silence ends it"),
+                (
+                    HotkeyMode::HandsFree,
+                    "Hands free - tap to start, silence ends it",
+                ),
             ]
             .into_iter()
             .map(|(value, label)| ModeChoice {
@@ -182,10 +333,23 @@ impl State {
             .collect(),
             triggers: trigger_choices(),
             capturing: false,
+            capture: None,
+            capture_until: None,
             width: 1000.0,
             hotkey_status: lw_app::hotkey::Status::default(),
             mic: Mic::default(),
             usable,
+            accelerator_hardware,
+            accelerator_provider_present,
+            accelerator_provider_registered,
+            accelerator_details,
+            accelerator_probe_error,
+            provider_info: None,
+            installing_driver: None,
+            driver_install_failed: Default::default(),
+            gpu_install: None,
+            gpu_target: None,
+            gpu_check_failed: None,
             notice: None,
             error: None,
         }
@@ -215,28 +379,79 @@ impl State {
         self.mic.open
     }
 
+    fn refresh_accelerators(&mut self) {
+        let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
+        self.usable = diag.accelerators.iter().map(|a| (a.id.to_string(), a.usable)).collect();
+        self.accelerator_hardware = diag.accelerators.iter().map(|a| (a.id.to_string(), a.hardware_present)).collect();
+        self.accelerator_provider_present = diag.accelerators.iter().map(|a| (a.id.to_string(), a.present)).collect();
+        self.accelerator_provider_registered = diag.accelerators.iter().map(|a| (a.id.to_string(), a.registered)).collect();
+        self.accelerator_details = diag.accelerators.iter().map(|a| (a.id.to_string(), a.detail.clone())).collect();
+        self.accelerator_probe_error = diag.accelerators_error.or(diag.runtime_error);
+        self.refresh_model_readiness();
+    }
+
+    pub fn refresh_model_readiness(&mut self) {
+        self.selected_model_ready = selected_model_ready(&self.settings.model_id);
+    }
+
+    /// Stop listening, whichever way the listening was being done.
+    pub fn stop_capture(&mut self) {
+        if let Some(grab) = self.capture.take() {
+            let (hook, grabbed) = grab.key_counts();
+            tracing::info!(
+                hook_keys = hook,
+                grabbed_keys = grabbed,
+                "shortcut editor has given the keyboard back",
+            );
+        }
+        self.capture_until = None;
+        self.capturing = false;
+    }
+
     /// Listen for the next keystroke, but only while the user asked to be listened to.
     ///
     /// Not a permanent listener: this window has ordinary text fields in it, and a panel that read
     /// every keypress as a hotkey would rebind the shortcut while someone typed a model name.
+    ///
+    /// **Both** listeners run at once, and that is the point. The keyboard grab reads what a
+    /// window never gets offered -- anything with Meta in it, and two modifiers held together --
+    /// but it depends on a system-wide keyboard hook, and a hook is a thing an operating system
+    /// can take away without telling anyone. The window's own key events depend on nothing and
+    /// read ordinary combinations perfectly well. Running only the grab made the editor's ability
+    /// to read *any* key hostage to the hook still being there; running only the window made Meta
+    /// unbindable. Whichever answers first wins, and neither can leave the editor deaf.
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        if !self.capturing {
-            return iced::Subscription::none();
+        let mut subscriptions = Vec::new();
+        if self.gpu_install.is_some() {
+            subscriptions.push(
+                iced::time::every(std::time::Duration::from_millis(200))
+                    .map(|_| Message::GpuInstallTick),
+            );
         }
+        if self.capturing {
+            let window_keys = Self::window_key_capture();
+            if self.capture.is_some() {
+                subscriptions.push(
+                    iced::time::every(std::time::Duration::from_millis(25))
+                        .map(|_| Message::CapturePoll),
+                );
+            }
+            subscriptions.push(window_keys);
+        }
+        iced::Subscription::batch(subscriptions)
+    }
+
+    /// The window's own key events, read as a binding.
+    fn window_key_capture() -> iced::Subscription<Message> {
         // `on_key_press` is gone in iced 0.14; `listen` reports every keyboard event and the
         // press is picked out here. Same events, one more line.
         iced::keyboard::listen().filter_map(|event| {
-            let iced::keyboard::Event::KeyPressed {
-                key, modifiers, ..
-            } = event
-            else {
+            let iced::keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
                 return None;
             };
             // Esc on its own cancels, exactly as it did in the web editor. Esc *with* a modifier is
             // a perfectly good trigger key and is taken as one.
-            if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
-                && modifiers.is_empty()
-            {
+            if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) && modifiers.is_empty() {
                 return Some(Message::CaptureToggled);
             }
             // Still holding modifiers down: wait for the real key rather than binding half a combo.
@@ -274,8 +489,73 @@ impl State {
         let mut wrote = false;
         self.notice = None;
         match message {
-            Message::ModelSelected(id) => self.settings.model_id = id,
             Message::BackendSelected(b) => self.settings.backend = b,
+            Message::OpenProviderSetup(_) => {}
+            Message::ShowProviderInfo(id) => {
+                self.provider_info = (self.provider_info != Some(id)).then_some(id);
+            }
+            Message::InstallDriver(id) => self.installing_driver = Some(id),
+            Message::InstallGpuEncoder(id) => {
+                if self.gpu_install.is_none()
+                    && lw_core::capabilities::Accelerator::from_id(id)
+                        .is_some_and(|a| a.kind() == lw_core::capabilities::AcceleratorKind::Gpu)
+                {
+                    self.gpu_target = Some(id);
+                    self.gpu_check_failed = None;
+                    self.gpu_install = Some(lw_app::install::start_gpu_encoder(
+                        &lw_app::paths::settings_path(),
+                        lw_core::capabilities::Accelerator::from_id(id).expect("known GPU provider"),
+                    ));
+                }
+            }
+            Message::GpuInstallTick => {
+                if let Some(outcome) = self.gpu_install.as_ref().and_then(|h| h.poll()) {
+                    self.gpu_install = None;
+                    let target = self.gpu_target.take();
+                    match outcome {
+                        lw_app::install::Progress::Done { .. } => {
+                            self.gpu_check_failed = None;
+                            if let Some(accel) = target.and_then(lw_core::capabilities::Accelerator::from_id) {
+                                self.settings.backend = BackendPreference::for_accelerator(accel);
+                                match self.settings.save(&lw_app::paths::settings_path()) {
+                                    Ok(()) => {
+                                        self.saved = self.settings.clone();
+                                        self.notice = Some(format!("GPU model installed; {} selected.", accel.label()));
+                                        self.error = None;
+                                        wrote = true;
+                                    }
+                                    Err(e) => self.error = Some(format!("GPU model installed, but accelerator selection was not saved: {e}")),
+                                }
+                            }
+                        }
+                        lw_app::install::Progress::Failed { message } => {
+                            self.gpu_check_failed = target;
+                            self.error = Some(message);
+                        }
+                        lw_app::install::Progress::Cancelled => self.notice = Some("GPU model download stopped; click again to resume.".into()),
+                        _ => {}
+                    }
+                }
+            }
+            Message::DriverFinished(result) => {
+                let attempted = self.installing_driver.take();
+                self.refresh_accelerators();
+                if let Some(id) = attempted {
+                    if result.is_err() || !self.usable.get(id).copied().unwrap_or(false) {
+                        self.driver_install_failed.insert(id);
+                    } else {
+                        self.driver_install_failed.remove(id);
+                    }
+                }
+                match result.as_ref() {
+                    Ok(message) => {
+                        self.error = None;
+                        self.notice = Some(message.clone());
+                    }
+                    Err(message) => self.error = Some(message.clone()),
+                }
+            }
+            Message::RefreshAccelerators => self.refresh_accelerators(),
             Message::DeviceSelected(d) => self.settings.audio.input_device = d,
             Message::ModeSelected(m) => self.settings.hotkey.mode = m,
             Message::TriggerSelected(t) => self.settings.hotkey.trigger = t,
@@ -294,7 +574,82 @@ impl State {
                     .map(|m| m.id.to_string())
                     .collect();
             }
-            Message::CaptureToggled => self.capturing = !self.capturing,
+            Message::CaptureToggled => {
+                if self.capturing {
+                    self.stop_capture();
+                } else {
+                    // The grab is preferred and its absence is not an error worth showing: the
+                    // window's own key events still capture most combinations, just not the ones
+                    // involving the Windows key. Logged, so a machine where the hook failed to
+                    // install can be told apart from one that never had a hook.
+                    match lw_platform::platform().hotkey_capture() {
+                        Ok(grab) => {
+                            // At info, not debug. This is a system-wide keyboard grab: while it
+                            // is open no other application receives a key, and a log that cannot
+                            // say when it opened and closed is no use at all when someone reports
+                            // that their keyboard stopped working.
+                            let (hook, grabbed) = grab.key_counts();
+                            tracing::info!(
+                                hook_keys = hook,
+                                grabbed_keys = grabbed,
+                                "shortcut editor has taken the keyboard",
+                            );
+                            self.capture = Some(grab);
+                        }
+                        Err(e) => {
+                            tracing::info!(
+                                "no keyboard grab for the shortcut editor ({e}); reading this \
+                                 window's own key events instead"
+                            );
+                            self.capture = None;
+                        }
+                    }
+                    self.capturing = true;
+                    self.capture_until = self
+                        .capture
+                        .is_some()
+                        .then(|| std::time::Instant::now() + CAPTURE_WINDOW);
+                    // A refusal from the last attempt has been answered by trying again.
+                    self.error = None;
+                }
+            }
+            Message::CapturePoll => {
+                if self.capture_until.is_some_and(|t| std::time::Instant::now() >= t) {
+                    self.stop_capture();
+                    self.error = Some("Nothing was pressed, so the keyboard was handed back.".into());
+                    return false;
+                }
+                let Some(grab) = &self.capture else {
+                    return false;
+                };
+                // One event ends the session; anything after it belongs to nobody.
+                if let Ok(captured) = grab.events().try_recv() {
+                    tracing::info!(?captured, "the shortcut editor read a combination");
+                    match captured {
+                        lw_platform::Captured::Cancelled => self.stop_capture(),
+                        lw_platform::Captured::Combo(raw) => {
+                            match lw_app::hotkey::captured_binding(raw) {
+                                Some((modifiers, trigger)) => {
+                                    self.settings.hotkey.modifiers = modifiers;
+                                    self.settings.hotkey.trigger = trigger;
+                                    self.stop_capture();
+                                }
+                                // Reported rather than ignored. A media key, or Fn on a keyboard
+                                // that reports it: the user pressed something and is owed an
+                                // answer, and "nothing happened" is not one.
+                                None => {
+                                    self.error = Some(
+                                        "That key cannot be part of a shortcut. Pick a letter, \
+                                         a digit, a function key, or Space, Tab, Enter or Esc."
+                                            .into(),
+                                    );
+                                    self.stop_capture();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Message::Resized(w) => self.width = w,
             Message::VadThreshold(v) => self.settings.vad.threshold = v,
             // Nothing is set here. The shell forwards this to the worker, and the answer comes
@@ -303,18 +658,14 @@ impl State {
             Message::Captured { modifiers, trigger } => {
                 self.settings.hotkey.modifiers = modifiers;
                 self.settings.hotkey.trigger = trigger;
-                self.capturing = false;
+                self.stop_capture();
             }
             Message::OverlayToggled(v) => self.settings.overlay_enabled = v,
             Message::SoundsToggled(v) => self.settings.sounds_enabled = v,
             Message::ThemeSelected(t) => self.settings.sound_theme = t,
             Message::VolumeChanged(v) => self.settings.sound_volume = v,
-            Message::PreviewSound => {
-                lw_platform::play_cue(
-                    self.settings.sound_theme,
-                    Cue::Start,
-                    self.settings.sound_volume,
-                );
+            Message::PreviewSound(cue) => {
+                lw_platform::play_cue(self.settings.sound_theme, cue, self.settings.sound_volume);
             }
             Message::AutostartToggled(v) => {
                 // Written through the platform and then read back, so the checkbox can never claim
@@ -324,9 +675,8 @@ impl State {
                         Ok(actual) => {
                             self.settings.autostart = actual;
                             if actual != v {
-                                self.error = Some(
-                                    "The operating system refused to change login start.".into(),
-                                );
+                                self.error =
+                                    Some("The operating system refused to change login start.".into());
                             }
                         }
                         Err(e) => self.error = Some(format!("Could not read login start: {e}")),
@@ -371,16 +721,12 @@ impl State {
         // describes the hardware on the right.
         let adjust: Vec<Element<'_, Message>> = vec![
             self.hotkey_card(),
-            self.model_card(),
             self.sound_card(),
             self.overlay_card(),
             self.autostart_card(),
         ];
-        let hardware: Vec<Element<'_, Message>> = vec![
-            self.accelerator_card(),
-            self.microphone_card(),
-            self.vad_card(),
-        ];
+        let hardware: Vec<Element<'_, Message>> =
+            vec![self.accelerator_card(), self.microphone_card(), self.vad_card()];
 
         let body: Element<'_, Message> = if self.width >= Self::TWO_COLUMN_AT {
             let mut left = column![].spacing(12).width(Length::FillPortion(1));
@@ -468,6 +814,20 @@ impl State {
             card = card.push(widgets::sub(
                 "Press the combination you want to use. Esc on its own cancels.",
             ));
+            card = card.push(widgets::sub(if self.capture.is_some() {
+                "The keyboard is held while this is open, so nothing you press reaches anything \
+                 else -- Meta (the Win or Command key) included. Two modifiers held together and \
+                 then let go are read as a binding of their own."
+            } else {
+                "This build cannot hold the keyboard on this operating system, so keys the \
+                 window manager takes first -- most combinations involving Meta (Win/Cmd) -- \
+                 will not arrive. Those can still be set with the controls below."
+            }));
+            card = card.push(widgets::sub(
+                "Fn is the one key that cannot be bound anywhere: on almost every laptop it is \
+                 handled inside the keyboard itself and never reaches the operating system, so \
+                 no application ever sees it.",
+            ));
         }
 
         // Radios rather than a dropdown: three choices, each needing a sentence of explanation,
@@ -489,7 +849,8 @@ impl State {
                 None => m.label.to_string(),
             };
             boxes = boxes.push(
-                checkbox(lw_app::hotkey::has_modifier(h, m.id)).label(label)
+                checkbox(lw_app::hotkey::has_modifier(h, m.id))
+                    .label(label)
                     .on_toggle(move |v| Message::ModifierToggled(m.id, v))
                     .size(16)
                     .text_size(14),
@@ -517,12 +878,14 @@ impl State {
                 pick_list(triggers, selected, |t: TriggerChoice| {
                     Message::TriggerSelected(t.value)
                 })
-                .placeholder("No key - pick one")
+                .placeholder("Pick one")
                 .text_size(14)
                 .width(220),
                 widgets::sub(
-                    "A global shortcut needs a real key. Modifiers on their own cannot be \
-                     registered with the OS, so every binding pairs them with one of these.",
+                    "With no key, two modifiers held together are the shortcut -- Ctrl+Meta, \
+                     say. The window manager will not register that, so this app watches the \
+                     keyboard itself for it. One modifier alone is refused: it would fire every \
+                     time you pressed it for anything else.",
                 ),
             ]
             .spacing(4),
@@ -559,89 +922,263 @@ impl State {
             ]
             .spacing(2)
             .into(),
-            (Some(spec), None) => row![
-                widgets::mono(
-                    spec.modifiers
-                        .iter()
-                        .map(|m| lw_app::hotkey::modifier_label(m))
-                        .chain(std::iter::once(lw_app::hotkey::trigger_label(&spec.trigger)))
-                        .collect::<Vec<_>>()
-                        .join(" + "),
-                ),
-                widgets::sub("is the combination the OS currently holds."),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into(),
+            (Some(spec), None) => {
+                // A binding with no key is never handed to the window manager -- it refuses them
+                // -- so saying the OS holds it would be false. This app is watching the keyboard
+                // for it instead, which is a different guarantee and worth naming as one.
+                let by_hook = lw_app::hotkey::trigger_of_spec(spec).is_empty();
+                row![
+                    widgets::mono(
+                        spec.modifiers
+                            .iter()
+                            .map(|m| lw_app::hotkey::modifier_label(m))
+                            .chain((!by_hook).then(|| lw_app::hotkey::trigger_label(&spec.trigger)))
+                            .collect::<Vec<_>>()
+                            .join(" + "),
+                    ),
+                    widgets::sub(if by_hook {
+                        "is watched for on the keyboard directly. The window manager does not \
+                         register combinations without a key, so this one does not depend on it."
+                    } else {
+                        "is the combination the OS currently holds."
+                    }),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center)
+                .into()
+            }
             (None, None) => widgets::sub("Checking...").into(),
         }
     }
 
-    fn model_card(&self) -> Element<'_, Message> {
-        let selected = self
-            .models
-            .iter()
-            .find(|m| m.value == self.settings.model_id)
-            .cloned();
-        widgets::card(
-            column![
-                widgets::heading("Model"),
-                widgets::sub("Which model transcribes. The Models tab has the numbers."),
-                pick_list(self.models.clone(), selected, |m: ModelChoice| {
-                    Message::ModelSelected(m.value)
-                })
-                .text_size(14)
-                .width(Length::Fill),
-            ]
-            .spacing(8),
-        )
-        .into()
-    }
-
     fn accelerator_card(&self) -> Element<'_, Message> {
+        use lw_core::capabilities::{Accelerator as A, AcceleratorKind, ALL_ACCELERATORS};
+
+        let model_dir = lw_app::paths::models_root().join(&self.settings.model_id);
+        let parakeet = self.settings.model_id == "parakeet-tdt-0.6b-v3";
+        let model_ready = self.selected_model_ready;
+        let gpu_model_ready = model_dir.join("encoder-model.onnx").exists()
+            && model_dir.join("encoder-model.onnx.data").exists();
+        let npu_model_ready = model_dir.join("encoder-static-t2000.onnx").is_file()
+            || model_dir.join("encoder-static.onnx").is_file()
+            || model_dir.join("encoder-model.onnx").is_file();
+        let can_activate = |a: A| {
+            model_availability(a, &AcceleratorReadiness {
+                parakeet,
+                model_ready,
+                gpu_model_ready,
+                npu_model_ready,
+                probe_ok: self.accelerator_probe_error.is_none(),
+                hardware_present: self.accelerator_hardware.get(a.id()).copied().unwrap_or(false),
+                provider_registered: self.accelerator_provider_registered.get(a.id()).copied().unwrap_or(false),
+                usable: self.usable.get(a.id()).copied().unwrap_or(false),
+                gpu_check_failed: self.gpu_check_failed == Some(a.id()),
+                driver_install_failed: self.driver_install_failed.contains(a.id()),
+            }).0 == ModelAvailability::Available
+        };
+        let choices: Vec<_> = self.backends.iter().filter(|b| {
+            if b.value == self.settings.backend || b.value == BackendPreference::Automatic {
+                return true;
+            }
+            match b.value.accelerator() {
+                Some(A::Cpu) => true,
+                Some(a) => can_activate(a),
+                None => {
+                    let kind = if b.value == BackendPreference::ForceNpu {
+                        AcceleratorKind::Npu
+                    } else {
+                        AcceleratorKind::Gpu
+                    };
+                    ALL_ACCELERATORS.iter().any(|a| a.kind() == kind && can_activate(*a))
+                }
+            }
+        }).cloned().collect();
         let selected = self
             .backends
             .iter()
             .find(|b| b.value == self.settings.backend)
             .cloned();
+        let saved_choice_visible = selected.is_some();
 
         let mut body = column![
             widgets::heading("Accelerator"),
-            widgets::sub("What runs the model. Automatic picks the fastest one that works."),
-            pick_list(self.backends.clone(), selected, |b: BackendChoice| {
+            widgets::sub("For this model shows what this build can run now. Info distinguishes detected hardware from a missing provider. Automatic prefers NPU, then CPU, then GPU.").width(Length::Fill),
+            pick_list(choices, selected.clone(), |b: BackendChoice| {
                 Message::BackendSelected(b.value)
             })
             .text_size(14)
             .width(Length::Fill),
         ]
-        .spacing(8);
+        .spacing(8)
+        .width(Length::Fill);
 
-        // Say which of the offered choices this machine can actually honour. A picker that lets
-        // someone select an NPU that silently falls back to the CPU is the exact failure this
-        // project refuses to ship.
+        if !saved_choice_visible {
+            body = body.push(widgets::prose(format!(
+                "The saved accelerator preference '{}' does not match hardware detected on this machine. Choose another option to continue.",
+                self.settings.backend.label()
+            )));
+        }
+
+        // The hardware card receives two thirds of a two-column window, not the whole window.
+        let card_width = if self.width >= Self::TWO_COLUMN_AT {
+            (self.width - 36.0) * 2.0 / 3.0
+        } else {
+            self.width - 16.0
+        };
+        let compact = card_width < 680.0;
+        if !compact {
+            body = body.push(row![
+                container(widgets::field_label("Accelerator")).width(Length::Fixed(190.0)),
+                container(widgets::field_label("For this model")).width(Length::Fixed(155.0)),
+                container(widgets::field_label("Action")).width(Length::Fill),
+                widgets::field_label("Info"),
+            ].spacing(8));
+        }
+
+        // Keep the full supported matrix visible so an unavailable provider has a clear reason.
         for b in &self.backends {
             let Some(accel) = b.value.accelerator() else {
                 continue;
             };
             let usable = self.usable.get(accel.id()).copied().unwrap_or(false);
-            body = body.push(
-                row![
-                    if usable {
-                        widgets::badge_yes("available")
+            let hardware_present = self
+                .accelerator_hardware
+                .get(accel.id())
+                .copied()
+                .unwrap_or(false);
+            let detail = self.accelerator_details.get(accel.id());
+            let provider_present = self.accelerator_provider_present.get(accel.id()).copied().unwrap_or(false);
+            let provider_registered = self.accelerator_provider_registered.get(accel.id()).copied().unwrap_or(false);
+            let (availability, needed_action) = model_availability(accel, &AcceleratorReadiness {
+                parakeet,
+                model_ready,
+                gpu_model_ready,
+                npu_model_ready,
+                probe_ok: self.accelerator_probe_error.is_none(),
+                hardware_present,
+                provider_registered,
+                usable,
+                gpu_check_failed: self.gpu_check_failed == Some(accel.id()),
+                driver_install_failed: self.driver_install_failed.contains(accel.id()),
+            });
+            let status: Element<'_, Message> = match availability {
+                ModelAvailability::Available => widgets::badge_yes(availability.label()),
+                ModelAvailability::Unavailable => widgets::badge_no(availability.label()),
+                ModelAvailability::NeedAdditionalAction => widgets::badge(availability.label(), theme::ESTIMATE),
+            };
+            let action: Element<'_, Message> = if needed_action == Some(AcceleratorAction::DownloadGpuModel) {
+                let label = if let Some(handle) = &self.gpu_install {
+                    if self.gpu_target == Some(accel.id()) {
+                        let state = handle.state();
+                        if state.finishing {
+                            "Checking GPU...".to_string()
+                        } else {
+                            match state.fraction() {
+                                Some(fraction) => format!("Downloading {:.0}%", fraction * 100.0),
+                                None => "Downloading...".to_string(),
+                            }
+                        }
                     } else {
-                        widgets::badge_no("unavailable")
-                    },
-                    widgets::sub(b.label.clone()),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            );
+                        "Download in progress".to_string()
+                    }
+                } else {
+                    if gpu_model_ready { "Retry GPU check" } else { "Download GPU model" }.to_string()
+                };
+                button(widgets::button_label(label))
+                    .padding(Padding::from([5, 10]))
+                    .style(theme::action(false))
+                    .on_press_maybe(self.gpu_install.is_none().then_some(Message::InstallGpuEncoder(accel.id())))
+                    .into()
+            } else if needed_action == Some(AcceleratorAction::InstallDriver) {
+                button(widgets::button_label(if self.installing_driver == Some(accel.id()) {
+                    "Installing..."
+                } else {
+                    "Install driver"
+                }))
+                .padding(Padding::from([5, 10]))
+                .style(theme::action(false))
+                .on_press_maybe(self.installing_driver.is_none().then_some(Message::InstallDriver(accel.id())))
+                .into()
+            } else {
+                widgets::sub(if availability == ModelAvailability::Available {
+                    "Use now"
+                } else if !hardware_present {
+                    "Hardware not found on this PC"
+                } else if !model_ready {
+                    "Install model first"
+                } else if !parakeet && accel != A::Cpu {
+                    "CPU-only model"
+                } else if self.gpu_check_failed == Some(accel.id()) {
+                    "GPU check failed"
+                } else if self.driver_install_failed.contains(accel.id()) {
+                    "Driver did not enable it"
+                } else if accel == A::QnnNpu && !npu_model_ready {
+                    "NPU model unavailable"
+                } else if accel.kind() == AcceleratorKind::Npu && accel != A::QnnNpu {
+                    "No model artifact"
+                } else if !provider_present {
+                    "Provider missing from this build"
+                } else if !provider_registered {
+                    "Provider could not load"
+                } else {
+                    "See details"
+                }).into()
+            };
+            let info = button(widgets::button_label("?"))
+                .padding(Padding::from([5, 10]))
+                .style(theme::action(false))
+                .on_press(Message::ShowProviderInfo(accel.id()));
+            if compact {
+                body = body.push(widgets::inset(column![
+                    row![widgets::sub(&b.label), status, info]
+                        .spacing(8).align_y(iced::Alignment::Center),
+                    action,
+                ].spacing(6)));
+            } else {
+                body = body.push(row![
+                    container(widgets::sub(&b.label)).width(Length::Fixed(190.0)),
+                    container(status).width(Length::Fixed(155.0)),
+                    container(action).width(Length::Fill),
+                    info,
+                ].spacing(8).align_y(iced::Alignment::Center));
+            }
+            if self.provider_info == Some(accel.id()) {
+                body = body.push(widgets::prose(format!(
+                    "{}: {}", b.label, detail.map(String::as_str).unwrap_or("not checked")
+                )));
+                if let Some((description, url)) = provider_guide(accel.id()) {
+                    body = body.push(widgets::prose(description));
+                    body = body.push(
+                        button(widgets::button_label("Documentation ↗"))
+                            .padding(Padding::from([5, 10]))
+                            .style(theme::action(false))
+                            .on_press(Message::OpenProviderSetup(url)),
+                    );
+                }
+            }
         }
-        body = body.push(widgets::prose(
-            "Availability comes from a real probe of this machine, not from the model's claims. \
-             The Diagnostics tab shows the whole picture, including providers that registered but \
-             enumerated no device.",
-        ));
+        body = body.push(
+            button(widgets::button_label("Check again"))
+                .padding(Padding::from([5, 10]))
+                .style(theme::action(false))
+                .on_press(Message::RefreshAccelerators),
+        );
+        body = body.push(if let Some(error) = &self.accelerator_probe_error {
+            widgets::prose(format!(
+                "Accelerators were not checked because ONNX Runtime could not be loaded ({error}). \
+                 Reinstall OwlWhisp so its runtime folder is restored; downloading a model alone \
+                 cannot fix this."
+            ))
+        } else {
+            widgets::prose(
+                "Available requires a working provider, compatible hardware, and model files. \
+                 Need additional action always has a download or driver-install button. \
+                 Missing providers belong to the app build, not the graphics driver; Info gives the probe details. GPU acceleration \
+                 currently runs the Parakeet TDT 0.6B v3 model; other models use the CPU-only \
+                 sherpa engine. The optional GPU encoder downloads about 2.5 GB and checks \
+                 the selected accelerator with a real model run before saving it.",
+            )
+        });
 
         widgets::card(body).into()
     }
@@ -664,6 +1201,7 @@ impl State {
                     "System default follows whatever Windows is using, including a headset that \
                      appears later.",
                 ),
+                widgets::sub("A long dictation stops and transcribes after five minutes; earlier speech is preserved."),
                 self.mic_check(),
             ]
             .spacing(8),
@@ -694,7 +1232,8 @@ impl State {
             .align_y(iced::Alignment::Center),
             meter(level),
             row![
-                checkbox(self.mic.open).label("Test microphone")
+                checkbox(self.mic.open)
+                    .label("Test microphone")
                     .on_toggle_maybe(
                         (!self.mic.dictating).then_some(Message::MicTestToggled as fn(bool) -> _)
                     )
@@ -750,7 +1289,8 @@ impl State {
 
         let mut body = column![
             widgets::heading("Sound cues"),
-            checkbox(enabled).label("Play a sound when dictation starts and stops")
+            checkbox(enabled)
+                .label("Play a sound when dictation starts and stops")
                 .on_toggle(Message::SoundsToggled),
         ]
         .spacing(8);
@@ -762,8 +1302,14 @@ impl State {
                         Message::ThemeSelected(t.value)
                     })
                     .text_size(14),
-                    button(widgets::button_label("Preview"))
-                        .on_press(Message::PreviewSound)
+                    button(widgets::button_label("Preview start"))
+                        .on_press(Message::PreviewSound(Cue::Start))
+                        .style(theme::action(false)),
+                    // Both, because the two are the halves of one decision. A theme is chosen by
+                    // how it sounds when dictation *ends* at least as much as by how it starts,
+                    // and hearing only the first half means choosing half blind.
+                    button(widgets::button_label("Preview stop"))
+                        .on_press(Message::PreviewSound(Cue::Stop))
                         .style(theme::action(false)),
                 ]
                 .spacing(8)
@@ -795,8 +1341,9 @@ impl State {
         widgets::card(
             column![
                 widgets::heading("Overlay"),
-                checkbox(self.settings.overlay_enabled).label("Show a floating indicator while dictating")
-                .on_toggle(Message::OverlayToggled),
+                checkbox(self.settings.overlay_enabled)
+                    .label("Show a floating indicator while dictating")
+                    .on_toggle(Message::OverlayToggled),
                 widgets::sub(
                     "A small pill above other windows. It never takes focus and clicks pass \
                      through it.",
@@ -811,7 +1358,8 @@ impl State {
         widgets::card(
             column![
                 widgets::heading("Start with the computer"),
-                checkbox(self.settings.autostart).label("Launch LocalWisper when I log in")
+                checkbox(self.settings.autostart)
+                    .label("Launch OwlWhisp when I log in")
                     .on_toggle(Message::AutostartToggled),
                 widgets::sub(
                     "Read back from the operating system after being set, so this checkbox cannot \
@@ -845,23 +1393,45 @@ impl State {
     }
 }
 
-/// Every trigger key the editor offers, grouped the way the web version grouped them: the four in
-/// everyday use first, then letters, digits and function keys.
+/// Every trigger key the editor offers, grouped the way the web version grouped them: no key at
+/// all, then the four in everyday use, then letters, digits and function keys.
 ///
 /// `pick_list` has no group headings, so the grouping survives as order alone. Everything here is
-/// accepted by `lw-core`'s `key_code_name`, which is what makes the list safe to offer -- there is
-/// a test below that keeps the two in step.
+/// accepted by `lw-core`, which is what makes the list safe to offer -- there is a test below that
+/// keeps the two in step.
+fn provider_guide(id: &str) -> Option<(&'static str, &'static str)> {
+    Some(match id {
+        "cpu" => ("Built into OwlWhisp; no driver download is needed.", "https://onnxruntime.ai/docs/execution-providers/"),
+        "qnn_npu" => ("Qualcomm NPU needs its OEM Windows driver, the QNN provider bundled with OwlWhisp, and a compatible model artifact.", "https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html"),
+        "web_gpu" => ("Uses the GPU's system graphics driver and OwlWhisp's WebGPU provider. Parakeet needs the optional full-precision GPU encoder; Add GPU model downloads and verifies it.", "https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html"),
+        "cuda" => ("Uses the NVIDIA display driver, CUDA/cuDNN libraries bundled with Windows x64 OwlWhisp, and the optional full-precision Parakeet encoder. Add GPU model downloads and verifies the encoder, then checks CUDA on this machine.", "https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html"),
+        "tensor_rt" => ("OwlWhisp's Windows x64 build includes TensorRT for Ada SM 8.9. The first Parakeet run compiles slowly and its engine cache uses about 2.5 GB of disk. Cached runs can still be slower than CUDA; choose CUDA for regular dictation.", "https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html"),
+        "direct_ml" => ("OwlWhisp's Windows x64 build includes a separate Windows ML runtime. A persistent worker runs Parakeet on DirectML while the main app keeps CUDA available.", "https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html"),
+        "open_vino" => ("OpenVINO NPU needs an Intel NPU, a compatible provider, and a model that runs on it.", "https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html"),
+        "core_ml" => ("CoreML requires macOS and an OwlWhisp build containing its provider.", "https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html"),
+        "vitis_ai" => ("Ryzen AI needs a supported AMD NPU, its OEM driver, the Vitis AI provider, and a compatible model artifact.", "https://onnxruntime.ai/docs/execution-providers/Vitis-AI-ExecutionProvider.html"),
+        _ => return None,
+    })
+}
+
 fn trigger_choices() -> Vec<TriggerChoice> {
+    // First, because it is the one entry that changes what the rest of the card means: picked, the
+    // modifier boxes *are* the binding, and there have to be two of them.
+    let none = std::iter::once(String::new());
     let common = ["space", "tab", "enter", "esc"].into_iter().map(String::from);
     let letters = (b'a'..=b'z').map(|c| (c as char).to_string());
     let digits = (0..10).map(|d| d.to_string());
     let fkeys = (1..=20).map(|n| format!("f{n}"));
-    common
+    none.chain(common)
         .chain(letters)
         .chain(digits)
         .chain(fkeys)
         .map(|value| TriggerChoice {
-            label: lw_app::hotkey::trigger_label(&value),
+            label: if value.is_empty() {
+                "No key - two modifiers instead".to_string()
+            } else {
+                lw_app::hotkey::trigger_label(&value)
+            },
             value,
         })
         .collect()
@@ -910,8 +1480,7 @@ fn trigger_from_key(key: &iced::keyboard::Key) -> Option<String> {
             .map(|(_, name)| (*name).to_string()),
         Key::Character(c) => {
             let lower = c.to_lowercase();
-            (lower.len() == 1 && lower.chars().all(|ch| ch.is_ascii_alphanumeric()))
-                .then_some(lower)
+            (lower.len() == 1 && lower.chars().all(|ch| ch.is_ascii_alphanumeric())).then_some(lower)
         }
         _ => None,
     }
@@ -963,25 +1532,195 @@ fn meter<'a, M: 'a>(level: f32) -> Element<'a, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lw_core::capabilities::Accelerator;
     use iced::keyboard::Key;
     use iced::keyboard::key::Named;
+
+    #[test]
+    fn model_status_has_a_working_action_or_is_unavailable() {
+        let mut ready = AcceleratorReadiness {
+            parakeet: true,
+            model_ready: true,
+            gpu_model_ready: false,
+            npu_model_ready: false,
+            probe_ok: true,
+            hardware_present: true,
+            provider_registered: true,
+            usable: true,
+            gpu_check_failed: false,
+            driver_install_failed: false,
+        };
+        assert_eq!(
+            model_availability(Accelerator::Cpu, &ready),
+            (ModelAvailability::Available, None)
+        );
+        ready.model_ready = false;
+        assert_eq!(
+            model_availability(Accelerator::Cpu, &ready),
+            (ModelAvailability::Unavailable, None)
+        );
+        ready.model_ready = true;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel))
+        );
+        assert_eq!(
+            model_availability(Accelerator::QnnNpu, &ready),
+            (ModelAvailability::Unavailable, None),
+            "an absent NPU artifact has no download action"
+        );
+        ready.npu_model_ready = true;
+        assert_eq!(
+            model_availability(Accelerator::QnnNpu, &ready),
+            if Accelerator::QnnNpu.supported_on_this_platform() {
+                (ModelAvailability::Available, None)
+            } else {
+                (ModelAvailability::Unavailable, None)
+            }
+        );
+        ready.parakeet = false;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            (ModelAvailability::Unavailable, None),
+            "the CPU-only sherpa engine cannot use a GPU add-on"
+        );
+        ready.parakeet = true;
+        ready.usable = false;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            if cfg!(windows) {
+                (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::InstallDriver))
+            } else {
+                (ModelAvailability::Unavailable, None)
+            }
+        );
+        ready.provider_registered = false;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            (ModelAvailability::Unavailable, None),
+            "a display driver does not supply a missing ONNX provider"
+        );
+        ready.provider_registered = true;
+        ready.driver_install_failed = true;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            (ModelAvailability::Unavailable, None),
+            "a failed driver installation must not promise another download"
+        );
+        ready.driver_install_failed = false;
+        ready.usable = true;
+        ready.gpu_model_ready = true;
+        ready.gpu_check_failed = true;
+        assert_eq!(
+            model_availability(Accelerator::Cuda, &ready),
+            (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel)),
+            "a failed model run must not be reported as available"
+        );
+    }
+    /// The whole capture path as the panel really runs it: arm the grab, press keys, poll.
+    ///
+    /// Between the keyboard hook and the binding in the panel there is a channel, a poll, a name
+    /// lookup and a validation, and every one of them has been wrong at least once. The platform
+    /// crate's own tests stop at the channel; this one goes the rest of the way.
+    ///
+    /// `cargo test -p lw-gui capture_reaches_the_panel -- --ignored --nocapture`
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn a_captured_combination_reaches_the_binding_in_the_panel() {
+        use windows_sys_keys::press;
+
+        let mut state = State::new();
+        state.update(Message::CaptureToggled);
+        assert!(state.capturing, "the button armed the capture");
+        assert!(
+            state.capture.is_some(),
+            "this machine has a keyboard grab and the panel should have taken it",
+        );
+
+        // Meta+D: the combination a window never gets to see, which is why the grab exists.
+        press(&[0x5B, 0x44]);
+
+        // The subscription polls every 25 ms; here the poll is driven by hand.
+        for _ in 0..100 {
+            state.update(Message::CapturePoll);
+            if !state.capturing {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        assert!(
+            !state.capturing,
+            "the capture should have closed itself: {:?}",
+            state.error
+        );
+        assert_eq!(state.settings.hotkey.trigger, "d");
+        assert_eq!(state.settings.hotkey.modifiers, vec!["meta".to_string()]);
+        assert_eq!(state.error, None);
+    }
+
+    /// Press every key in order and let go in reverse, physically enough for the hook to see.
+    #[cfg(windows)]
+    mod windows_sys_keys {
+        /// Uses the raw Win32 call rather than a helper crate; `lw-gui` has no windows dependency
+        /// of its own and this is the only place that wants one.
+        pub fn press(vks: &[u16]) {
+            unsafe extern "system" {
+                fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
+            }
+            const KEYEVENTF_KEYUP: u32 = 0x0002;
+            for vk in vks {
+                unsafe { keybd_event(*vk as u8, 0, 0, 0) };
+            }
+            for vk in vks.iter().rev() {
+                unsafe { keybd_event(*vk as u8, 0, KEYEVENTF_KEYUP, 0) };
+            }
+        }
+    }
 
     #[test]
     fn every_offered_trigger_is_one_the_core_accepts() {
         // The dropdown is a promise: pick any of these and Save will work. A key the core rejects
         // would be offered and then refused, with no way for the user to tell which.
+        //
+        // Two modifiers, because one of the entries is "no key" and that is the form it needs.
         for choice in trigger_choices() {
             let cfg = lw_core::settings::HotkeyConfig {
-                modifiers: vec!["ctrl".into()],
+                modifiers: vec!["ctrl".into(), "meta".into()],
                 trigger: choice.value.clone(),
                 mode: HotkeyMode::Toggle,
             };
             assert!(
                 cfg.validate().is_ok(),
-                "{} was offered but is invalid",
+                "{:?} was offered but is invalid",
                 choice.value
             );
         }
+    }
+
+    #[test]
+    fn the_editor_offers_the_modifiers_only_binding_and_lists_it_first() {
+        let choices = trigger_choices();
+        assert_eq!(choices[0].value, "", "no key belongs at the top of the list");
+        assert_eq!(
+            choices.iter().filter(|c| c.value.is_empty()).count(),
+            1,
+            "exactly one way to say it",
+        );
+    }
+
+    #[test]
+    fn a_binding_saved_as_none_selects_the_no_key_entry() {
+        // The settings file writes "none"; the list carries "". Without the normalisation in
+        // `trigger_of` the dropdown would show its placeholder for a binding that is perfectly
+        // well set, and adding a second "(saved)" entry beside the one that already means it.
+        let cfg = lw_core::settings::HotkeyConfig {
+            modifiers: vec!["ctrl".into(), "meta".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        let saved = lw_app::hotkey::trigger_of(&cfg);
+        assert!(trigger_choices().iter().any(|c| c.value == saved));
     }
 
     #[test]
@@ -996,10 +1735,7 @@ mod tests {
             trigger_from_key(&Key::Named(Named::Space)).as_deref(),
             Some("space")
         );
-        assert_eq!(
-            trigger_from_key(&Key::Named(Named::F13)).as_deref(),
-            Some("f13")
-        );
+        assert_eq!(trigger_from_key(&Key::Named(Named::F13)).as_deref(), Some("f13"));
         assert_eq!(
             trigger_from_key(&Key::Character("D".into())).as_deref(),
             Some("d")

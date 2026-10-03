@@ -95,7 +95,7 @@ HTP — but it means our cached context carries no compatibility string, so on l
 - Ship a stock `onnxruntime.dll` and the `onnxruntime-qnn` V81 DLL set beside the exe (bundled in
   the installer per the Qualcomm licence — never a standalone download).
 - On first use with an NPU present, prepare the encoder context on-device and cache the `_ctx.onnx`
-  + `_qnn.bin` in `%LOCALAPPDATA%/LocalWisper/cache`, keyed by
+  + `_qnn.bin` in `%LOCALAPPDATA%/OwlWhisp/cache`, keyed by
   `(model hash, ORT version, QAIRT version, HTP arch)`. Subsequent launches reload in ~2 s.
 - Report the truth: `Provider::QnnHtp`, `Acceleration::Npu`, device `"Snapdragon X2 Elite HTP
   (V81)"`. If prepare or load fails, fall back to `OrtCpuEncoder` and report `Provider::OnnxCpu`.

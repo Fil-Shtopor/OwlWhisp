@@ -21,8 +21,8 @@ use serde::Serialize;
 
 /// The sentence a front end must show beside any estimated number.
 pub const ESTIMATE_DISCLAIMER: &str =
-    "Estimated from the model's speed tier and your detected hardware - not a measurement. \
-     Run the benchmark for a real number on this machine.";
+    "The Fast recommendation uses an estimate from the model's speed tier and your hardware. \
+     RTF and Accuracy use Zenbook A16 measurements; run Benchmark to fill On your machine.";
 
 /// One of the jobs an entry can be tagged with, as shown.
 #[derive(Clone, Debug, Serialize)]
@@ -97,7 +97,16 @@ pub struct EntryView {
 }
 
 impl EntryView {
-    /// The error rate measured for one language, from the point this machine's path would use.
+    /// The reference run shown in the Models table is fixed to the Zenbook A16, independent of
+    /// the current computer. Prefer its accelerator run when several A16 runs exist.
+    pub fn a16_reference(&self) -> Option<&MeasuredPoint> {
+        self.measurements
+            .iter()
+            .filter(|m| m.machine.starts_with("ASUS Zenbook A16"))
+            .max_by_key(|m| m.hardware.preference_rank())
+    }
+
+    /// The error rate measured for one language on the reference machine.
     ///
     /// Here rather than in a front end because choosing a model for a language is a question about
     /// data. Answering it from the blended figure picked Whisper turbo for Chinese, which is the
@@ -106,19 +115,8 @@ impl EntryView {
         if language.is_empty() {
             return None;
         }
-        let want = self
-            .best_hardware
-            .map(|h| h.replace('_', "-").to_ascii_lowercase());
-        let matches = |p: &&MeasuredPoint| {
-            want.as_deref().is_some_and(|w| {
-                p.hardware.label().replace('_', "-").to_ascii_lowercase() == w
-            })
-        };
-        let preferred = self.measurements.iter().filter(matches);
-        let rest = self.measurements.iter().filter(|p| !matches(p));
-        preferred
-            .chain(rest)
-            .find_map(|p| p.per_language.get(language))
+        self.a16_reference()
+            .and_then(|p| p.per_language.get(language))
     }
 }
 
@@ -258,11 +256,7 @@ fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, 
                 // Same clips for every candidate that has this: no bucketing, no tiebreak.
                 return Some(((m.rate * 1e6) as i32, 0));
             }
-            let blended = entry
-                .measured_reference
-                .as_ref()
-                .or(entry.measurements.first())?
-                .wer?;
+            let blended = entry.a16_reference()?.wer?;
             Some((coarse(blended), -(entry.languages.len() as i32)))
         }
         ModelRole::Fast => {
@@ -525,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn a_language_rate_is_read_from_the_path_this_machine_would_use() {
+    fn a_language_rate_is_read_from_the_a16_reference() {
         let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
         let sense = view
             .entries
@@ -538,5 +532,16 @@ mod tests {
         assert!((zh.rate - 0.141).abs() < 1e-3, "{}", zh.rate);
         assert!(sense.measured_for_language("ja").is_none(), "no Japanese fixtures exist");
         assert!(sense.measured_for_language("").is_none(), "no language chosen is not a language");
+    }
+
+    #[test]
+    fn parakeet_reference_uses_the_a16_npu_run_on_every_machine() {
+        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let parakeet = view.entries.iter().find(|e| e.id == "parakeet-tdt-0.6b-v3").unwrap();
+        let reference = parakeet.a16_reference().expect("A16 run");
+        assert_eq!(reference.hardware, HardwareTarget::QnnNpu);
+        assert!((reference.rtf - 0.0145).abs() < 1e-6);
+        assert_eq!(reference.wer, Some(0.048));
+        assert!((parakeet.measured_for_language("en").unwrap().rate - 0.092).abs() < 1e-6);
     }
 }

@@ -1,6 +1,6 @@
 import csv, os, json, shutil, soundfile as sf
 F = r'C:\Users\artam\lwdev\fleurs'
-OUT = r'C:\Users\artam\OneDrive\Desktop\LocalWisper\tests\fixtures\audio'
+OUT = r'C:\Users\artam\OneDrive\Desktop\OwlWhisp\tests\fixtures\audio'
 os.makedirs(OUT, exist_ok=True)
 langs = {'en': 'en_us', 'ru': 'ru_ru', 'es': 'es_419', 'uk': 'uk_ua'}
 manifest = []

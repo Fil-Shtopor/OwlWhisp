@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::bench::{ActiveBackend, Loaded, build_pipeline, load_engine, meter_level};
 
+/// A bounded recording that stops before old speech can be overwritten.
+const MAX_DICTATION_SECONDS: u32 = 5 * 60;
+
 /// Where the recording state machine is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -195,9 +198,6 @@ impl Drop for Handle {
     }
 }
 
-/// Whether a microphone-test stream is currently open, so its pump knows when to stop.
-static MIC_TEST_ACTIVE: AtomicBool = AtomicBool::new(false);
-
 /// Start the worker thread.
 pub fn spawn(settings_path: PathBuf) -> Handle {
     let (tx, rx) = unbounded::<Command>();
@@ -293,6 +293,7 @@ fn worker_loop(
     let mut capture: Option<Capture> = None;
     // A second capture used only to drive the level meter while the user checks their microphone.
     let mut mic_test: Option<Capture> = None;
+    let mut mic_test_active: Option<Arc<AtomicBool>> = None;
 
     while let Ok(cmd) = rx.recv() {
         match cmd {
@@ -326,7 +327,8 @@ fn worker_loop(
             }
             Command::Start { hands_free } => {
                 let device = capture_device(&settings_path);
-                let mut cap = Capture::new(device, 16_000 * 120);
+                // One spare second lets the level pump send Stop without overwriting the start.
+                let mut cap = Capture::for_duration(device, (MAX_DICTATION_SECONDS + 1) as usize);
                 match cap.start() {
                     Ok(()) => {
                         ctx.set(RecordingState::Listening);
@@ -343,6 +345,8 @@ fn worker_loop(
                             LevelSource::Recording,
                             Arc::clone(&ctx.state),
                             ctx.events.clone(),
+                            Some(self_tx.clone()),
+                            None,
                         );
                         capture = Some(cap);
                     }
@@ -358,12 +362,16 @@ fn worker_loop(
                         let mut cap = Capture::new(device, 16_000 * 4);
                         match cap.start() {
                             Ok(()) => {
+                                let active = Arc::new(AtomicBool::new(true));
                                 spawn_level_pump(
                                     &cap,
                                     LevelSource::MicTest,
                                     Arc::clone(&ctx.state),
                                     ctx.events.clone(),
+                                    None,
+                                    Some(Arc::clone(&active)),
                                 );
+                                mic_test_active = Some(active);
                                 mic_test = Some(cap);
                                 let _ = ctx.events.send(Event::MicTest(Ok(true)));
                             }
@@ -377,10 +385,12 @@ fn worker_loop(
                         let _ = ctx.events.send(Event::MicTest(Ok(true)));
                     }
                 } else {
+                    if let Some(active) = mic_test_active.take() {
+                        active.store(false, Ordering::Relaxed);
+                    }
                     if let Some(mut cap) = mic_test.take() {
                         let _ = cap.stop();
                     }
-                    MIC_TEST_ACTIVE.store(false, Ordering::Relaxed);
                     // Park the meter at zero so it does not freeze at the last value it saw.
                     let _ = ctx.events.send(Event::Level(0.0));
                     let _ = ctx.events.send(Event::MicTest(Ok(false)));
@@ -483,11 +493,12 @@ fn spawn_level_pump(
     source: LevelSource,
     state: Arc<std::sync::Mutex<RecordingState>>,
     events: Sender<Event>,
+    commands: Option<Sender<Command>>,
+    test_active: Option<Arc<AtomicBool>>,
 ) {
     let level = capture.level_handle();
-    if source == LevelSource::MicTest {
-        MIC_TEST_ACTIVE.store(true, Ordering::Relaxed);
-    }
+    let ring = capture.ring();
+    let max_samples = capture.native_sample_rate() as u64 * MAX_DICTATION_SECONDS as u64;
     std::thread::Builder::new()
         .name("lw-level".into())
         .spawn(move || {
@@ -496,9 +507,17 @@ fn spawn_level_pump(
                     LevelSource::Recording => {
                         state.lock().map(|s| *s).unwrap_or_default() == RecordingState::Listening
                     }
-                    LevelSource::MicTest => MIC_TEST_ACTIVE.load(Ordering::Relaxed),
+                    LevelSource::MicTest => test_active
+                        .as_ref()
+                        .is_some_and(|active| active.load(Ordering::Relaxed)),
                 };
                 if !keep_going {
+                    break;
+                }
+                if source == LevelSource::Recording && ring.total_written() >= max_samples {
+                    if let Some(commands) = &commands {
+                        let _ = commands.send(Command::Stop);
+                    }
                     break;
                 }
                 if events.send(Event::Level(meter_level(level.get()))).is_err() {
@@ -506,8 +525,11 @@ fn spawn_level_pump(
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            // Leave the meter at rest rather than frozen at the last sample.
-            let _ = events.send(Event::Level(0.0));
+            // Test shutdown sends zero from the worker. A retired pump must not erase the
+            // first level of a newly opened test stream.
+            if source == LevelSource::Recording {
+                let _ = events.send(Event::Level(0.0));
+            }
         })
         .ok();
 }
@@ -541,20 +563,30 @@ fn spawn_silence_watcher(
             let settings = Settings::load(&settings_path).unwrap_or_default();
             let cfg = EndpointConfig {
                 frame_ms: 1000.0 * hop as f32 / native_rate as f32,
+                // The worker stops at the recording limit. A forced VAD cut would otherwise
+                // turn one long utterance into a transcript of only its first 20 seconds.
+                max_segment_ms: 0,
                 ..settings.vad
             };
             let mut detector = EndpointDetector::new(cfg);
             let mut vad = EnergyVad::default();
-            let mut consumed = 0usize;
+            let mut consumed = 0u64;
+            let mut pending = Vec::new();
 
             loop {
                 if state.lock().map(|s| *s).unwrap_or_default() != RecordingState::Listening {
                     return; // stopped by the user or by an error
                 }
-                let samples = ring.snapshot();
-                while consumed + hop <= samples.len() {
-                    let frame = &samples[consumed..consumed + hop];
-                    consumed += hop;
+                let (start, samples) = ring.read_from(consumed);
+                if start > consumed {
+                    pending.clear();
+                }
+                consumed = start + samples.len() as u64;
+                pending.extend_from_slice(&samples);
+                let mut processed = 0;
+                while processed + hop <= pending.len() {
+                    let frame = &pending[processed..processed + hop];
+                    processed += hop;
                     let Ok(p) = vad.process_frame(frame) else {
                         continue;
                     };
@@ -565,6 +597,7 @@ fn spawn_silence_watcher(
                         }
                     }
                 }
+                pending.drain(..processed);
                 std::thread::sleep(std::time::Duration::from_millis(30));
             }
         })

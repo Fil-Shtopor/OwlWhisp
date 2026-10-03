@@ -44,6 +44,8 @@ pub enum ArtifactTarget {
     Any,
     /// CPU-only int8 ONNX.
     CpuInt8,
+    /// Full-precision ONNX encoder for a GPU execution provider.
+    GpuFp32,
     /// Qualcomm HTP V73 context binary (Snapdragon X Elite).
     QnnHtpV73,
     /// Qualcomm HTP V81 context binary (Snapdragon X2 Elite).

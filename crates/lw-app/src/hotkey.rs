@@ -210,6 +210,31 @@ pub const MODIFIERS: [ModifierOption; 4] = [
     },
 ];
 
+/// Turn a captured combination into the names a settings file holds.
+///
+/// [`lw_platform::RawCombo`] speaks virtual-key codes because it is built inside the keyboard
+/// hook, which must not allocate; this is the other side of that channel. `None` means the
+/// keyboard sent a key no binding can hold -- a laptop's media keys, and Fn on the rare keyboard
+/// that reports it at all -- and the editor says so rather than binding nothing and looking
+/// broken.
+///
+/// The modifier order is [`MODIFIERS`]', not the order the keys went down: a binding is a set,
+/// and two people pressing the same combination in a different order must get the same file.
+pub fn captured_binding(raw: lw_platform::RawCombo) -> Option<(Vec<String>, String)> {
+    let trigger = lw_platform::hotkey::vk_name(raw.vk)?;
+    let modifiers = MODIFIERS
+        .iter()
+        .filter(|m| raw.mods & mask_of(m.id) != 0)
+        .map(|m| m.id.to_string())
+        .collect();
+    Some((modifiers, trigger))
+}
+
+/// The platform's family bit for one of [`MODIFIERS`]' ids.
+fn mask_of(id: &str) -> u8 {
+    lw_platform::hotkey::modifier_bit(id).unwrap_or(0)
+}
+
 /// Does this binding hold `id`, under any spelling the core accepts?
 pub fn has_modifier(cfg: &HotkeyConfig, id: &str) -> bool {
     let Some(opt) = MODIFIERS.iter().find(|m| m.id == id) else {
@@ -256,6 +281,14 @@ pub fn trigger_label(key: &str) -> String {
 /// The trigger key, normalised. An empty string means the binding has no real key.
 pub fn trigger_of(cfg: &HotkeyConfig) -> String {
     let t = cfg.trigger.trim().to_ascii_lowercase();
+    if t == "none" { String::new() } else { t }
+}
+
+/// The same, for a [`HotkeySpec`] -- what the listener reports back, as opposed to what the
+/// settings file asks for. An empty string means the binding has no key and the keyboard hook,
+/// not the window manager, is the thing watching for it.
+pub fn trigger_of_spec(spec: &HotkeySpec) -> String {
+    let t = spec.trigger.trim().to_ascii_lowercase();
     if t == "none" { String::new() } else { t }
 }
 
@@ -516,6 +549,67 @@ mod tests {
     use HotkeyEvent::{Pressed, Released};
     use HotkeyMode::{HandsFree, PushToTalk, Toggle};
     use RecordingState::{Done, Error, Idle, Listening, Processing};
+
+    /// What the keyboard hook hands over for a combination, by hand.
+    fn raw(mods: u8, vk: u16) -> lw_platform::RawCombo {
+        lw_platform::RawCombo { mods, vk }
+    }
+
+    #[test]
+    fn a_captured_binding_is_one_the_settings_file_accepts() {
+        // The point of the whole exercise: Meta+D captured off the keyboard has to come out as a
+        // binding `lw-core` will save, not as something the editor shows and Save then refuses.
+        let (mods, trigger) =
+            captured_binding(raw(lw_platform::hotkey::MOD_WIN, 0x44)).expect("Meta+D is bindable");
+        assert_eq!(mods, vec!["meta".to_string()]);
+        assert_eq!(trigger, "d");
+        let cfg = HotkeyConfig {
+            modifiers: mods,
+            trigger,
+            mode: HotkeyMode::PushToTalk,
+        };
+        cfg.validate().expect("a captured binding saves");
+    }
+
+    #[test]
+    fn captured_modifiers_come_out_in_the_editors_order() {
+        // Not the order the keys went down: a binding is a set, and the file should read the same
+        // whichever way round the user held them.
+        let all = lw_platform::hotkey::MOD_WIN
+            | lw_platform::hotkey::MOD_SHIFT
+            | lw_platform::hotkey::MOD_CTRL
+            | lw_platform::hotkey::MOD_ALT;
+        let (mods, _) = captured_binding(raw(all, 0x20)).expect("bindable");
+        assert_eq!(mods, vec!["ctrl", "alt", "shift", "meta"]);
+        assert_eq!(
+            mods,
+            MODIFIERS.iter().map(|m| m.id).collect::<Vec<_>>(),
+            "the order the checkboxes are in",
+        );
+    }
+
+    #[test]
+    fn every_captured_binding_ticks_the_boxes_it_came_from() {
+        for mask in 0u8..16 {
+            let (modifiers, trigger) = captured_binding(raw(mask, 0x41)).expect("bindable");
+            let cfg = HotkeyConfig {
+                modifiers,
+                trigger,
+                mode: HotkeyMode::Toggle,
+            };
+            for m in &MODIFIERS {
+                let wanted = mask & lw_platform::hotkey::modifier_bit(m.id).unwrap() != 0;
+                assert_eq!(has_modifier(&cfg, m.id), wanted, "{} of {mask:#b}", m.id);
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_no_binding_can_hold_is_refused_rather_than_named() {
+        // VK_VOLUME_MUTE, which is what Fn+F1 sends on many laptops. Naming it anyway would put a
+        // binding in the editor that Save would then reject.
+        assert_eq!(captured_binding(raw(0, 0xAD)), None);
+    }
 
     #[test]
     fn push_to_talk_starts_on_press_and_stops_on_release() {

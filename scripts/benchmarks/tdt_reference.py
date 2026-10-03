@@ -10,7 +10,7 @@ import numpy as np
 import onnxruntime as ort
 import soundfile as sf
 
-M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-LocalWisper\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
+M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-OwlWhisp\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
 IST = os.path.join(M, 'istupakov')
 WORK = r'C:\Users\artam\lwdev\work'
 LIBDIR = r'C:\Users\artam\lwdev\venv\Lib\site-packages\onnxruntime_qnn\libs\arm64ec'
@@ -22,7 +22,7 @@ MAX_SYMBOLS_PER_FRAME = 10
 ap = argparse.ArgumentParser()
 ap.add_argument('--encoder', default='cpu', choices=['cpu', 'static', 'htp'])
 ap.add_argument('--frames', type=int, default=1000)
-ap.add_argument('--fixtures', default=r'C:\Users\artam\OneDrive\Desktop\LocalWisper\tests\fixtures\audio')
+ap.add_argument('--fixtures', default=r'C:\Users\artam\OneDrive\Desktop\OwlWhisp\tests\fixtures\audio')
 ap.add_argument('--decoder', default=os.path.join(IST, 'decoder_joint-model.int8.onnx'))
 args = ap.parse_args()
 T = args.frames

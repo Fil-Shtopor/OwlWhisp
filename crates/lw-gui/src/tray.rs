@@ -53,7 +53,7 @@ impl Tray {
 
         let icon = load_icon()?;
         let tray = TrayIconBuilder::new()
-            .with_tooltip("LocalWisper")
+            .with_tooltip("OwlWhisp")
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(true)
             .with_icon(icon)

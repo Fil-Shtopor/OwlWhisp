@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "LocalWisper command-line tool: diagnostics, benchmarks, file transcription, model management, self-check"
+description = "OwlWhisp command-line tool: diagnostics, benchmarks, file transcription, model management, self-check"
 
 [[bin]]
 name = "lw"

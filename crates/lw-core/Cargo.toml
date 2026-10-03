@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "LocalWisper core: audio buffering, VAD state machine, speech-engine abstraction, text pipeline, dictionary, profiles, settings, model management, diagnostics"
+description = "OwlWhisp core: audio buffering, VAD state machine, speech-engine abstraction, text pipeline, dictionary, profiles, settings, model management, diagnostics"
 
 [dependencies]
 serde.workspace = true

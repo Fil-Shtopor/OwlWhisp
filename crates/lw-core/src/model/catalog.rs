@@ -1,4 +1,4 @@
-//! The **model catalog**: a pre-download description of the speech models LocalWisper knows about,
+//! The **model catalog**: a pre-download description of the speech models OwlWhisp knows about,
 //! plus a hardware-aware recommender.
 //!
 //! The catalog answers three questions *before* anything is downloaded:

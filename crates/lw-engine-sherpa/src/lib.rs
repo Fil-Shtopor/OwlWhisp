@@ -1,6 +1,6 @@
 //! # lw-engine-sherpa
 //!
-//! A **portable CPU** speech engine for LocalWisper, built on the official
+//! A **portable CPU** speech engine for OwlWhisp, built on the official
 //! [`sherpa-onnx`](https://crates.io/crates/sherpa-onnx) Rust bindings (k2-fsa, Apache-2.0).
 //!
 //! Where [`lw_engine_parakeet`] runs one model through our own ONNX Runtime layer — and reaches

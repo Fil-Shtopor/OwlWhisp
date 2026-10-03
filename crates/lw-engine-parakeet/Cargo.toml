@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "NVIDIA Parakeet TDT speech engine (ONNX Runtime CPU / Qualcomm QNN HTP / CoreML) for LocalWisper"
+description = "NVIDIA Parakeet TDT speech engine (ONNX Runtime CPU / Qualcomm QNN HTP / CoreML) for OwlWhisp"
 
 [dependencies]
 lw-core.workspace = true

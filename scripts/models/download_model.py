@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dev helper: download and SHA-256-verify a LocalWisper model from a manifest.
+"""Dev helper: download and SHA-256-verify a OwlWhisp model from a manifest.
 
 This is a *development* convenience mirroring the Rust `lw_core::model::ModelDownloader`. The
 shipping app never requires Python — it downloads models itself. Use this to pre-populate a local

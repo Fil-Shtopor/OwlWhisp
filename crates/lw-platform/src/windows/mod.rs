@@ -6,9 +6,9 @@ mod foreground;
 mod hotkey;
 mod inject;
 
-pub use caps::{detect_npu, processor_name_from_registry};
+pub use caps::{DisplayAdapter, detect_npu, display_adapters, has_nvidia_gpu, processor_name_from_registry};
 pub use foreground::{foreground_app, foreground_is_own_process};
-pub use hotkey::WindowsHotkey;
+pub use hotkey::{WindowsCapture, WindowsHotkey, key_counts as keyboard_hook_key_counts};
 pub use inject::WindowsInjector;
 
 /// `dwExtraInfo` marker stamped on every key event we synthesize via `SendInput`, so the

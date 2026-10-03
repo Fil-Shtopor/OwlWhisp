@@ -6,6 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
 use ort::environment::Environment;
+use ort::ep::ExecutionProvider;
 use ort::ep::ExecutionProviderLibrary;
 use ort::memory::DeviceType;
 use parking_lot::Mutex;
@@ -64,8 +65,11 @@ pub fn runtime_platform_dir() -> &'static str {
 /// Search for a directory containing `onnxruntime`. Order:
 /// 1. `LW_RUNTIME_DIR` env var,
 /// 2. `ORT_DYLIB_PATH` env var (its parent directory),
-/// 3. the executable's directory, then `runtime/<platform>/` and `runtime/` beside it,
+/// 3. the executable's directory and its ancestors, then `runtime/<platform>/` and `runtime/`,
 /// 4. the current working directory (and the same two subdirs).
+///
+/// Walking ancestors makes a `target/<profile>/owlwhisp` developer build runnable by double
+/// click: its staged runtime normally lives at the repository root, not beside the executable.
 pub fn locate_runtime_dir() -> Option<PathBuf> {
     let explicit_dir = std::env::var_os("LW_RUNTIME_DIR").map(PathBuf::from);
     let dylib_parent = std::env::var_os("ORT_DYLIB_PATH")
@@ -99,7 +103,13 @@ fn runtime_candidates(
     let mut candidates: Vec<PathBuf> = Vec::new();
     candidates.extend(explicit_dir.map(Path::to_path_buf));
     candidates.extend(dylib_parent.map(Path::to_path_buf));
-    for base in [exe_dir, cwd].into_iter().flatten() {
+    let exe_bases = exe_dir.into_iter().flat_map(|dir| {
+        std::iter::successors(Some(dir.to_path_buf()), |current| {
+            current.parent().map(Path::to_path_buf)
+        })
+    });
+    let cwd_bases = cwd.into_iter().map(Path::to_path_buf);
+    for base in exe_bases.chain(cwd_bases) {
         candidates.push(base.to_path_buf());
         candidates.push(base.join("runtime").join(platform));
         candidates.push(base.join("runtime"));
@@ -118,6 +128,7 @@ static INIT: OnceLock<Result<(), String>> = OnceLock::new();
 /// fall back to the CPU. One instance, one registration, one answer.
 static INSTANCE: OnceLock<Arc<OrtRuntime>> = OnceLock::new();
 
+
 /// One registered plugin execution provider. The handle is kept so the EP stays registered for
 /// the process lifetime; dropping it would unregister the library underneath live sessions.
 struct EpState {
@@ -135,6 +146,8 @@ pub struct OrtRuntime {
     runtime_dir: PathBuf,
     /// Providers registered so far, keyed by accelerator. Absent = not registered.
     eps: Mutex<HashMap<Accelerator, EpState>>,
+    legacy_cuda: Mutex<Option<Result<(), String>>>,
+    registration_errors: Mutex<HashMap<Accelerator, String>>,
 }
 
 impl OrtRuntime {
@@ -142,14 +155,34 @@ impl OrtRuntime {
     ///
     /// `ort::init_from` is global and idempotent here: it runs once per process.
     pub fn init(runtime_dir: &Path) -> Result<Arc<Self>, RuntimeError> {
-        let lib = runtime_dir.join(onnxruntime_lib_name());
+        // ORT and its providers may change the process working directory while loading native
+        // dependencies. Keep every later provider lookup anchored to the original directory.
+        let dir = runtime_dir
+            .canonicalize()
+            .map_err(|_| RuntimeError::NotFound(runtime_dir.display().to_string()))?;
+        let lib = dir.join(onnxruntime_lib_name());
         if !lib.exists() {
             return Err(RuntimeError::NotFound(runtime_dir.display().to_string()));
         }
-        let dir = runtime_dir.to_path_buf();
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::System::LibraryLoader::SetDllDirectoryW;
+
+            // CUDA/cuDNN are delay-loaded by ONNX Runtime. Windows otherwise searches PATH,
+            // not the private runtime folder that contains their DLLs, on first convolution.
+            let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+            if unsafe { SetDllDirectoryW(wide.as_ptr()) } == 0 {
+                return Err(RuntimeError::Init(format!(
+                    "could not use runtime DLL directory {}: {}",
+                    dir.display(),
+                    std::io::Error::last_os_error(),
+                )));
+            }
+        }
         let res = INIT.get_or_init(|| match ort::init_from(&lib) {
             Ok(builder) => {
-                builder.with_name("localwisper").commit();
+                builder.with_name("owlwhisp").commit();
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
@@ -167,6 +200,8 @@ impl OrtRuntime {
             Arc::new(Self {
                 runtime_dir: dir.clone(),
                 eps: Mutex::new(HashMap::new()),
+                legacy_cuda: Mutex::new(None),
+                registration_errors: Mutex::new(HashMap::new()),
             })
         });
         if instance.runtime_dir != dir {
@@ -192,6 +227,18 @@ impl OrtRuntime {
     pub fn is_present(&self, accel: Accelerator) -> bool {
         match accel {
             Accelerator::Cpu => true,
+            #[cfg(windows)]
+            Accelerator::DirectMl => ort::ep::directml::api().is_some(),
+            #[cfg(windows)]
+            Accelerator::TensorRt => [
+                "onnxruntime_providers_tensorrt.dll",
+                "nvinfer_10.dll",
+                "nvinfer_plugin_10.dll",
+                "nvonnxparser_10.dll",
+                "nvinfer_builder_resource_sm89_10.dll",
+            ]
+            .iter()
+            .all(|file| self.runtime_dir.join(file).is_file()),
             _ => self.library_path(accel).is_some_and(|p| p.exists()),
         }
     }
@@ -205,6 +252,17 @@ impl OrtRuntime {
         if accel == Accelerator::Cpu {
             return true; // built in, never registered
         }
+        #[cfg(windows)]
+        if accel == Accelerator::DirectMl {
+            return ort::ep::directml::api().is_some();
+        }
+        if accel == Accelerator::TensorRt {
+            // The official GPU package exposes TensorRT through ORT's legacy session EP.
+            // Its providers_tensorrt DLL does not export the plugin CreateEpFactories symbol.
+            return self.is_present(accel)
+                && ort::ep::TensorRT::default().is_available().unwrap_or(false)
+                && ort::ep::set_gpu_device(0).is_ok();
+        }
         let mut eps = self.eps.lock();
         if eps.contains_key(&accel) {
             return true;
@@ -215,6 +273,14 @@ impl OrtRuntime {
         if !path.exists() {
             return false;
         }
+        // Microsoft's GPU NuGet ships the legacy CUDA EP. It is compiled into its matched
+        // onnxruntime.dll and cannot be registered as an external plugin library. Keep the
+        // plugin path for future CUDA plugin builds, but recognize the official GPU runtime.
+        if accel == Accelerator::Cuda && ort::ep::CUDA::default().is_available().unwrap_or(false) {
+            let mut result = self.legacy_cuda.lock();
+            let probe = result.get_or_insert_with(|| ort::ep::set_gpu_device(0).map_err(|e| e.to_string()));
+            return probe.is_ok();
+        }
         match Environment::current() {
             Ok(env) => match env.register_ep_library(name, &path) {
                 Ok(handle) => {
@@ -224,6 +290,7 @@ impl OrtRuntime {
                 }
                 Err(e) => {
                     tracing::warn!("{name} registration failed: {e}");
+                    self.registration_errors.lock().insert(accel, e.to_string());
                     false
                 }
             },
@@ -233,7 +300,11 @@ impl OrtRuntime {
 
     /// Whether `accel`'s provider is registered in this process.
     pub fn registered(&self, accel: Accelerator) -> bool {
-        accel == Accelerator::Cpu || self.eps.lock().contains_key(&accel)
+        accel == Accelerator::Cpu
+            || (cfg!(windows) && accel == Accelerator::DirectMl && self.is_present(accel))
+            || (accel == Accelerator::TensorRt && self.register(accel))
+            || self.eps.lock().contains_key(&accel)
+            || (accel == Accelerator::Cuda && self.legacy_cuda.lock().as_ref().is_some_and(Result::is_ok))
     }
 
     /// How many devices `accel` enumerates. Registers the provider first, lazily.
@@ -244,12 +315,33 @@ impl OrtRuntime {
         if accel == Accelerator::Cpu {
             return 1;
         }
+        #[cfg(windows)]
+        if accel == Accelerator::DirectMl {
+            return if self.register(accel) {
+                Environment::current().map_or(0, |env| {
+                    env.devices()
+                        .filter(|d| d.ep().ok() == accel.ep_name())
+                        .filter(|d| d.hardware_device().ty() == DeviceType::GPU)
+                        .count()
+                })
+            } else {
+                0
+            };
+        }
+        if accel == Accelerator::TensorRt {
+            return usize::from(self.register(accel));
+        }
         if !self.register(accel) {
             return 0;
         }
         let (Some(name), Ok(env)) = (accel.ep_name(), Environment::current()) else {
             return 0;
         };
+        // The legacy CUDA EP does not expose OrtEpDevice entries. Query its driver through
+        // ORT instead; a successful GPU-device selection is the closest available probe.
+        if accel == Accelerator::Cuda && self.eps.lock().get(&accel).is_none() {
+            return usize::from(self.legacy_cuda.lock().as_ref().is_some_and(Result::is_ok));
+        }
         let want = match accel.kind() {
             AcceleratorKind::Npu => Some(DeviceType::NPU),
             AcceleratorKind::Gpu => Some(DeviceType::GPU),
@@ -267,7 +359,6 @@ impl OrtRuntime {
         ALL_ACCELERATORS
             .iter()
             .copied()
-            .filter(|a| a.supported_on_this_platform())
             .map(|accel| {
                 let present = self.is_present(accel);
                 // Only register providers whose library is actually here; registering is a DLL
@@ -278,6 +369,14 @@ impl OrtRuntime {
                     present,
                     registered: self.registered(accel),
                     devices,
+                    error: if accel == Accelerator::Cuda {
+                        self.legacy_cuda
+                            .lock()
+                            .as_ref()
+                            .and_then(|r| r.as_ref().err().cloned())
+                    } else {
+                        self.registration_errors.lock().get(&accel).cloned()
+                    },
                 }
             })
             .collect()
@@ -336,14 +435,19 @@ impl OrtRuntime {
         let Ok(env) = Environment::current() else {
             return Vec::new();
         };
-        env.devices()
+        let mut devices: Vec<String> = env
+            .devices()
             .map(|d| {
                 let ep = d.ep().unwrap_or("?");
                 let hw = d.hardware_device();
                 let vendor = hw.vendor().unwrap_or("?");
                 format!("{ep}: {vendor} {:?} (id {})", hw.ty(), hw.id())
             })
-            .collect()
+            .collect();
+        if self.legacy_cuda.lock().as_ref().is_some_and(Result::is_ok) {
+            devices.push("CUDAExecutionProvider: NVIDIA GPU (legacy provider, device 0)".into());
+        }
+        devices
     }
 }
 
@@ -353,7 +457,7 @@ impl OrtRuntime {
 /// routinely not the same: a vendor's driver package can be installed (`present`) and its
 /// provider still refuse to load (`registered == false`), or load and enumerate nothing
 /// (`devices == 0`). Only the last one means acceleration.
-#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct AcceleratorStatus {
     /// Which accelerator this describes.
     pub accel: Accelerator,
@@ -363,6 +467,8 @@ pub struct AcceleratorStatus {
     pub registered: bool,
     /// How many matching devices it enumerates.
     pub devices: usize,
+    /// The native loader's error when a present provider could not be used.
+    pub error: Option<String>,
 }
 
 impl AcceleratorStatus {
@@ -377,16 +483,32 @@ impl AcceleratorStatus {
             return "always available".to_string();
         }
         if !self.present {
+            if self.accel == Accelerator::DirectMl {
+                return "this ONNX Runtime build does not include DirectML".to_string();
+            }
             return format!(
                 "not installed ({} is not in the runtime directory)",
                 self.accel.library_file().unwrap_or("its provider library")
             );
         }
         if !self.registered {
-            return "provider library present but it failed to register with ONNX Runtime".to_string();
+            return self.error.as_ref().map_or_else(
+                || "provider library present but it failed to register with ONNX Runtime".to_string(),
+                |e| format!("provider library present but could not load: {e}"),
+            );
         }
         if self.devices == 0 {
             return "provider loaded but no matching device was found on this machine".to_string();
+        }
+        if self.accel == Accelerator::Cuda {
+            return "CUDA provider and GPU driver loaded; a model run is needed to verify its operators"
+                .to_string();
+        }
+        if self.accel == Accelerator::WebGpu {
+            return format!(
+                "{} GPU adapter(s) detected; one is selected per session, and a model run is needed to verify support",
+                self.devices
+            );
         }
         format!("{} device(s) available", self.devices)
     }

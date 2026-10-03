@@ -316,10 +316,9 @@ impl ParakeetEngine {
             .as_ref()
             .ok_or_else(|| Error::Other("vocab not loaded".into()))?
             .clone();
-        let window = match self.acceleration {
-            Acceleration::Npu => self.config.npu_window_frames,
-            _ => n_frames.max(1), // CPU handles the whole clip dynamically
-        };
+        // Dynamic CPU/GPU graphs can accept a whole clip, but multi-minute attention grows
+        // prohibitively large. Use the same bounded windows as the NPU for long dictation.
+        let window = self.config.npu_window_frames.max(1);
 
         let mut text = String::new();
         if n_frames <= window {
@@ -429,6 +428,10 @@ impl SpeechEngine for ParakeetEngine {
                     let provider = match other {
                         Accelerator::CoreMl => Provider::CoreMl,
                         Accelerator::DirectMl => Provider::DirectMl,
+                        Accelerator::Cuda => Provider::Cuda,
+                        Accelerator::TensorRt => Provider::TensorRt,
+                        Accelerator::OpenVino => Provider::OpenVino,
+                        Accelerator::VitisAi => Provider::VitisAi,
                         _ => Provider::Gpu,
                     };
                     let acc = if other == Accelerator::CoreMl {

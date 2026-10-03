@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use lw_core::capabilities::NpuInfo;
 use windows::Win32::Foundation::ERROR_SUCCESS;
+use windows::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW};
 use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, REG_VALUE_TYPE, RRF_RT_REG_SZ, RegGetValueW};
 use windows::core::w;
 
@@ -36,6 +37,50 @@ pub fn processor_name_from_registry() -> Option<String> {
     let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
     let name = String::from_utf16_lossy(&units[..end]).trim().to_string();
     if name.is_empty() { None } else { Some(name) }
+}
+
+/// Whether Windows reports an NVIDIA display adapter, independently of any ONNX provider.
+pub fn has_nvidia_gpu() -> bool {
+    display_adapters()
+        .iter()
+        .any(|adapter| adapter.name.to_ascii_lowercase().contains("nvidia"))
+}
+
+/// Physical display adapters, even when no OwlWhisp execution provider has loaded yet.
+#[derive(Clone, Debug)]
+pub struct DisplayAdapter {
+    /// The adapter's Windows display name.
+    pub name: String,
+    /// The PCI hardware identifier used to match driver updates.
+    pub hardware_id: String,
+}
+
+/// Enumerate display adapters without requiring an ONNX provider or administrator rights.
+pub fn display_adapters() -> Vec<DisplayAdapter> {
+    let mut adapters = Vec::new();
+    for index in 0..32 {
+        let mut device = DISPLAY_DEVICEW {
+            cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: device is a valid output buffer and `cb` carries its size.
+        if !unsafe { EnumDisplayDevicesW(None, index, &mut device, 0) }.as_bool() {
+            break;
+        }
+        let name = String::from_utf16_lossy(&device.DeviceString)
+            .trim_end_matches('\0')
+            .to_string();
+        let hardware_id = String::from_utf16_lossy(&device.DeviceID)
+            .trim_end_matches('\0')
+            .to_string();
+        if !name.is_empty()
+            && !hardware_id.is_empty()
+            && !adapters.iter().any(|a: &DisplayAdapter| a.hardware_id == hardware_id)
+        {
+            adapters.push(DisplayAdapter { name, hardware_id });
+        }
+    }
+    adapters
 }
 
 /// Detect the Qualcomm Hexagon NPU from the driver store.
@@ -124,6 +169,14 @@ fn decode_inf(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use lw_core::capabilities::HtpArch;
+
+    #[test]
+    #[ignore = "reports the actual display adapters of the machine running the test"]
+    fn report_display_adapters() {
+        for adapter in display_adapters() {
+            println!("{}: {}", adapter.name, adapter.hardware_id);
+        }
+    }
 
     #[test]
     fn processor_name_is_readable() {

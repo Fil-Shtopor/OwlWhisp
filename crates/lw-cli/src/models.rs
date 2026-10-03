@@ -228,7 +228,7 @@ fn detect_caps(
     }
 }
 
-/// The per-user models root (`%LOCALAPPDATA%/LocalWisper/models`, or the XDG equivalent).
+/// The per-user models root (`%LOCALAPPDATA%/OwlWhisp/models`, or the XDG equivalent).
 /// The optional engine features this binary was actually built with.
 ///
 /// Read from the engine crate rather than from a `cfg!` here: `lw-engine-sherpa` knows whether its
@@ -564,7 +564,7 @@ fn install(
     let Some(manifest_name) = &entry.manifest else {
         anyhow::bail!(
             "`{id}` has no pinned manifest, so there is nothing safe to download.\n\
-             Its file set has not been hash-pinned yet (see `lw models info {id}`); LocalWisper \
+             Its file set has not been hash-pinned yet (see `lw models info {id}`); OwlWhisp \
              refuses to fetch unverified model files. A manifest is added once the files are \
              downloaded, hashed and committed under models/manifests/."
         );
@@ -1004,7 +1004,7 @@ fn measure_installed(
     backend: BackendArg,
     fixtures: Option<PathBuf>,
 ) -> anyhow::Result<MeasuredRun> {
-    let cache = std::env::temp_dir().join("localwisper-cache");
+    let cache = std::env::temp_dir().join("owlwhisp-cache");
     let mut engine = crate::build_engine(rt, model_dir, &cache, backend.into(), 0)?;
     let provider = format!("{}", engine.provider());
     let hardware = hardware_of(engine.as_ref());

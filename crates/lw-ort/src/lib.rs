@@ -1,9 +1,9 @@
 //! # lw-ort
 //!
-//! The ONNX Runtime layer for LocalWisper. It:
+//! The ONNX Runtime layer for OwlWhisp. It:
 //! - dynamically loads a stock `onnxruntime.dll`/`.so`/`.dylib` (via `ort` `load-dynamic`),
-//! - registers **plugin execution providers** (Qualcomm QNN, WebGPU, CUDA, DirectML,
-//!   OpenVINO, Vitis AI, CoreML) by the same mechanism, and enumerates their devices,
+//! - registers plugin execution providers (Qualcomm QNN, WebGPU, DirectML,
+//!   OpenVINO, Vitis AI, CoreML) and handles the matched legacy CUDA GPU runtime,
 //! - builds CPU and QNN/HTP sessions with the right options and EPContext caching,
 //! - verifies a pinned runtime manifest (per-file SHA-256) before use.
 //!

@@ -5,7 +5,7 @@
 //! Diagnostics -- because it is the order of how often a tab is wanted, and changing it would be a
 //! change a user can see in a commit that is supposed to change nothing they can see.
 
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{Space, button, column, container, row, text};
 use iced::{Element, Length, Padding, Task, window};
 
 use crate::{panels, smooth, theme, tray};
@@ -43,7 +43,7 @@ impl Tab {
 #[derive(Debug, Clone)]
 pub enum Message {
     TabSelected(Tab),
-    Resized(f32),
+    Resized(window::Id, f32),
     Models(panels::models::Message),
     Diagnostics(panels::diagnostics::Message),
     Settings(panels::settings::Message),
@@ -110,8 +110,9 @@ impl App {
     /// A daemon has no window until one is asked for, which is what makes the overlay possible;
     /// the cost is that the first window has to be opened by hand, here.
     pub fn boot(tray: Option<tray::Tray>) -> (Self, Task<Message>) {
+        let size = iced::Size::new(1000.0, 720.0);
         let (_id, open) = window::open(window::Settings {
-            size: iced::Size::new(1000.0, 720.0),
+            size,
             min_size: Some(iced::Size::new(560.0, 420.0)),
             // The close button is answered by us: with a tray, it hides; without one, it quits.
             exit_on_close_request: false,
@@ -120,10 +121,12 @@ impl App {
             icon: crate::tray::window_icon(),
             ..Default::default()
         });
-        let app = Self {
+        let mut app = Self {
             tray,
             ..Self::default()
         };
+        app.models.update(panels::models::Message::Resized(size.width - 48.0));
+        app.settings.update(panels::settings::Message::Resized(size.width - 48.0));
         (app, open.map(Message::MainOpened))
     }
 
@@ -156,9 +159,9 @@ impl App {
         if Some(window) == self.overlay {
             // Never seen: the overlay has no decorations and is off the taskbar. Named anyway, so
             // that a tool listing windows shows something a person can identify.
-            "LocalWisper Overlay".to_string()
+            "OwlWhisp Overlay".to_string()
         } else {
-            "LocalWisper".to_string()
+            "OwlWhisp".to_string()
         }
     }
 
@@ -181,10 +184,8 @@ impl App {
     /// own parent and reports nothing usable inside a scrollable.
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch([
-            iced::event::listen_with(|event, _status, _id| match event {
-                iced::Event::Window(iced::window::Event::Resized(size)) => {
-                    Some(Message::Resized(size.width))
-                }
+            iced::event::listen_with(|event, _status, id| match event {
+                iced::Event::Window(iced::window::Event::Resized(size)) => Some(Message::Resized(id, size.width)),
                 _ => None,
             }),
             self.benchmark.subscription().map(Message::Benchmark),
@@ -274,7 +275,12 @@ impl App {
 
     fn route(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::MainOpened(id) => self.main = Some(id),
+            Message::MainOpened(id) => {
+                self.main = Some(id);
+                // The requested size can differ from the actual logical size on a scaled
+                // display. The panels need the latter before choosing their first layout.
+                return window::size(id).map(move |size| Message::Resized(id, size.width));
+            }
             Message::OverlayOpened(id) => {
                 // Order matters, and `batch` does not promise any, so these are chained.
                 //
@@ -288,8 +294,7 @@ impl App {
                 let styles = window::enable_mouse_passthrough(id).chain(
                     window::run(id, |window| {
                         if let Ok(handle) = window.window_handle()
-                            && let raw_window_handle::RawWindowHandle::Win32(win32) =
-                                handle.as_raw()
+                            && let raw_window_handle::RawWindowHandle::Win32(win32) = handle.as_raw()
                             && let Err(e) = lw_platform::overlay::make_passive(win32.hwnd.get())
                         {
                             tracing::warn!("the overlay may take focus: {e}");
@@ -318,6 +323,10 @@ impl App {
                 if Some(id) != self.main {
                     return window::close(id);
                 }
+                // An unsaved edit survives being put away; a keyboard grab must not. It takes
+                // every key in the system, and one still running behind a hidden window would be
+                // indistinguishable from a keyboard that had stopped working.
+                self.settings.stop_capture();
                 match self.tray.is_some() {
                     // Hidden, not closed: the application goes on listening for its hotkey, and
                     // the panels keep their state -- an unsaved settings edit survives a stray
@@ -351,13 +360,23 @@ impl App {
             Message::TabSelected(tab) => {
                 // Leaving Settings closes the test stream. Holding a microphone open because
                 // somebody switched tabs would be indefensible.
-                if self.tab == Tab::Settings && tab != Tab::Settings && self.settings.mic_test_on()
-                {
-                    self.dictate.set_mic_test(false);
+                if self.tab == Tab::Settings && tab != Tab::Settings {
+                    if self.settings.mic_test_on() {
+                        self.dictate.set_mic_test(false);
+                    }
+                    // Likewise the keyboard grab, and more urgently: it takes every key in the
+                    // system while it is open, so one left behind on a tab nobody is looking at
+                    // would read as a machine that had stopped responding to the keyboard.
+                    self.settings.stop_capture();
                 }
                 let changed = self.tab != tab;
                 self.tab = tab;
                 if changed {
+                    if tab == Tab::Settings {
+                        self.settings.refresh_model_readiness();
+                    } else if tab == Tab::Models {
+                        self.models.update(panels::models::Message::Refresh);
+                    }
                     // The content underneath has been replaced, so the old position means nothing.
                     // Jump rather than slide: sliding through a page nobody has seen is motion
                     // that says nothing.
@@ -365,16 +384,16 @@ impl App {
                     return iced::widget::operation::scroll_to(self.scroll.id(), top);
                 }
             }
-            Message::Resized(w) => {
+            Message::Resized(id, w) if Some(id) == self.main => {
                 // A window half the size costs a fraction of the drawing, so whatever rate the old
                 // size could not sustain says nothing about this one.
                 self.scroll.remeasure();
                 // Minus the window chrome the panels sit inside, so a panel's breakpoint matches
                 // the width it is actually given.
                 self.models.update(panels::models::Message::Resized(w - 48.0));
-                self.settings
-                    .update(panels::settings::Message::Resized(w - 48.0));
+                self.settings.update(panels::settings::Message::Resized(w - 48.0));
             }
+            Message::Resized(_, _) => {}
             Message::Models(m) => {
                 // Choosing a model writes settings.json, and the worker is holding a copy of it.
                 if self.models.update(m) {
@@ -384,6 +403,26 @@ impl App {
             }
             Message::Diagnostics(m) => self.diagnostics.update(m),
             Message::Settings(m) => {
+                if let panels::settings::Message::InstallDriver(id) = &m {
+                    let id = *id;
+                    self.settings.update(m);
+                    return Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                lw_platform::drivers::install_display_driver(id)
+                                    .map_err(|e| e.to_string())
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(format!("driver installer stopped: {e}")))
+                        },
+                        |result| Message::Settings(panels::settings::Message::DriverFinished(std::sync::Arc::new(result))),
+                    );
+                }
+                if let panels::settings::Message::OpenProviderSetup(url) = &m {
+                    if let Err(e) = lw_platform::browser::open_https(url) {
+                        tracing::warn!(%e, "could not open accelerator setup instructions");
+                    }
+                }
                 // The microphone belongs to the worker, which the Dictate panel owns. Forwarded
                 // here rather than shared, so neither panel reaches into the other.
                 if let panels::settings::Message::MicTestToggled(on) = m {
@@ -427,11 +466,10 @@ impl App {
         let mut tabs = row![].spacing(4);
         for tab in Tab::ALL {
             let selected = self.tab == tab;
-            let label = text(tab.label()).size(15).color(if selected {
-                theme::TEXT
-            } else {
-                theme::TEXT_DIM
-            });
+            let label =
+                text(tab.label())
+                    .size(15)
+                    .color(if selected { theme::TEXT } else { theme::TEXT_DIM });
             tabs = tabs.push(
                 button(label)
                     .padding(Padding::from([6, 14]))
@@ -485,4 +523,3 @@ fn tab_style(selected: bool, status: button::Status) -> button::Style {
         ..Default::default()
     }
 }
-

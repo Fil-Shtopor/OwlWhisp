@@ -32,6 +32,7 @@ pub struct State {
     worker: Handle,
     state: RecordingState,
     level: f32,
+    target_level: f32,
     backend: Option<Box<lw_app::bench::ActiveBackend>>,
     last: Option<(String, Delivery, String)>,
     error: Option<String>,
@@ -69,6 +70,7 @@ impl State {
         Self {
             state: RecordingState::Idle,
             level: 0.0,
+            target_level: 0.0,
             backend: None,
             last: None,
             error: None,
@@ -120,6 +122,7 @@ impl State {
             return;
         }
         self.mic_error = None;
+        tracing::info!(requested_open = on, "microphone test requested");
         self.worker.send(Command::MicTest(on));
     }
 
@@ -161,7 +164,7 @@ impl State {
     /// the window is open is both simpler and easier to reason about than two runtimes sharing a
     /// channel. It stops when nothing is happening, so an idle window still costs nothing.
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        let busy = self.state != RecordingState::Idle;
+        let busy = self.state != RecordingState::Idle || self.mic_test;
         let period = if busy { 16 } else { 250 };
         iced::time::every(std::time::Duration::from_millis(period)).map(|_| Message::Poll)
     }
@@ -180,20 +183,25 @@ impl State {
                             }
                             self.state = s;
                         }
-                        Event::Level(l) => self.level = l,
+                        Event::Level(l) => self.target_level = l.clamp(0.0, 1.0),
                         Event::Backend(b) => self.backend = Some(b),
                         Event::Error(e) => self.error = Some(e),
                         Event::MicTest(Ok(open)) => {
                             self.mic_test = open;
-                            self.mic_error = (!open).then(|| {
-                                "The microphone did not open, so nothing is being captured. This \
-                                 machine may be refusing access to it."
-                                    .to_string()
-                            });
+                            // `false` is the normal acknowledgement when the user switches the
+                            // test off. An opening failure is sent as `Err` below.
+                            self.mic_error = None;
+                            if !open {
+                                self.level = 0.0;
+                                self.target_level = 0.0;
+                            }
                         }
                         Event::MicTest(Err(e)) => {
+                            tracing::warn!(error = %e, "microphone test failed");
                             self.mic_test = false;
                             self.mic_error = Some(e);
+                            self.level = 0.0;
+                            self.target_level = 0.0;
                         }
                         Event::Transcript {
                             text,
@@ -214,6 +222,15 @@ impl State {
                             self.worker.send(Command::Describe);
                         }
                     }
+                }
+                if self.mic_test || self.state == RecordingState::Listening {
+                    // The audio source updates every 50 ms. Move the displayed value on each
+                    // 16 ms UI tick, with a quick attack and slower release.
+                    let weight = if self.target_level > self.level { 0.4 } else { 0.12 };
+                    self.level += (self.target_level - self.level) * weight;
+                } else {
+                    self.level = 0.0;
+                    self.target_level = 0.0;
                 }
             }
             Message::Scratchpad(action) => self.scratchpad.perform(action),

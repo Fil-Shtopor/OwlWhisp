@@ -1,4 +1,4 @@
-# LocalWisper — Build & Run
+# OwlWhisp — Build & Run
 
 ## Build matrix
 
@@ -44,7 +44,7 @@ Qualcomm AI Stack License, object-code-only, shipped with `Qualcomm_LICENSE.pdf`
 
 ```bash
 python scripts/models/download_model.py models/manifests/parakeet-tdt-0.6b-v3.json \
-    --dest "$LOCALAPPDATA/LocalWisper/models" --target cpu_int8
+    --dest "$LOCALAPPDATA/OwlWhisp/models" --target cpu_int8
 ```
 
 (The shipping app downloads models itself with the same SHA-256 verification; this is a dev
@@ -69,7 +69,7 @@ That builds; it does not package. See [Packaging](#packaging) below.
 ```bash
 LW=target/release/lw.exe
 RTD=runtime/win-arm64
-MODEL="$LOCALAPPDATA/LocalWisper/models/parakeet-tdt-0.6b-v3"
+MODEL="$LOCALAPPDATA/OwlWhisp/models/parakeet-tdt-0.6b-v3"
 
 # Hardware / runtime report (shows the real provider + NPU status)
 "$LW" --runtime-dir "$RTD" diagnose
@@ -93,23 +93,34 @@ pwsh -File scripts\build\run-app.ps1 -ModelDir "C:\path\to\parakeet-tdt-0.6b-v3"
 Or plainly:
 
 ```bash
-cargo build -p lw-gui --release          # target/release/localwisper-gui.exe
+cargo build -p lw-gui --release          # target/release/owlwhisp.exe
 ```
 
 No feature flag is needed to get a usable window, and there is no dev mode distinct from a build:
 `cargo run -p lw-gui` is the whole story. A release build sets `windows_subsystem = "windows"`, so
 it opens no console -- run the debug build, or set `LW_LOG=debug`, when you want to watch it think.
-Logs go to `%APPDATA%\ai.localwisper.app\logs\` either way.
+Logs go to `%APPDATA%\ai.owlwhisp.app\logs\` either way.
 
 At runtime the app locates its pieces as follows (the launcher script wires all three up):
 
 | Piece | Where it is looked for |
 |---|---|
 | ONNX Runtime + QNN DLLs | `LW_RUNTIME_DIR`, else `runtime/<platform>/` or `runtime/` beside the executable |
-| Model | `%APPDATA%\ai.localwisper.app\models\<model_id>` (`model_id` comes from settings) |
-| QNN context cache | `%APPDATA%\ai.localwisper.app\cache` |
+| DirectML runtime (Windows x64) | `runtime/win-x64-directml/` beside the CUDA runtime; loaded by the app's persistent DirectML worker |
+| Model | `%APPDATA%\ai.owlwhisp.app\models\<model_id>` (`model_id` comes from settings) |
+| QNN context cache | `%APPDATA%\ai.owlwhisp.app\cache` |
 
 Hold **Ctrl+Alt+Space** to dictate; the tray icon opens Settings / Diagnostics / Quit.
+
+On Windows x64, `fetch-runtime.ps1` also stages DirectML and TensorRT. DirectML uses a separate
+Windows ML ONNX Runtime 1.28 core because the CUDA core cannot be replaced after the app starts.
+TensorRT is staged with the Ada SM 8.9 builder resource used by the RTX 4080 test machine. Its
+dynamic Parakeet graph did transcribe successfully there, but compiled for each clip length. Before
+enabling its engine cache, two clips measured RTF above 11. With the cache enabled, the same six
+second clip measured RTF 4.881 on its first run and 0.375 on a repeat. CUDA remains the practical
+GPU choice for dictation. The TensorRT engine cache used 2.44 GB in the model directory on this
+machine. The two runtimes
+and their licence notices are included by `package-windows.ps1`.
 
 ## Tests
 
@@ -168,26 +179,20 @@ cannot silently lapse when upstream changes.
 engine crate *and* that the catalog then stops reporting a sherpa blocker on a gated entry. The
 linked binary was searched for the strings the licence argument turns on: 390 hits for
 `sherpa-onnx`, **zero** for `espeak` and `piper_phonemize`. That check now runs in the release
-workflow against `localwisper-gui.exe`, so it cannot lapse quietly.
+workflow against `owlwhisp.exe`, so it cannot lapse quietly.
 
 ## Packaging
 
 ```powershell
-pwsh -File scripts\build\package-windows.ps1              # after building
+# Windows
+pwsh -File scripts\build\package-windows.ps1 -Target aarch64-pc-windows-msvc -Platform win-arm64
+
+# macOS or Linux (run on the matching host)
+pwsh -File scripts/build/package-unix.ps1 -Target aarch64-apple-darwin -Platform osx-arm64
+pwsh -File scripts/build/package-unix.ps1 -Target x86_64-unknown-linux-gnu -Platform linux-x64
 ```
 
-It stages the executable, `runtime\win-arm64\` and the licence notices into
-`dist\LocalWisper-<version>-<target>\`, zips that, and -- if `makensis` is on PATH -- builds
-`dist\LocalWisper-<version>-<target>-setup.exe` from `scripts\build\localwisper.nsi`. Without
-NSIS it says so and stops after the zip, which is a complete, runnable build on its own.
-
-The installer is per-user (`%LOCALAPPDATA%\Programs\LocalWisper`), because this application uses
-no privilege it cannot get as the user: the hotkey is a session keyboard hook, autostart is HKCU,
-and the models live under `%APPDATA%`. Its uninstaller removes the autostart registration but
-leaves settings, models and logs alone, and says where they are -- a model set is tens of
-gigabytes and an hour of downloading.
-
-**Not yet done:** there is no macOS or Linux packager. Those release jobs publish the bare
-executable, which is a build artefact rather than something to hand a user. `cargo-packager` would
-cover all three but does not build here: a dependency of a dependency needs clang, the same clang
-the `sherpa` engine needs.
+Windows packages contain a portable ZIP and an NSIS per-user installer. macOS packages contain a
+self-contained `.app` bundle in a ZIP; Linux packages are portable `.tar.gz` archives. All stage
+the matching ONNX Runtime files and licence notices. Pushing a `v*` tag runs the same matrix on
+GitHub Actions and attaches each package plus SHA-256 checksums to the GitHub Release.

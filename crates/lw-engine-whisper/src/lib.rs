@@ -1,6 +1,6 @@
 //! # lw-engine-whisper
 //!
-//! Whisper backend adapter for LocalWisper. This crate exists to prove the [`SpeechEngine`]
+//! Whisper backend adapter for OwlWhisp. This crate exists to prove the [`SpeechEngine`]
 //! abstraction is model-agnostic: a Whisper engine can be dropped in behind the same trait the
 //! Parakeet engine implements, with no change to the core, CLI, or UI.
 //!

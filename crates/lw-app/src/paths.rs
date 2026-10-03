@@ -17,11 +17,11 @@ use std::path::PathBuf;
 /// The bundle identifier, matching `app/src-tauri/tauri.conf.json`.
 ///
 /// Changing this orphans every installed model and every saved setting of every existing user.
-pub const APP_IDENTIFIER: &str = "ai.localwisper.app";
+pub const APP_IDENTIFIER: &str = "ai.owlwhisp.app";
 
 /// The directory holding `settings.json`, `measurements.json` and `models/`.
 ///
-/// `%APPDATA%/ai.localwisper.app` on Windows, `~/.local/share/ai.localwisper.app` elsewhere --
+/// `%APPDATA%/ai.owlwhisp.app` on Windows, `~/.local/share/ai.owlwhisp.app` elsewhere --
 /// the same places Tauri's `app_data_dir()` resolves to, because this has to find what that wrote.
 pub fn app_data_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("LW_APP_DATA_DIR")
@@ -72,7 +72,7 @@ mod tests {
         // migrate them; it hides them, and the user sees an empty model list and a fresh
         // settings file with no explanation. It was checked against the Tauri bundle identifier
         // until that build was deleted; the value has to outlive the thing it was copied from.
-        assert_eq!(APP_IDENTIFIER, "ai.localwisper.app");
+        assert_eq!(APP_IDENTIFIER, "ai.owlwhisp.app");
     }
 
     #[test]

@@ -1,13 +1,13 @@
-# LocalWisper — Licensing
+# OwlWhisp — Licensing
 
-_Every component that ships in a LocalWisper build, with its licence and the obligations that come
+_Every component that ships in a OwlWhisp build, with its licence and the obligations that come
 with it. Verified against source `LICENSE`/`METADATA` files and model cards on 2026-08-26._
 
 ## Application
 
 | Component | Licence | Notes |
 |---|---|---|
-| LocalWisper application code | **Apache-2.0** | See `LICENSE` at the repo root. |
+| OwlWhisp application code | **Apache-2.0** | See `LICENSE` at the repo root. |
 
 ## Models & model assets
 
@@ -21,7 +21,7 @@ with it. Verified against source `LICENSE`/`METADATA` files and model cards on 2
 
 ### Models the user may choose to download
 
-The catalog also offers models LocalWisper does **not** redistribute: the user downloads them from
+The catalog also offers models OwlWhisp does **not** redistribute: the user downloads them from
 the publisher, and the licence binds them, not us. Each entry states its licence before anything is
 fetched, and `lw models info <id>` prints it.
 
@@ -48,7 +48,10 @@ necessary; they are downloaded on first run from pinned, SHA-256-verified URLs.
 | **ONNX Runtime** (`onnxruntime.dll` and friends) | **MIT** (Microsoft) | Ship `ThirdPartyNotices.txt` + `LICENSE`. |
 | **`onnxruntime-qnn`** EP (`onnxruntime_providers_qnn.dll`) | **MIT** (Qualcomm Technologies, Inc.) | Ship its `LICENSE`. |
 | **WebGPU plugin EP** (`onnxruntime_providers_webgpu.dll`, `dxcompiler.dll`, `dxil.dll`) | **MIT** (Microsoft) — bundles Dawn (BSD-3-Clause) and DirectXShaderCompiler (LLVM/NCSA + MIT) | Ship its `LICENSE` and `ThirdPartyNotices`. Portable GPU support on win-x64, win-arm64, osx-arm64 and linux-x64; no vendor SDK and no proprietary component. |
-| Vendor EPs **not** shipped: CUDA, TensorRT, DirectML, OpenVINO, Vitis AI | MIT (the EP) over vendor redistributables with their own terms | Not bundled. Each needs a vendor SDK on the machine, and none could be verified here — see [`hardware.md`](hardware.md) §5. A user who installs one gets it detected automatically. |
+| NVIDIA CUDA on win-x64 | ONNX Runtime MIT, NVIDIA CUDA Toolkit EULA and cuDNN Software License Agreement | The Windows x64 package stages the matched Microsoft GPU runtime and only NVIDIA's redistributable runtime DLLs in OwlWhisp's private runtime directory. Their license files travel beside them. See [`hardware.md`](hardware.md) §5. |
+| NVIDIA TensorRT 10 on win-x64 | [NVIDIA TensorRT SDK agreement](https://docs.nvidia.com/deeplearning/tensorrt/latest/reference/sla.html) | The agreement identifies runtime `.dll` files as distributable. The build stages the official ONNX Runtime TensorRT EP and TensorRT 10 DLLs from pinned `NtvLibs.TensorRT.cuda13` packages. The included builder resource is for Ada SM 8.9; other NVIDIA architectures need a matching resource. The NuGet wrapper's MIT licence does **not** license the native NVIDIA libraries. |
+| Windows ML / DirectML on win-x64 | Microsoft Windows ML package licence, included as `windows-ml-license.txt` | The self-contained Windows ML core and DirectML DLL run in a separate process from the CUDA core. Package `Microsoft.Windows.AI.MachineLearning` 2.5.77-rc includes ONNX Runtime 1.28.0. |
+| Vendor EPs **not** shipped: OpenVINO, Vitis AI | MIT (the EP) over vendor redistributables with their own terms | Not bundled. Each needs a compatible provider and hardware — see [`hardware.md`](hardware.md) §5. |
 | **Qualcomm QNN/QAIRT runtime** DLLs (`QnnHtp.dll`, `QnnSystem.dll`, `QnnHtpPrepare.dll`, `QnnHtpV81Stub.dll`, `libQnnHtpV81Skel.so`, `libqnnhtpv81.cat`, and the V73 set) | **Qualcomm "AI Stack License"** (proprietary; no SPDX id → declare as `LicenseRef-Qualcomm-AI-Stack-License`) | **Object code only, and only "as incorporated in Your software application"** — never as a standalone download. No reverse engineering. No removal of notices. Ship `Qualcomm_LICENSE.pdf` verbatim beside the DLLs. Excluded from the x64/non-Snapdragon packages by a forbidden-files check. |
 
 The Qualcomm AI Stack License also lists prohibited use cases (predictive policing, social scoring,
@@ -115,7 +118,7 @@ licensing hazard worth stating precisely, because the obvious build is the wrong
 
 **The hazard.** The `sherpa-onnx-sys` crate downloads a prebuilt native archive. The archive it
 chooses by default statically links **espeak-ng, GPL-3.0-or-later**, together with
-piper_phonemize and ucd. Those exist for sherpa-onnx's *text-to-speech* features, which LocalWisper
+piper_phonemize and ucd. Those exist for sherpa-onnx's *text-to-speech* features, which OwlWhisp
 never calls. But this application also ships the **Qualcomm QNN runtime under a proprietary
 licence**, and GPL-3.0 and that licence cannot both bind one work. A build that links espeak-ng
 *and* bundles the Qualcomm libraries must not be distributed.
@@ -149,7 +152,7 @@ cargo build --release -p lw-cli --features sherpa
 **Verified** on Windows ARM64, at two levels. The staged library directory contains no espeak-ng,
 piper_phonemize or ucd beyond the 1 KB stubs, the build links, and all 44 `lw-engine-sherpa` tests
 pass. And because a clean input directory is an argument rather than a guarantee, the linked
-`localwisper.exe` was itself searched: 390 occurrences of `sherpa-onnx`, 24 of `OfflineRecognizer`,
+`owlwhisp.exe` was itself searched: 390 occurrences of `sherpa-onnx`, 24 of `OfflineRecognizer`,
 36 of `kaldi` — and **zero** of `espeak` or `piper_phonemize`. The engine is in the shipped binary;
 the GPL-3.0 component is not.
 
@@ -168,9 +171,9 @@ archive. Those are build-dependencies only and are never linked into the shipped
 
 ## Attribution block (shipped in About / `THIRD_PARTY_NOTICES`)
 
-> LocalWisper uses NVIDIA Parakeet TDT 0.6B v3 (© NVIDIA, CC-BY-4.0,
+> OwlWhisp uses NVIDIA Parakeet TDT 0.6B v3 (© NVIDIA, CC-BY-4.0,
 > https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), converted to ONNX by Ilya Stupakov (CC-BY-4.0)
-> and to a Qualcomm QNN context binary by LocalWisper (CC-BY-4.0). Voice activity detection by Silero
+> and to a Qualcomm QNN context binary by OwlWhisp (CC-BY-4.0). Voice activity detection by Silero
 > (MIT). Inference by ONNX Runtime (MIT, © Microsoft) and the Qualcomm ONNX Runtime QNN execution
 > provider (MIT, © Qualcomm) with the Qualcomm AI Engine Direct runtime under the Qualcomm AI Stack
 > License. Built with Tauri (MIT/Apache-2.0).

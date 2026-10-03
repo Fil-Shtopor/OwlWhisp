@@ -1,4 +1,4 @@
-# LocalWisper — Benchmarks
+# OwlWhisp — Benchmarks
 
 _All numbers measured on the target machine (ASUS Zenbook A16, Snapdragon X2 Elite Extreme
 X2E94100, 48 GB, Windows 11 build 28000 ARM64) on 2026-08-26 unless noted. Methodology and raw logs

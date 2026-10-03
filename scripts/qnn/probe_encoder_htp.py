@@ -15,7 +15,7 @@ import onnxruntime as ort
 from onnxruntime.tools import onnx_model_utils
 
 LIBDIR = r'C:\Users\artam\lwdev\venv\Lib\site-packages\onnxruntime_qnn\libs\arm64ec'
-M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-LocalWisper\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
+M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-OwlWhisp\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
 ENC_FP32 = os.path.join(M, 'istupakov', 'encoder-model.onnx')
 PREPROC = os.path.join(M, 'istupakov', 'nemo128.onnx')
 WAV = os.path.join(M, 'sherpa', 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8', 'test_wavs', 'en.wav')

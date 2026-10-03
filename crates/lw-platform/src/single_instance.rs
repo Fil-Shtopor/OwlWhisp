@@ -81,7 +81,7 @@ pub fn claim(app_id: &str, window_title: &str) -> Claim {
 
 /// Bring the already-running copy's window to the front.
 ///
-/// Matched by title *and* by executable path: a window called "LocalWisper" that belongs to
+/// Matched by title *and* by executable path: a window called "OwlWhisp" that belongs to
 /// something else is somebody else's window, and showing it would be an application reaching into
 /// an unrelated program.
 #[cfg(windows)]
@@ -164,7 +164,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn the_first_claim_wins_and_the_second_does_not() {
-        // A name of this test's own, so a real LocalWisper running beside the test suite is not
+        // A name of this test's own, so a real OwlWhisp running beside the test suite is not
         // what decides the result.
         let id = format!("lw-test-{}-{:?}", std::process::id(), std::thread::current().id());
 

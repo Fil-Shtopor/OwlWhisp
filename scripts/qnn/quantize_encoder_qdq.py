@@ -15,7 +15,7 @@ from onnxruntime.quantization import CalibrationDataReader, QuantType, Calibrati
 from onnxruntime.quantization.execution_providers.qnn import get_qnn_qdq_config, qnn_preprocess_model
 import soundfile as sf
 
-M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-LocalWisper\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
+M = r'C:\Users\artam\AppData\Local\Temp\claude\C--Users-artam-OneDrive-Desktop-OwlWhisp\99cce259-4884-4ea7-a3a6-ddeeafec6e91\scratchpad\models'
 PREPROC = os.path.join(M, 'istupakov', 'nemo128.onnx')
 WORK = r'C:\Users\artam\lwdev\work'
 

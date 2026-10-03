@@ -5,7 +5,7 @@
 # ----------------------
 # The `sherpa-onnx-sys` crate downloads a prebuilt archive during its build. The archive it picks
 # by default statically links **espeak-ng (GPL-3.0-or-later)** and piper_phonemize, which exist
-# only for sherpa-onnx's text-to-speech features -- features LocalWisper never calls. Shipping
+# only for sherpa-onnx's text-to-speech features -- features OwlWhisp never calls. Shipping
 # them would put GPL-3.0 code in the same binary as the proprietary Qualcomm QNN runtime, and
 # those two licences cannot both bind one work. See docs/licenses.md.
 #
@@ -26,7 +26,7 @@
 
 param(
     [string]$Version = "1.13.6",
-    [ValidateSet("win-arm64", "win-x64", "osx-arm64", "linux-x64", "")]
+    [ValidateSet("win-arm64", "win-x64", "osx-arm64", "osx-x64", "linux-x64", "")]
     [string]$Platform = "",
     # Print only the library directory, for capture into an environment variable.
     [switch]$Quiet

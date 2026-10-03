@@ -55,7 +55,7 @@ pub const MEASURE: f32 = 620.0;
 
 /// The application's theme.
 pub fn theme() -> Theme {
-    palette_theme("LocalWisper", BG)
+    palette_theme("OwlWhisp", BG)
 }
 
 /// The overlay's theme: the same colours, but cleared to nothing.
@@ -65,7 +65,7 @@ pub fn theme() -> Theme {
 /// grey rectangle following it around. There is no per-window hook for this in iced 0.13; the
 /// theme is the only thing the window id reaches, so the transparency travels in the palette.
 pub fn overlay_theme() -> Theme {
-    palette_theme("LocalWisper Overlay", iced::Color::TRANSPARENT)
+    palette_theme("OwlWhisp Overlay", iced::Color::TRANSPARENT)
 }
 
 fn palette_theme(name: &str, background: iced::Color) -> Theme {

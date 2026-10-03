@@ -1,4 +1,4 @@
-# LocalWisper — Platforms and accelerators
+# OwlWhisp — Platforms and accelerators
 
 _What runs where, what is verified on real hardware, and exactly what each remaining path would
 take. Updated 2026-09-16._
@@ -18,7 +18,7 @@ Everything below is labelled accordingly.
 ## 1. How acceleration works here
 
 Every accelerator except the CPU reaches ONNX Runtime through its **plugin execution-provider**
-mechanism: a vendor ships a provider library, LocalWisper registers it by name at runtime
+mechanism: a vendor ships a provider library, OwlWhisp registers it by name at runtime
 (`RegisterExecutionProviderLibrary`), asks it for devices, and pins the session to those devices.
 That is the same mechanism the verified Qualcomm NPU path uses — so adding a vendor is *adding a
 library to the runtime directory*, not rebuilding ONNX Runtime.
@@ -74,8 +74,10 @@ available.
 
 Packaging is configured for all of these (`bundle.targets: "all"`, one release job per platform),
 and the staged execution-provider libraries are bundled with the app so an installed build has a
-runtime. **Only the Windows ARM64 artifact has been built and run on real hardware.** The others
-are produced by the same configuration and have not been installed or launched by anyone.
+runtime. Windows x64 has also been built as a portable package and exercised through the CLI on
+an RTX 4080: Parakeet completed real speech fixtures on CPU, CUDA, and WebGPU. The x64 GUI and NSIS
+installer have not yet been visually verified on this machine; do not treat a device count alone
+as proof that a particular model runs on it. The remaining platforms have not been executed here.
 
 Not yet done for public distribution: Windows code signing (unsigned installers trigger
 SmartScreen) and macOS signing + notarization (unsigned `.app` is blocked by Gatekeeper).
@@ -89,12 +91,12 @@ Settings and Diagnostics. Present / registered / device-count are reported separ
 a driver package can be installed while the provider fails to load, and a provider can load while
 finding no device. **Only a device count above zero means acceleration.**
 
-| Accelerator | Provider library | Ships with LocalWisper | Needs its own model artifact | Status |
+| Accelerator | Provider library | Ships with OwlWhisp | Needs its own model artifact | Status |
 |---|---|---|---|---|
 | CPU | built in | — | no | ✅ verified |
 | **Qualcomm NPU** | `onnxruntime_providers_qnn.dll` | ✅ (win-arm64 only) | **yes** — HTP context per Hexagon generation | ✅ verified on V81; ⚙️ V73 (X Elite / X Plus) |
 | **GPU, portable** | `onnxruntime_providers_webgpu.dll` | ✅ (win-x64, win-arm64, osx-arm64, linux-x64) | no — runs the shipped encoder | ✅ verified on Adreno; ⚙️ elsewhere |
-| **NVIDIA CUDA** | `onnxruntime_providers_cuda.dll` | ❌ | no | 📦 §5 |
+| **NVIDIA CUDA** | `onnxruntime_providers_cuda.dll` | ✅ (win-x64 package) | no | Check with the bundled GPU runtime and a model benchmark |
 | **NVIDIA TensorRT** | `onnxruntime_providers_tensorrt.dll` | ❌ | no (builds an engine cache on first run) | 📦 §5 |
 | **DirectML** | `onnxruntime_providers_dml.dll` | ❌ | no | 📦 §5 |
 | **Apple CoreML / ANE** | `libonnxruntime_providers_coreml.dylib` | ❌ | effectively yes (static fp16 export) | 📦 §6 |
@@ -112,11 +114,15 @@ redistribute and could not test.
 
 The runtime directory is `runtime/<platform>/` in the repo, and `runtime/` beside the executable in
 an installed build (`LW_RUNTIME_DIR` overrides both). `scripts/runtime/fetch-runtime.ps1` stages
-ONNX Runtime, WebGPU and — on win-arm64 — Qualcomm QNN. For the rest:
+ONNX Runtime, WebGPU, NVIDIA CUDA with its private CUDA 13/cuDNN 9 redistributable DLLs on win-x64,
+and Qualcomm QNN on win-arm64. CUDA's DLL is the legacy provider from Microsoft's GPU NuGet: its
+matching `onnxruntime.dll` is staged with it, and the app creates a CUDA session directly. A driver
+or CUDA Toolkit installation alone does not add this provider to an older OwlWhisp installation.
+For the rest:
 
 | Provider | What to install | Then |
 |---|---|---|
-| **CUDA** | NVIDIA CUDA 12 + cuDNN 9, plus the `Microsoft.ML.OnnxRuntime.Gpu` native binaries | copy `onnxruntime_providers_cuda.dll` (+ `onnxruntime_providers_shared.dll`) into the runtime directory |
+| **CUDA** | Use the win-x64 OwlWhisp package built with `fetch-runtime.ps1`; a compatible NVIDIA display driver is required | Choose **NVIDIA GPU (CUDA)** in Settings with the Parakeet model; run Benchmark to verify it |
 | **TensorRT** | the above plus TensorRT 10 | copy `onnxruntime_providers_tensorrt.dll` |
 | **DirectML** | Windows 10 1903+ with a D3D12 GPU | copy `onnxruntime_providers_dml.dll` + `DirectML.dll` |
 | **OpenVINO** | Intel OpenVINO runtime + `Intel.ML.OnnxRuntime.EP.OpenVINO` | copy `onnxruntime_providers_openvino.dll` |
@@ -127,9 +133,9 @@ Then run `lw diagnose` — it will say `present / registered / devices` for each
 A forced backend **fails loudly** if it is not usable rather than falling back, so a number can
 never be attributed to the wrong provider.
 
-Why these are not bundled: CUDA and TensorRT need multi-gigabyte NVIDIA redistributables with
-their own licence terms; OpenVINO and Vitis AI need vendor SDKs; and none could be verified here.
-Shipping an untested provider that silently degrades would be worse than not shipping it.
+TensorRT, DirectML, OpenVINO and Vitis AI remain optional. The provider-level status does not
+promise that every model can run there: sherpa models use a separate CPU-only runtime, and Parakeet
+must initialize its encoder session on the selected provider before acceleration is confirmed.
 
 **Intel and AMD NPUs specifically.** The provider integration is done, but an NPU also needs a
 quantized, static-shape encoder compiled for that NPU, produced and validated on one. That is the

@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 
 /// The value name under the Run key. Stable, because changing it orphans the old registration.
-const RUN_VALUE: &str = "LocalWisper";
+const RUN_VALUE: &str = "OwlWhisp";
 
 /// The current executable, quoted, as the command to run at login.
 fn command() -> std::io::Result<String> {
@@ -81,7 +81,7 @@ mod imp {
             .map_err(|_| std::io::Error::other("HOME is not set"))?;
         Ok(std::path::PathBuf::from(home)
             .join("Library/LaunchAgents")
-            .join(format!("ai.localwisper.{RUN_VALUE}.plist")))
+            .join(format!("ai.owlwhisp.{RUN_VALUE}.plist")))
     }
 
     pub fn is_enabled() -> std::io::Result<bool> {
@@ -106,7 +106,7 @@ mod imp {
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>ai.localwisper.{RUN_VALUE}</string>
+  <key>Label</key><string>ai.owlwhisp.{RUN_VALUE}</string>
   <key>ProgramArguments</key><array><string>{}</string></array>
   <key>RunAtLoad</key><true/>
 </dict></plist>

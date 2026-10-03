@@ -1,4 +1,4 @@
-//! Everything a LocalWisper front end needs that is not drawing.
+//! Everything a OwlWhisp front end needs that is not drawing.
 //!
 //! This crate exists because the same logic had been living inside the Tauri command layer, where
 //! it could only be reached through an IPC call from a webview. That was fine while there was one
@@ -24,6 +24,7 @@ pub mod logging;
 pub mod machine;
 pub mod measurements;
 pub mod paths;
+pub mod provider_worker;
 
 pub use catalog::{
     AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role,

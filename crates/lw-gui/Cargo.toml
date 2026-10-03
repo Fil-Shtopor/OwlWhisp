@@ -6,10 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The LocalWisper desktop window, drawn natively on the CPU. Replaces the Tauri/WebView2 front end: one process instead of eight, no browser engine, no GPU context, and the same pixels on every platform because nothing platform-specific draws them."
+description = "The OwlWhisp desktop window, drawn natively on the CPU. Replaces the Tauri/WebView2 front end: one process instead of eight, no browser engine, no GPU context, and the same pixels on every platform because nothing platform-specific draws them."
 
 [[bin]]
-name = "localwisper-gui"
+name = "owlwhisp"
 path = "src/main.rs"
 
 [features]

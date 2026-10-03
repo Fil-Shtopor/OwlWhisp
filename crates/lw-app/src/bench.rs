@@ -67,7 +67,19 @@ pub fn build_engine_for(
     settings: &Settings,
     ctx: &EngineInitContext,
 ) -> Result<Box<dyn SpeechEngine>, String> {
-    if let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+    // Parakeet has a sherpa-compatible layout, but its built-in engine supports both CPU and
+    // accelerators. Always use that engine for this model: the same installed download then
+    // works with Automatic/CPU and a later explicit CUDA selection, even without sherpa.
+    let built_in_parakeet = settings.model_id == "parakeet-tdt-0.6b-v3";
+    if !built_in_parakeet
+        && let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None)
+    {
+        if !matches!(settings.backend, BackendPreference::Automatic | BackendPreference::ForceCpu) {
+            return Err(format!(
+                "model '{}' uses the CPU-only sherpa engine; choose Parakeet TDT 0.6B v3 for CUDA or select CPU",
+                settings.model_id
+            ));
+        }
         let kind = files.kind();
         #[cfg(feature = "sherpa")]
         {
@@ -88,6 +100,12 @@ pub fn build_engine_for(
     }
 
     let rt_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found (set LW_RUNTIME_DIR)".to_string())?;
+    #[cfg(windows)]
+    if settings.backend == BackendPreference::DirectMl {
+        return Ok(Box::new(crate::provider_worker::DirectMlEngine::new(
+            crate::provider_worker::directml_runtime_dir(&rt_dir),
+        )));
+    }
     let runtime = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
     let backend = BackendKind::from(settings.backend);
     // Hexagon generation comes from the detected NPU (V73 on X Elite / X Plus, V81 on X2 Elite),
@@ -244,7 +262,15 @@ pub fn run_benchmark_suite(
 
     let runtime_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found".to_string())?;
     let runtime = lw_ort::OrtRuntime::init(&runtime_dir).map_err(|e| e.to_string())?;
-    let usable = runtime.usable_accelerators();
+    let mut usable = runtime.usable_accelerators();
+    #[cfg(windows)]
+    if crate::provider_worker::probe_directml(&runtime_dir).is_ok_and(|count| count > 0) {
+        let insert_at = usable
+            .iter()
+            .position(|accel| *accel == lw_core::capabilities::Accelerator::WebGpu)
+            .unwrap_or(usable.len());
+        usable.insert(insert_at, lw_core::capabilities::Accelerator::DirectMl);
+    }
     if usable.is_empty() {
         return Err("no usable accelerator on this machine".into());
     }
@@ -452,4 +478,3 @@ pub fn meter_level(rms: f32) -> f32 {
     let db = 20.0 * rms.clamp(1e-6, 1.0).log10();
     ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0)
 }
-

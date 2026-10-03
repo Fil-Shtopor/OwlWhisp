@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Portable CPU speech engine for LocalWisper backed by sherpa-onnx (Whisper, Moonshine, SenseVoice, Paraformer, NeMo transducers) — runs on any x86_64/aarch64 CPU"
+description = "Portable CPU speech engine for OwlWhisp backed by sherpa-onnx (Whisper, Moonshine, SenseVoice, Paraformer, NeMo transducers) — runs on any x86_64/aarch64 CPU"
 
 [features]
 # The heavy native dependency is opt-in: `cargo check --workspace` stays fast for people who do not

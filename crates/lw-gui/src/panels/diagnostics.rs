@@ -6,8 +6,8 @@
 //! it enumerated a device, it is usable -- are shown separately rather than collapsed into one
 //! optimistic verdict.
 
-use iced::widget::{column, container, row, Space};
 use iced::Element;
+use iced::widget::{Space, button, column, container, row};
 use lw_app::Diagnostics;
 
 use crate::{theme, widgets};
@@ -15,22 +15,33 @@ use crate::{theme, widgets};
 #[derive(Debug, Clone)]
 pub enum Message {
     Refresh,
+    /// Open the official vendor page for an optional execution provider. The page is opened, but
+    /// no driver, SDK or installer is ever downloaded or run by OwlWhisp.
+    OpenProviderSetup(&'static str),
 }
 
 pub struct State {
     report: Diagnostics,
+    action_error: Option<String>,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
             report: lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION")),
+            action_error: None,
         }
     }
 
     pub fn update(&mut self, message: Message) {
         match message {
-            Message::Refresh => self.report = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION")),
+            Message::Refresh => {
+                self.action_error = None;
+                self.report = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
+            }
+            Message::OpenProviderSetup(url) => {
+                self.action_error = lw_platform::browser::open_https(url).err().map(|e| e.to_string());
+            }
         }
     }
 
@@ -55,14 +66,51 @@ impl State {
             .spacing(4),
         );
 
+        // Whether the system-wide keyboard hook is being called at all.
+        //
+        // Every shortcut this app cannot register with the window manager runs through that hook:
+        // combinations with Meta in them, and bindings made of modifiers alone. When the hook is
+        // not called, those do nothing and there is no other symptom -- the settings look right,
+        // the log says the hook installed, and the ordinary Ctrl+Space binding keeps working
+        // because the window manager delivers that one. This counts the keys the hook has
+        // actually been handed, so "zero after you have typed" says plainly which of the two it
+        // is. Not for tidiness: it took an afternoon to establish by other means.
+        let hook = widgets::card(
+            column![
+                widgets::heading("Keyboard hook"),
+                match lw_platform::platform().keyboard_hook_keys_seen() {
+                    Some(0) => column![
+                        fact("Keys seen", "0".into()),
+                        widgets::prose(
+                            "Type anything and come back. If this is still zero, the hook is \
+                             installed but never called, and shortcuts with Meta in them -- and \
+                             bindings with no key at all -- cannot work on this machine.",
+                        ),
+                    ]
+                    .spacing(4),
+                    Some(n) => column![
+                        fact("Keys seen", n.to_string()),
+                        widgets::sub("The hook is live; every kind of binding can be detected."),
+                    ]
+                    .spacing(4),
+                    None => column![widgets::sub(
+                        "This operating system has no keyboard hook in this build.",
+                    )],
+                },
+            ]
+            .spacing(6),
+        );
+
         let mut rt = column![widgets::heading("ONNX Runtime")].spacing(4);
         match (&d.runtime_dir, &d.runtime_error) {
             (Some(dir), _) => {
                 rt = rt.push(fact("Loaded from", dir.clone()));
-                rt = rt.push(fact_flag("QNN library present", d.qnn_dll_present));
-                rt = rt.push(fact_flag("QNN registered", d.qnn_registered));
-                rt = rt.push(fact("NPU devices", d.qnn_npu_count.to_string()));
-                rt = rt.push(fact_flag("NPU usable", d.npu_available));
+                if d.accelerators.iter().any(|a| a.id == "qnn_npu") {
+                    rt = rt.push(fact_flag("QNN library present", d.qnn_dll_present));
+                    rt = rt.push(fact_flag("QNN registered", d.qnn_registered));
+                    rt = rt.push(fact("NPU devices", d.qnn_npu_count.to_string()));
+                    rt = rt.push(fact_flag("NPU usable", d.npu_available));
+                }
                 if !d.devices.is_empty() {
                     rt = rt.push(fact("Devices", d.devices.join(", ")));
                 }
@@ -74,16 +122,16 @@ impl State {
                 )));
             }
             (None, None) => {
-                rt = rt.push(widgets::sub("No runtime and no error, which should be impossible."));
+                rt = rt.push(widgets::sub(
+                    "No runtime and no error, which should be impossible.",
+                ));
             }
         }
 
         let mut accel = column![
             widgets::heading("Accelerators"),
             widgets::prose(
-                "Present, registered, devices and usable are kept apart because they routinely \
-                 disagree: a driver package can be installed while the execution provider fails to \
-                 load. Only usable means acceleration."
+                "All known accelerators are listed. Unavailable means the required hardware or this app's platform support is absent; app runtime missing means compatible hardware was detected but its provider is not installed. Only usable means acceleration."
             ),
         ]
         .spacing(6);
@@ -95,55 +143,121 @@ impl State {
             let flags = row![
                 if a.usable {
                     widgets::badge_yes("usable")
+                } else if a.hardware_present && !a.present {
+                    widgets::badge("app runtime missing", theme::ESTIMATE)
                 } else {
-                    widgets::badge_no("not usable")
+                    widgets::badge_no("Unavailable")
                 },
                 widgets::chip(if a.present { "present" } else { "absent" }),
-                widgets::chip(if a.registered { "registered" } else { "unregistered" }),
+                widgets::chip(if a.registered {
+                    "registered"
+                } else {
+                    "unregistered"
+                }),
                 widgets::chip(format!("{} device(s)", a.devices)),
             ]
             .spacing(6);
-            let card: Element<'_, Message> = widgets::inset(
-                    column![
-                        row![
-                            widgets::body(a.label),
-                            widgets::sub(match a.vendor {
-                                Some(v) => format!("{} - {v}", a.kind_label),
-                                None => a.kind_label.to_string(),
-                            }),
-                        ]
-                        .spacing(8),
-                        flags,
-                        widgets::sub(a.detail.clone()),
-                        widgets::sub(match a.library {
-                            Some(l) => format!("library: {l}"),
-                            None => "no separate provider library".to_string(),
-                        }),
+            let mut detail = column![
+                row![
+                    widgets::body(a.label),
+                    widgets::sub(match a.vendor {
+                        Some(v) => format!("{} - {v}", a.kind_label),
+                        None => a.kind_label.to_string(),
+                    }),
+                ]
+                .spacing(8),
+                flags,
+                widgets::sub(a.detail.clone()),
+                widgets::sub(match a.library {
+                    Some(l) => format!("library: {l}"),
+                    None => "no separate provider library".to_string(),
+                }),
+            ]
+            .spacing(4);
+            if let Some(setup) = provider_setup(a.id, a.usable, a.hardware_present) {
+                detail = detail.push(
+                    row![
+                        button(widgets::button_label(setup.label))
+                            .padding(iced::Padding::from([5, 10]))
+                            .style(theme::action(false))
+                            .on_press(Message::OpenProviderSetup(setup.url)),
+                        widgets::sub(setup.note),
                     ]
-                    .spacing(4),
-            )
-            .into();
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+            let card: Element<'_, Message> = widgets::inset(detail).into();
             accel = accel.push(card);
         }
 
-        column![
-                row![
-                    iced::widget::button(widgets::button_label("Refresh"))
-                        .padding(iced::Padding::from([6, 14]))
-                        .on_press(Message::Refresh)
-                        .style(theme::action(false)),
-                    widgets::sub("Probing loads the runtime, so this takes a moment."),
-                ]
-                .spacing(12)
-                .align_y(iced::Alignment::Center),
-                build,
-                widgets::card(rt),
-                widgets::card(accel),
-                Space::new().height(8),
+        let mut page = column![
+            row![
+                iced::widget::button(widgets::button_label("Refresh"))
+                    .padding(iced::Padding::from([6, 14]))
+                    .on_press(Message::Refresh)
+                    .style(theme::action(false)),
+                widgets::sub("Probing loads the runtime, so this takes a moment."),
             ]
             .spacing(12)
-            .padding(iced::Padding::from([0, 8]))
-        .into()
+            .align_y(iced::Alignment::Center),
+            build,
+            hook,
+            widgets::card(rt),
+            widgets::card(accel),
+            Space::new().height(8),
+        ]
+        .spacing(12)
+        .padding(iced::Padding::from([0, 8]));
+        if let Some(e) = &self.action_error {
+            page = page.push(widgets::card(widgets::prose(format!(
+                "Could not open the setup page: {e}"
+            ))));
+        }
+        page.into()
+    }
+}
+
+/// An explicit, official next step for providers that OwlWhisp cannot redistribute. The button
+/// only appears when that particular provider is not usable; the runtime's portable WebGPU path
+/// is bundled, so it has no separate installer here.
+struct ProviderSetup {
+    label: &'static str,
+    note: &'static str,
+    url: &'static str,
+}
+
+fn provider_setup(id: &str, usable: bool, hardware_present: bool) -> Option<ProviderSetup> {
+    if usable || !hardware_present {
+        return None;
+    }
+    match id {
+        "cuda" => Some(ProviderSetup {
+            label: "Open CUDA requirements",
+            note: "Requires OwlWhisp's GPU runtime, CUDA 13 and cuDNN 9. Installing a driver alone cannot add the provider DLL.",
+            url: "https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html",
+        }),
+        "tensor_rt" => Some(ProviderSetup {
+            label: "Open TensorRT setup",
+            note: "Requires a compatible NVIDIA driver, CUDA and cuDNN; NVIDIA may require sign-in.",
+            url: "https://developer.nvidia.com/tensorrt/download",
+        }),
+        "direct_ml" => Some(ProviderSetup {
+            label: "Open DirectML guide",
+            note: "Requires Windows 10 version 1903 or later and a Direct3D 12-capable GPU.",
+            url: "https://learn.microsoft.com/windows/ai/directml/dml",
+        }),
+        "open_vino" => Some(ProviderSetup {
+            label: "Open OpenVINO setup",
+            note: "Install the Intel OpenVINO runtime, then restart OwlWhisp.",
+            url: "https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit-download.html",
+        }),
+        "vitis_ai" => Some(ProviderSetup {
+            label: "Open Ryzen AI setup",
+            note: "Requires the AMD Ryzen AI software stack for a supported XDNA NPU.",
+            url: "https://www.amd.com/en/products/software/ryzen-ai.html",
+        }),
+        _ => None,
     }
 }
 

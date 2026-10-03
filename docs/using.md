@@ -1,4 +1,4 @@
-# LocalWisper — Using the app
+# OwlWhisp — Using the app
 
 _What the desktop app does, and how to drive it. For the CLI see [`models.md`](models.md) and
 [`benchmarks.md`](benchmarks.md); for build instructions see [`build.md`](build.md)._
@@ -185,9 +185,13 @@ nothing. From a terminal the same table is `lw diagnose`.
 a run that asked for the NPU and fell back to the CPU reports the CPU — visible in Diagnostics and
 in the benchmark report, whose notes also say *why* it fell back.
 
-To add a provider this build does not bundle (CUDA, TensorRT, DirectML, OpenVINO, Vitis AI), drop
-its library into the runtime directory; it appears by itself. [`hardware.md`](hardware.md) §5 lists
-what each one needs.
+For NVIDIA on Windows x64, install the current OwlWhisp package, select the downloaded
+**Parakeet TDT 0.6B v3** model, choose **NVIDIA GPU (CUDA)** in Settings and Save, then run a
+Benchmark or dictate. The package includes the matched ONNX Runtime GPU build, CUDA 13 runtime
+libraries and cuDNN 9; the NVIDIA display driver must support CUDA 13. The other sherpa models
+use their own CPU runtime and cannot use this setting. Diagnostics separates a CUDA library that
+is present from one that actually loaded, and a real model run confirms whether its graph works.
+[`hardware.md`](hardware.md) §5 covers the remaining optional providers.
 
 ---
 
@@ -303,7 +307,7 @@ Runtime registered it, how many devices it then found, and the verdict — which
 facts rather than one. *Refresh* forces a fresh probe. Settings keeps only the choice itself and a
 pointer here, so there is one place that answers "what can this machine actually do?".
 
-Logs are written under the app data directory in `logs/localwisper.log.<date>`, at `info` by
+Logs are written under the app data directory in `logs/owlwhisp.log.<date>`, at `info` by
 default. Raise it with `LW_LOG=debug`.
 
 **Nothing private is logged.** No audio, transcript text, clipboard contents or keys are ever
@@ -315,9 +319,9 @@ written — the logs carry device, backend and version facts only.
 
 | What | Windows | macOS | Linux |
 |---|---|---|---|
-| Settings | `%APPDATA%\ai.localwisper.app\settings.json` | `~/Library/Application Support/ai.localwisper.app/settings.json` | `~/.local/share/ai.localwisper.app/settings.json` |
-| Models | `…\ai.localwisper.app\models` | `…/ai.localwisper.app/models` | `…/ai.localwisper.app/models` |
-| NPU context cache | `…\ai.localwisper.app\cache` | — | — |
-| Logs | `…\ai.localwisper.app\logs` | `…/ai.localwisper.app/logs` | `…/ai.localwisper.app/logs` |
+| Settings | `%APPDATA%\ai.owlwhisp.app\settings.json` | `~/Library/Application Support/ai.owlwhisp.app/settings.json` | `~/.local/share/ai.owlwhisp.app/settings.json` |
+| Models | `…\ai.owlwhisp.app\models` | `…/ai.owlwhisp.app/models` | `…/ai.owlwhisp.app/models` |
+| NPU context cache | `…\ai.owlwhisp.app\cache` | — | — |
+| Logs | `…\ai.owlwhisp.app\logs` | `…/ai.owlwhisp.app/logs` | `…/ai.owlwhisp.app/logs` |
 
 Deleting `settings.json` resets to defaults; the app recreates it on the next save.

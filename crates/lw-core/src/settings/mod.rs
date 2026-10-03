@@ -57,13 +57,12 @@ impl HotkeyConfig {
     pub fn to_accelerator(&self) -> Option<String> {
         let mut parts: Vec<&'static str> = Vec::new();
         for m in &self.modifiers {
-            match m.to_ascii_lowercase().as_str() {
-                "ctrl" | "control" => parts.push("Control"),
-                "shift" => parts.push("Shift"),
-                "alt" | "option" => parts.push("Alt"),
-                "win" | "super" | "cmd" | "meta" => parts.push("Super"),
-                _ => return None,
-            }
+            parts.push(match modifier_family(m)? {
+                MOD_CTRL => "Control",
+                MOD_SHIFT => "Shift",
+                MOD_ALT => "Alt",
+                _ => "Super",
+            });
         }
         let key = key_code_name(&self.trigger)?;
         parts.push(key);
@@ -75,24 +74,66 @@ impl HotkeyConfig {
         self.trigger.eq_ignore_ascii_case("none") || self.trigger.is_empty()
     }
 
+    /// How many *distinct* modifier families this binding holds.
+    ///
+    /// Families, not entries: `["ctrl", "control"]` is one key on the keyboard written twice, and
+    /// counting it as two would let a binding that fires on every Ctrl press through the door.
+    /// A name this build does not know counts as none, for the same reason.
+    pub fn modifier_families(&self) -> usize {
+        let mut seen = 0u8;
+        for m in &self.modifiers {
+            if let Some(f) = modifier_family(m) {
+                seen |= f;
+            }
+        }
+        seen.count_ones() as usize
+    }
+
     /// Validate the binding the way the shortcut editor should: a usable combination needs either a
-    /// trigger key, or (for the hook backend) at least two modifiers.
+    /// trigger key, or at least two modifiers.
+    ///
+    /// The two-modifier form is real and this build supports it: `lw-platform`'s low-level
+    /// keyboard hook detects combinations the window manager will not register, which is what
+    /// makes a push-to-talk like Ctrl+Meta possible. What is *not* allowed is one modifier alone,
+    /// and that is not a technical limit -- the hook would detect it perfectly well. It would fire
+    /// every time the user pressed Ctrl for any other reason, which for a binding that opens the
+    /// microphone is not a shortcut but a fault.
     pub fn validate(&self) -> Result<()> {
         if self.is_modifier_only() {
-            // Accepting this would be a lie: an OS global-shortcut registration needs a
-            // non-modifier key, so the app would silently fall back to the default binding and
-            // the user's chosen keys would never fire. Reject it here, where the message can
-            // reach the settings UI, rather than warning into a log nobody reads. Supporting it
-            // needs a low-level keyboard hook backend, which this build does not ship.
-            return Err(Error::Config(
-                "a hotkey needs a non-modifier key (modifiers-only bindings need a low-level                  keyboard hook, which this build does not provide)"
-                    .into(),
-            ));
+            if self.modifier_families() < 2 {
+                return Err(Error::Config(
+                    "a hotkey with no key needs at least two modifiers held together - one on \
+                     its own would fire every time you pressed it"
+                        .into(),
+                ));
+            }
+            return Ok(());
         }
         if key_code_name(&self.trigger).is_none() {
             return Err(Error::Config(format!("unsupported hotkey key: {}", self.trigger)));
         }
         Ok(())
+    }
+}
+
+/// Family bit for Ctrl, matching `lw_platform::hotkey::MOD_CTRL`.
+const MOD_CTRL: u8 = 1 << 0;
+/// Family bit for Shift.
+const MOD_SHIFT: u8 = 1 << 1;
+/// Family bit for Alt.
+const MOD_ALT: u8 = 1 << 2;
+/// Family bit for Meta (Win/Cmd).
+const MOD_META: u8 = 1 << 3;
+
+/// The modifier family a settings-file name belongs to, or `None` for a name this build does not
+/// know. The spellings are the ones the shortcut editor and older files both use.
+fn modifier_family(name: &str) -> Option<u8> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "ctrl" | "control" => Some(MOD_CTRL),
+        "shift" => Some(MOD_SHIFT),
+        "alt" | "option" => Some(MOD_ALT),
+        "win" | "super" | "cmd" | "meta" => Some(MOD_META),
+        _ => None,
     }
 }
 
@@ -203,7 +244,7 @@ pub struct Settings {
     /// Cue volume in `[0, 1]`. Clamped on load, so a hand-edited 11 is not deafening.
     #[serde(default = "default_sound_volume")]
     pub sound_volume: f32,
-    /// Start LocalWisper when the user logs in.
+    /// Start OwlWhisp when the user logs in.
     ///
     /// The operating system, not this file, is the source of truth: the app reads the real state
     /// from the autostart registration at startup and writes this back to match. It lives here so
@@ -389,28 +430,81 @@ mod tests {
     }
 
     #[test]
-    fn modifier_only_bindings_are_rejected_because_they_would_silently_fall_back() {
-        // No number of modifiers makes this registrable without a low-level hook backend, and
-        // accepting it would leave the app listening on the default binding instead.
-        for mods in [vec!["ctrl"], vec!["ctrl", "win"], vec!["ctrl", "alt", "shift"]] {
+    fn two_modifiers_and_no_key_is_a_binding_the_hook_backend_can_detect() {
+        // Ctrl+Meta push-to-talk: no key to press, both thumbs where they already are. The window
+        // manager will not register it, and does not have to -- `lw-platform`'s keyboard hook
+        // detects it, which is the whole reason that hook exists.
+        for mods in [
+            vec!["ctrl", "win"],
+            vec!["ctrl", "meta"],
+            vec!["ctrl", "alt", "shift"],
+            vec!["alt", "shift"],
+        ] {
+            let h = HotkeyConfig {
+                modifiers: mods.iter().map(|m| m.to_string()).collect(),
+                trigger: "none".into(),
+                mode: HotkeyMode::PushToTalk,
+            };
+            h.validate().unwrap_or_else(|e| panic!("{mods:?} was refused: {e}"));
+        }
+    }
+
+    #[test]
+    fn one_modifier_and_no_key_is_refused_because_it_would_fire_constantly() {
+        // Not a technical limit -- the hook would detect a bare Ctrl perfectly well. It would open
+        // the microphone every time the user pressed Ctrl for any other reason.
+        for mods in [vec!["ctrl"], vec!["meta"], vec![]] {
             let h = HotkeyConfig {
                 modifiers: mods.iter().map(|m| m.to_string()).collect(),
                 trigger: "none".into(),
                 mode: HotkeyMode::PushToTalk,
             };
             let err = h.validate().unwrap_err().to_string();
-            assert!(err.contains("non-modifier key"), "{err}");
+            assert!(err.contains("two modifiers"), "{mods:?}: {err}");
         }
     }
 
     #[test]
-    fn an_empty_trigger_is_rejected_too() {
+    fn one_key_spelled_twice_is_still_one_modifier() {
+        // A settings file may hold either spelling; holding both is one key on the keyboard, and
+        // counting it as two would let a binding that fires on every Ctrl press through.
         let h = HotkeyConfig {
+            modifiers: vec!["ctrl".into(), "control".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        assert_eq!(h.modifier_families(), 1);
+        assert!(h.validate().is_err());
+    }
+
+    #[test]
+    fn a_modifier_this_build_does_not_know_counts_towards_nothing() {
+        let h = HotkeyConfig {
+            modifiers: vec!["ctrl".into(), "hyper".into()],
+            trigger: "none".into(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        assert_eq!(h.modifier_families(), 1);
+        assert!(h.validate().is_err());
+        assert_eq!(h.to_accelerator(), None);
+    }
+
+    #[test]
+    fn an_empty_trigger_reads_the_same_as_none() {
+        let empty = HotkeyConfig {
             modifiers: vec!["ctrl".into(), "alt".into()],
             trigger: String::new(),
             mode: HotkeyMode::PushToTalk,
         };
-        assert!(h.validate().is_err());
+        assert!(empty.is_modifier_only());
+        empty.validate().expect("two modifiers, spelled with an empty trigger");
+
+        let one = HotkeyConfig {
+            modifiers: vec!["ctrl".into()],
+            trigger: String::new(),
+            mode: HotkeyMode::PushToTalk,
+        };
+        assert!(one.validate().is_err());
     }
 
     #[test]

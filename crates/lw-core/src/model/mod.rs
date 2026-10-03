@@ -97,7 +97,7 @@ pub struct ModelRegistry {
 }
 
 impl ModelRegistry {
-    /// New registry rooted at `root` (e.g. `%LOCALAPPDATA%/LocalWisper/models`).
+    /// New registry rooted at `root` (e.g. `%LOCALAPPDATA%/OwlWhisp/models`).
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }

@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender, bounded};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 // Aliased: this crate has its own `MOD_*` family bits, and the two sets mean different things.
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -30,13 +30,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW,
-    SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP,
+    PeekMessageW, PM_NOREMOVE, SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_APP,
     WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
 use crate::hotkey::{
-    ComboTracker, GlobalHotkey, HotkeyEvent, HotkeySpec, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_WIN,
-    ParsedCombo, parse_spec, swallow_trigger,
+    CaptureTracker, Captured, ComboTracker, GlobalHotkey, HotkeyCapture, HotkeyEvent, HotkeySpec,
+    MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_WIN, ParsedCombo, SwallowLedger, parse_spec, swallow_trigger,
 };
 use crate::{Error, Result};
 
@@ -51,6 +52,24 @@ static COMBO_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static HOOK_STARTED: AtomicBool = AtomicBool::new(false);
 static HOOK_HEALTHY: AtomicBool = AtomicBool::new(false);
+
+/// Every key transition the hook callback has been handed, and every one the grab has read.
+///
+/// Counters rather than log lines because this is counted inside a low-level hook callback, which
+/// must not allocate and must not block. They exist to tell two very different faults apart: a
+/// grab that read nothing because the keys had no name, and a grab that read nothing because the
+/// hook was not on the keyboard at all. Without them the two look identical from the outside.
+static HOOK_KEYS_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static GRAB_KEYS_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many key transitions the hook has seen in this process, and how many of those the shortcut
+/// editor's grab was handed.
+pub fn key_counts() -> (u64, u64) {
+    (
+        HOOK_KEYS_SEEN.load(Ordering::Relaxed),
+        GRAB_KEYS_SEEN.load(Ordering::Relaxed),
+    )
+}
 
 /// The hook thread, so a rebind can be handed to it -- `RegisterHotKey` delivers `WM_HOTKEY` to the
 /// thread that called it, so it has to be the thread that is pumping messages.
@@ -70,6 +89,23 @@ const HOTKEY_ID: i32 = 0x4C57; // "LW"
 
 /// Ask the hook thread to re-register with the window manager.
 const WM_REBIND: u32 = WM_APP + 1;
+
+/// Bumped by the hook thread every time it finishes putting the hook back.
+///
+/// The counter is how a caller on another thread can *wait* for that, and waiting is the point:
+/// `PostThreadMessageW` returns immediately, so without this the grab would arm while the hook was
+/// still down, and the keys pressed in that gap would be seen by nobody. It is a gap of
+/// microseconds, but a shortcut editor that occasionally reads Ctrl+F13 as plain F13 is worse than
+/// one that takes a moment to open.
+static REHOOK_GEN: AtomicU32 = AtomicU32::new(0);
+
+/// Ask the hook thread to put the low-level hook back, whether or not it looks alive.
+///
+/// The shortcut editor is the one caller that cannot tolerate a hook that has quietly gone. While
+/// the window manager holds the hotkey the hook is on nobody's path, so no key event is expected
+/// through it and the watchdog has nothing to notice a removal *by* -- the binding goes on working
+/// regardless, which is exactly why the removal stays invisible until something else needs it.
+const WM_REHOOK: u32 = WM_APP + 2;
 
 /// Milliseconds (since [`epoch`]) at which the hook last saw any key event at all.
 ///
@@ -94,11 +130,62 @@ fn now_ms() -> u64 {
     epoch().elapsed().as_millis() as u64
 }
 
+/// Post one of our own messages to the hook thread.
+///
+/// Both of them have to run there and nowhere else: `RegisterHotKey` delivers `WM_HOTKEY` to
+/// whichever thread called it, and a low-level hook delivers its callbacks to whichever thread
+/// installed it.
+fn post_to_hook_thread(message: u32) {
+    let thread = HOOK_THREAD.load(Ordering::Acquire);
+    if thread == 0 {
+        return;
+    }
+    // SAFETY: a thread message to our own hook thread; failure only means it has gone.
+    unsafe {
+        let _ = PostThreadMessageW(thread, message, WPARAM(0), LPARAM(0));
+    }
+}
+
 /// The event channel outlives everything (the hook callback holds no owned sender).
 static EVENTS: OnceLock<(Sender<HotkeyEvent>, Receiver<HotkeyEvent>)> = OnceLock::new();
+static REBIND_REQUEST: AtomicU32 = AtomicU32::new(0);
+static REBIND_ACK: OnceLock<(
+    Sender<(u32, std::result::Result<(), String>)>,
+    Receiver<(u32, std::result::Result<(), String>)>,
+)> = OnceLock::new();
 
 fn events_channel() -> &'static (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) {
     EVENTS.get_or_init(|| bounded(128))
+}
+
+fn rebind_ack() -> &'static (
+    Sender<(u32, std::result::Result<(), String>)>,
+    Receiver<(u32, std::result::Result<(), String>)>,
+) {
+    REBIND_ACK.get_or_init(unbounded)
+}
+
+fn rebind_and_wait() -> Result<()> {
+    let ack = rebind_ack();
+    let request = REBIND_REQUEST.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    let thread = HOOK_THREAD.load(Ordering::Acquire);
+    if thread == 0 {
+        return Err(Error::Hotkey("keyboard hook thread is unavailable".into()));
+    }
+    // SAFETY: the hook thread creates its message queue before announcing readiness.
+    unsafe { PostThreadMessageW(thread, WM_REBIND, WPARAM(request as usize), LPARAM(0)) }
+        .map_err(|e| Error::Hotkey(format!("request hotkey registration: {e}")))?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        let (answered, result) = ack
+            .1
+            .recv_timeout(remaining)
+            .map_err(|e| Error::Hotkey(format!("hotkey registration did not finish: {e}")))?;
+        if answered == request {
+            return result.map_err(Error::Hotkey);
+        }
+    }
 }
 
 fn load_combo() -> ParsedCombo {
@@ -131,7 +218,37 @@ unsafe extern "system" fn ll_kbd_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
             let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
             if down || up {
                 LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
-                if on_physical_key(kb.vkCode, down) {
+                if HOOK_KEYS_SEEN.fetch_add(1, Ordering::Relaxed) == 0 {
+                    // Once per process, so the log can answer "did the hook ever fire at all",
+                    // which is the first question whenever a shortcut does nothing.
+                    // SAFETY: no preconditions; the id of the thread the callback runs on.
+                    let thread =
+                        unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+                    tracing::info!(callback_thread = thread, "keyboard hook is receiving keys");
+                }
+                // The shortcut editor's grab comes first and is exclusive: while it is on, the
+                // combo tracker must not see the keys either, or pressing the *current* hotkey to
+                // look at it would start a dictation behind the settings window.
+                let capturing = CAPTURE_STATE.load(Ordering::Acquire) != CAPTURE_OFF;
+                if capturing {
+                    // Fed the event before anything is decided about taking it: the release that
+                    // ends a modifiers-only gesture is also a release this process owes, and it
+                    // has to be *read* before it is taken.
+                    let take = on_capture_key(kb.vkCode, down);
+                    if down && take {
+                        SWALLOWED.with(|l| l.borrow_mut().took_press(kb.vkCode));
+                        return LRESULT(1);
+                    }
+                }
+                // A release whose press this process took is taken as well -- whether or not the
+                // grab is still open, because it closes the moment a combination is read and the
+                // user's fingers are still down at that point. A release let through here for a
+                // press that was swallowed is a key that sticks down in every other application.
+                if !down && SWALLOWED.with(|l| l.borrow_mut().owes_release(kb.vkCode)) {
+                    OWED_RELEASES_TAKEN.fetch_add(1, Ordering::Relaxed);
+                    return LRESULT(1);
+                }
+                if !capturing && on_physical_key(kb.vkCode, down) {
                     // Taken: the combination is ours, so the key must not also reach whatever the
                     // user is typing into. Returning non-zero ends the chain here.
                     return LRESULT(1);
@@ -187,6 +304,180 @@ fn on_physical_key(vk_code: u32, down: bool) -> bool {
     })
 }
 
+// ---------------------------------------------------------------------------
+// The shortcut editor's keyboard grab
+// ---------------------------------------------------------------------------
+
+/// The grab is off; the hotkey has the keyboard as usual.
+const CAPTURE_OFF: u32 = 0;
+/// The grab is on and waiting for a combination.
+///
+/// There used to be a third state, held after a combination was read so that the releases still
+/// to come could be swallowed. [`SwallowLedger`] does that job exactly instead of approximately,
+/// and it does it without keeping the whole keyboard for another two seconds -- during which any
+/// *other* key the user pressed was eaten as well, which is what made keys feel stuck.
+const CAPTURE_ARMED: u32 = 1;
+
+/// Which of the three the grab is in. Read by the hook callback on every key.
+static CAPTURE_STATE: AtomicU32 = AtomicU32::new(CAPTURE_OFF);
+
+/// Bumped when a session starts, so the hook thread rebuilds its tracker with all keys up.
+static CAPTURE_GEN: AtomicU32 = AtomicU32::new(0);
+
+/// When the current session gives up, in [`now_ms`] milliseconds.
+///
+/// A capture takes *every* key in the system, so an abandoned one would look exactly like a
+/// machine whose keyboard had died. The window is closed from the hook itself rather than from a
+/// timer, because the hook is the only thing that is certainly still running.
+static CAPTURE_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How long the editor may hold the keyboard before it lets go by itself.
+///
+/// Every key in the system is taken for this long, so the number is not "how long might someone
+/// take to decide" but "how long may a keyboard that appears dead stay that way". Someone who has
+/// clicked *press the combination you want* presses it within a second or two; someone who has
+/// wandered off wants their keyboard back. Seven seconds serves the first and does not punish the
+/// second.
+const CAPTURE_WINDOW_MS: u64 = 7_000;
+
+static CAPTURE_EVENTS: OnceLock<(Sender<Captured>, Receiver<Captured>)> = OnceLock::new();
+
+fn capture_channel() -> &'static (Sender<Captured>, Receiver<Captured>) {
+    CAPTURE_EVENTS.get_or_init(|| bounded(8))
+}
+
+thread_local! {
+    /// (session generation, tracker) — lives on the hook thread only.
+    static CAPTURE: RefCell<(u32, CaptureTracker)> =
+        RefCell::new((u32::MAX, CaptureTracker::new()));
+    /// Presses the grab has taken, so their releases are taken too.
+    ///
+    /// Deliberately outside the generation check above: a session ends when a combination is
+    /// read, and the releases it owes arrive *after* that. Resetting this with the session is
+    /// exactly how a modifier ends up stuck down in every other application.
+    static SWALLOWED: RefCell<SwallowLedger> = RefCell::new(SwallowLedger::new());
+}
+
+/// How many owed releases have been taken. Read by the live tests, which cannot see a
+/// `thread_local` on the hook thread.
+static OWED_RELEASES_TAKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// One key transition while the editor holds the keyboard (hook thread only).
+///
+/// Returns whether to swallow it, which is "yes" for as long as the grab lasts: a capture that let
+/// the keys through would open the Start menu the moment someone pressed the Windows key, and
+/// leave the character in whatever was behind the settings window.
+fn on_capture_key(vk_code: u32, down: bool) -> bool {
+    GRAB_KEYS_SEEN.fetch_add(1, Ordering::Relaxed);
+    if now_ms() > CAPTURE_DEADLINE_MS.load(Ordering::Acquire) {
+        finish_capture();
+        return false;
+    }
+    CAPTURE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let generation = CAPTURE_GEN.load(Ordering::Acquire);
+        if slot.0 != generation {
+            *slot = (generation, CaptureTracker::new());
+        }
+        if let Some(captured) = slot.1.on_key(vk_code, down) {
+            // Pre-allocated bounded channel, as everywhere else on this thread.
+            let _ = capture_channel().0.try_send(captured);
+            // The keyboard goes back at once. What is still owed is the releases of the keys
+            // whose presses were taken, and the ledger settles those on its own.
+            finish_capture();
+        }
+        true
+    })
+}
+
+/// Arm the grab. Any result from an abandoned session is dropped first.
+fn start_capture() {
+    while capture_channel().1.try_recv().is_ok() {}
+    CAPTURE_GEN.fetch_add(1, Ordering::Release);
+    CAPTURE_DEADLINE_MS.store(now_ms() + CAPTURE_WINDOW_MS, Ordering::Release);
+    CAPTURE_STATE.store(CAPTURE_ARMED, Ordering::Release);
+}
+
+/// End the grab and hand the keyboard back to the hotkey with nothing held.
+///
+/// The combo tracker sat out the whole session, so its idea of what is down is whatever was true
+/// when the session began. Bumping the generation makes the hook rebuild it all-keys-up, which is
+/// the only state that is certainly true: a modifier held while the grab started and released
+/// during it would otherwise read as still down for ever.
+fn finish_capture() {
+    if CAPTURE_STATE.swap(CAPTURE_OFF, Ordering::AcqRel) == CAPTURE_OFF {
+        return;
+    }
+    COMBO_GEN.fetch_add(1, Ordering::Release);
+    if COMBO_ACTIVE.swap(false, Ordering::AcqRel) {
+        let _ = events_channel().0.try_send(HotkeyEvent::Released);
+    }
+}
+
+/// Put the hook back and wait for the hook thread to say it has, within reason.
+///
+/// Bounded, and a timeout is not fatal: the worst case is the hook the process already had, which
+/// is the one every other part of the app is using anyway. Blocking for ever on a thread that has
+/// stopped answering would turn a stale hook into a frozen window.
+fn rehook_and_wait() {
+    let before = REHOOK_GEN.load(Ordering::Acquire);
+    post_to_hook_thread(WM_REHOOK);
+    let deadline = std::time::Instant::now() + Duration::from_millis(250);
+    while REHOOK_GEN.load(Ordering::Acquire) == before {
+        if std::time::Instant::now() >= deadline {
+            tracing::warn!("the hook thread did not confirm the re-install; arming anyway");
+            return;
+        }
+        std::thread::yield_now();
+    }
+}
+
+/// The shortcut editor's keyboard grab, backed by the process-wide hook.
+///
+/// One at a time: a second session re-arms the same grab, and whichever handle is dropped first
+/// ends it. The editor only ever opens one.
+pub struct WindowsCapture {
+    _private: (),
+}
+
+impl WindowsCapture {
+    /// Arm the grab, installing (or attaching to) the keyboard hook first.
+    pub fn new() -> Result<Self> {
+        ensure_hook()?;
+        rehook_and_wait();
+        start_capture();
+        tracing::debug!("shortcut capture armed");
+        Ok(Self { _private: () })
+    }
+}
+
+impl HotkeyCapture for WindowsCapture {
+    fn events(&self) -> Receiver<Captured> {
+        capture_channel().1.clone()
+    }
+
+    fn key_counts(&self) -> (u64, u64) {
+        key_counts()
+    }
+}
+
+impl Drop for WindowsCapture {
+    fn drop(&mut self) {
+        // Safe at any moment, including mid-gesture: the releases still owed are settled by the
+        // ledger, which does not belong to the session and does not end with it.
+        finish_capture();
+        tracing::debug!("shortcut capture released");
+    }
+}
+
+impl std::fmt::Debug for WindowsCapture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowsCapture")
+            .field("state", &CAPTURE_STATE.load(Ordering::Relaxed))
+            .finish()
+    }
+}
+
 /// Install the hook on its dedicated message-pump thread (idempotent). Blocks briefly
 /// until the hook reports success or failure.
 fn ensure_hook() -> Result<()> {
@@ -232,8 +523,12 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
             return;
         }
     };
-    tracing::info!("low-level keyboard hook installed");
     LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
+    // PostThreadMessageW fails if the target has not created a message queue. The pump can
+    // register immediately after the ready signal, so create the queue before sending it.
+    let mut msg = MSG::default();
+    // SAFETY: this non-removing peek initializes the current thread's message queue.
+    let _ = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE) };
     // SAFETY: no preconditions; returns the calling thread's id.
     HOOK_THREAD.store(
         unsafe { windows::Win32::System::Threading::GetCurrentThreadId() },
@@ -257,7 +552,6 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
     // application would go on believing it was registered.
     //
     // `GetMessageW` parks the thread inside the call, which is exactly where it has to be.
-    let mut msg = MSG::default();
     // SAFETY: msg is a valid, owned MSG; standard blocking message pump. A return of -1 is an
     // error and 0 is WM_QUIT; both end the loop.
     while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
@@ -266,7 +560,14 @@ fn hook_thread(ready_tx: std::sync::mpsc::SyncSender<std::result::Result<(), Str
             continue;
         }
         if msg.message == WM_REBIND {
-            rebind_with_window_manager();
+            let _ = rebind_ack()
+                .0
+                .send((msg.wParam.0 as u32, rebind_with_window_manager()));
+            continue;
+        }
+        if msg.message == WM_REHOOK {
+            hook = reinstall(hook);
+            REHOOK_GEN.fetch_add(1, Ordering::Release);
             continue;
         }
         if msg.message == WM_HOTKEY && msg.wParam.0 as i32 == HOTKEY_ID {
@@ -370,7 +671,7 @@ fn watch_for_release(combo: ParsedCombo) {
 ///
 /// Called only from that thread: `RegisterHotKey` binds the registration to whoever calls it, and
 /// `WM_HOTKEY` then arrives in that thread's queue.
-fn rebind_with_window_manager() {
+fn rebind_with_window_manager() -> std::result::Result<(), String> {
     // SAFETY: unregistering our own id; harmless when nothing is registered.
     unsafe {
         let _ = UnregisterHotKey(None, HOTKEY_ID);
@@ -378,11 +679,14 @@ fn rebind_with_window_manager() {
     USE_REGISTERED.store(false, Ordering::Release);
 
     let combo = load_combo();
+    if combo.is_empty() {
+        return Ok(());
+    }
     if combo.trigger == 0 {
         // Modifiers on their own: `RegisterHotKey` will not take them, and the hook is the only
         // way. Not a failure -- the binding still works, by the other path.
         tracing::info!("modifier-only binding: the keyboard hook will detect it");
-        return;
+        return Ok(());
     }
 
     // `MOD_NOREPEAT`: holding the keys down must not fire over and over. The hook's own tracker
@@ -406,25 +710,28 @@ fn rebind_with_window_manager() {
         Ok(()) => {
             USE_REGISTERED.store(true, Ordering::Release);
             tracing::info!("hotkey registered with the window manager");
+            Ok(())
         }
         Err(e) => {
-            // Almost always because another application got there first. The hook is still
-            // watching, so the binding may yet work -- but it is now at the mercy of the hook
-            // chain, and the front end is told so it can say as much.
-            tracing::warn!(
-                "the window manager refused this combination ({e}); falling back to the keyboard \
-                 hook, which another application's hook can intercept"
-            );
+            tracing::warn!("the window manager refused this combination: {e}");
+            Err(format!("Windows could not register this shortcut: {e}"))
         }
     }
 }
 
 /// Install the hook, returning its handle.
 fn install_hook() -> std::result::Result<HHOOK, String> {
+    // SAFETY: no preconditions; the id of the thread making the call.
+    let thread = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
     // SAFETY: installing a global WH_KEYBOARD_LL hook with a valid callback; hmod may be
     // null for LL hooks (the callback lives in this module, not a DLL).
-    unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_kbd_proc), None, 0) }
-        .map_err(|e| format!("SetWindowsHookExW(WH_KEYBOARD_LL) failed: {e}"))
+    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_kbd_proc), None, 0) }
+        .map_err(|e| format!("SetWindowsHookExW(WH_KEYBOARD_LL) failed: {e}"))?;
+    // The installing thread is the one the callbacks are delivered to, and it must be the one
+    // parked in `GetMessageW`. Recorded because a hook installed from anywhere else is a hook
+    // that never fires, and nothing else about it looks wrong from the outside.
+    tracing::info!(?hook, installed_by_thread = thread, "keyboard hook installed");
+    Ok(hook)
 }
 
 /// Re-install the hook if nothing has been seen through it for a while.
@@ -434,11 +741,16 @@ fn install_hook() -> std::result::Result<HHOOK, String> {
 /// case costs two calls and nothing else, which is a good trade against a hotkey that is dead for
 /// the rest of the session.
 fn watchdog(current: HHOOK) -> HHOOK {
-    // Nothing to keep alive while the window manager holds the combination: the press arrives as
-    // `WM_HOTKEY` and the release from `watch_for_release`, so the hook is not on the path at all.
-    // Without this the watchdog reinstalls a system-wide hook every few seconds for the life of
-    // the process -- its only liveness signal is a key event, and on a registered binding no key
-    // event is ever expected. Measured in the log as a re-install every 5 seconds, for ever.
+    // Silence is ambiguous -- a hook that has been removed and a keyboard nobody is touching look
+    // exactly alike -- so this only acts while the hook is the thing that has to deliver. When the
+    // window manager holds the combination the press arrives as `WM_HOTKEY` and the release from
+    // `watch_for_release`, and re-installing on every quiet stretch would cost keystrokes for
+    // nothing: there is a window between unhook and hook in which events reach no one, and a
+    // measured 20-second run of the live tests loses a press edge to it.
+    //
+    // That leaves the shortcut editor, which needs the hook whatever the binding is. It does not
+    // wait for this: arming the grab re-installs the hook itself, at the one moment when the hook
+    // is known to be needed. See `rehook_and_wait`.
     if USE_REGISTERED.load(Ordering::Acquire) {
         return current;
     }
@@ -446,13 +758,22 @@ fn watchdog(current: HHOOK) -> HHOOK {
     if quiet < u64::from(WATCHDOG_MS) {
         return current;
     }
+    let (seen, _) = key_counts();
+    tracing::info!(keys_seen_so_far = seen, "no key through the hook for {quiet} ms; re-installing");
+    reinstall(current)
+}
+
+/// Take the hook down and put it straight back, on the hook thread.
+///
+/// There is no asking Windows whether a low-level hook is still installed, so the only way to be
+/// sure of one is to install it again. Two syscalls, and the handle the caller must keep.
+fn reinstall(current: HHOOK) -> HHOOK {
     // SAFETY: `current` came from SetWindowsHookExW on this thread and is unhooked once.
     unsafe {
         let _ = UnhookWindowsHookEx(current);
     }
     match install_hook() {
         Ok(h) => {
-            tracing::debug!("keyboard hook re-installed after {quiet} ms of silence");
             LAST_EVENT_MS.store(now_ms(), Ordering::Relaxed);
             HOOK_HEALTHY.store(true, Ordering::SeqCst);
             h
@@ -469,7 +790,7 @@ fn watchdog(current: HHOOK) -> HHOOK {
 
 /// Global hotkey detection backed by the process-wide low-level keyboard hook.
 ///
-/// Only one combo is active at a time process-wide (LocalWisper needs exactly one
+/// Only one combo is active at a time process-wide (OwlWhisp needs exactly one
 /// push-to-talk combo); creating a second `WindowsHotkey` shares the same hook and
 /// configuration.
 pub struct WindowsHotkey {
@@ -481,18 +802,6 @@ impl WindowsHotkey {
     pub fn new() -> Result<Self> {
         ensure_hook()?;
         Ok(Self { registered: false })
-    }
-
-    /// Post the rebind to the hook thread, which is the only one that may call `RegisterHotKey`.
-    fn ask_thread_to_rebind() {
-        let thread = HOOK_THREAD.load(Ordering::Acquire);
-        if thread == 0 {
-            return;
-        }
-        // SAFETY: a thread message to our own hook thread; failure only means it has gone.
-        unsafe {
-            let _ = PostThreadMessageW(thread, WM_REBIND, WPARAM(0), LPARAM(0));
-        }
     }
 
     fn publish_combo(combo: ParsedCombo) {
@@ -511,7 +820,13 @@ impl GlobalHotkey for WindowsHotkey {
     fn register(&mut self, spec: &HotkeySpec) -> Result<()> {
         let combo = parse_spec(spec)?;
         Self::publish_combo(combo);
-        Self::ask_thread_to_rebind();
+        if let Err(e) = rebind_and_wait() {
+            // The caller will treat this binding as absent. Clear the hook's copy too, or a
+            // failed registration could still fire the old listener behind that status.
+            Self::publish_combo(ParsedCombo::default());
+            let _ = rebind_and_wait();
+            return Err(e);
+        }
         self.registered = true;
         tracing::info!(?spec, "hotkey registered");
         Ok(())
@@ -520,7 +835,7 @@ impl GlobalHotkey for WindowsHotkey {
     fn unregister(&mut self) -> Result<()> {
         if self.registered {
             Self::publish_combo(ParsedCombo::default());
-            Self::ask_thread_to_rebind();
+            rebind_and_wait()?;
             self.registered = false;
             tracing::info!("hotkey unregistered");
         }
@@ -623,6 +938,284 @@ mod live_tests {
         pressed == Ok(HotkeyEvent::Pressed) && released == Ok(HotkeyEvent::Released)
     }
 
+    /// The shortcut editor's grab, for real: arm it, press Win+F13, and see it come back.
+    ///
+    /// This is the case the old, window-level capture could not do at all, and the reason the grab
+    /// exists. It cannot be tested without a hook, because the whole claim is about what the hook
+    /// sees that a window does not.
+    ///
+    /// Run with
+    /// `cargo test -p lw-platform --lib live_tests::the_grab_reads_the_windows_key -- --ignored`.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn the_grab_reads_the_windows_key() {
+        const VK_LWIN: u16 = 0x5B;
+        const VK_F13: u16 = 0x7C;
+
+        let grab = WindowsCapture::new().expect("the hook installs");
+        let events = grab.events();
+
+        key(VK_LWIN, false);
+        key(VK_F13, false);
+        let got = events.recv_timeout(Duration::from_millis(1500));
+        key(VK_F13, true);
+        key(VK_LWIN, true);
+        drop(grab);
+
+        assert_eq!(
+            got,
+            Ok(Captured::Combo(crate::hotkey::RawCombo {
+                mods: MOD_WIN,
+                vk: VK_F13,
+            })),
+        );
+        assert_eq!(crate::hotkey::vk_name(VK_F13).as_deref(), Some("f13"));
+    }
+
+    /// Every modifier held is part of what the grab reads, including the first one pressed.
+    ///
+    /// This is a regression test with a date on it. Arming the grab puts the keyboard hook back
+    /// first, and that used to be a message posted to the hook thread and not waited for -- so a
+    /// key pressed in the microseconds while the hook was down was seen by nobody, and Ctrl+Meta+D
+    /// came back as Meta+D, or as nothing at all. Pressing immediately after arming, which is what
+    /// this does, is exactly the case that broke.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn no_modifier_is_lost_between_arming_the_grab_and_the_first_key() {
+        const VK_LCONTROL: u16 = 0xA2;
+        const VK_LWIN: u16 = 0x5B;
+        const VK_F13: u16 = 0x7C;
+
+        for _ in 0..5 {
+            let grab = WindowsCapture::new().expect("the hook installs");
+            let events = grab.events();
+            for k in [VK_LCONTROL, VK_LWIN, VK_F13] {
+                key(k, false);
+            }
+            let got = events.recv_timeout(Duration::from_millis(1500));
+            for k in [VK_F13, VK_LWIN, VK_LCONTROL] {
+                key(k, true);
+            }
+            drop(grab);
+            assert_eq!(
+                got,
+                Ok(Captured::Combo(crate::hotkey::RawCombo {
+                    mods: MOD_CTRL | MOD_WIN,
+                    vk: VK_F13,
+                })),
+            );
+        }
+    }
+
+    /// The grab, in a process that already has a hotkey registered with the window manager.
+    ///
+    /// That is the running application, and it is not the same process the other grab tests
+    /// describe: `RegisterHotKey` has succeeded, `USE_REGISTERED` is set, and the hook is on
+    /// nobody's path until the editor wants it. If the grab only works in a process that has
+    /// never registered anything, it does not work.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn the_grab_works_beside_a_hotkey_the_window_manager_holds() {
+        const VK_LWIN: u16 = 0x5B;
+        const VK_F13: u16 = 0x7C;
+
+        // Not the application's own binding: a combination another process already registered
+        // cannot be registered here, and the test would then prove nothing.
+        let mut hotkey = WindowsHotkey::new().expect("the hook installs");
+        hotkey
+            .register(&HotkeySpec {
+                modifiers: vec!["ctrl".into()],
+                trigger: "f12".into(),
+            })
+            .expect("ctrl+f12 registers");
+        // `register` must wait for the hook thread's actual Windows registration.
+        assert!(
+            USE_REGISTERED.load(Ordering::Acquire),
+            "this test is meaningless unless the window manager took the hotkey",
+        );
+
+        let grab = WindowsCapture::new().expect("the hook installs");
+        let events = grab.events();
+        key(VK_LWIN, false);
+        key(VK_F13, false);
+        let got = events.recv_timeout(Duration::from_millis(1500));
+        key(VK_F13, true);
+        key(VK_LWIN, true);
+        drop(grab);
+        let _ = hotkey.unregister();
+
+        assert_eq!(
+            got,
+            Ok(Captured::Combo(crate::hotkey::RawCombo {
+                mods: MOD_WIN,
+                vk: VK_F13,
+            })),
+        );
+    }
+
+    /// Two modifiers and no key at all -- the Ctrl+Meta push-to-talk, read off the keyboard.
+    ///
+    /// Settled on the way *up*, which is what tells it apart from a user still on their way to
+    /// Ctrl+Meta+D, and why the grab has to stay on the keyboard after the last key-down.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn the_grab_reads_two_modifiers_with_no_key() {
+        const VK_LCONTROL: u16 = 0xA2;
+        const VK_LWIN: u16 = 0x5B;
+
+        let grab = WindowsCapture::new().expect("the hook installs");
+        let events = grab.events();
+
+        key(VK_LCONTROL, false);
+        key(VK_LWIN, false);
+        assert!(
+            events.try_recv().is_err(),
+            "nothing is decided while the keys are still down",
+        );
+        key(VK_LWIN, true);
+        key(VK_LCONTROL, true);
+        let got = events.recv_timeout(Duration::from_millis(1500));
+        drop(grab);
+
+        assert_eq!(
+            got,
+            Ok(Captured::Combo(crate::hotkey::RawCombo {
+                mods: MOD_CTRL | MOD_WIN,
+                vk: 0,
+            })),
+        );
+        assert_eq!(crate::hotkey::vk_name(0).as_deref(), Some("none"));
+    }
+
+    /// Whatever the grab took on the way down, it takes on the way up -- after it has let go.
+    ///
+    /// This is the stuck-key test. The grab releases the keyboard the instant it has read a
+    /// combination, which is while the user's fingers are still down; the releases that follow
+    /// belong to presses no other application ever saw, and letting them through leaves Ctrl held
+    /// down everywhere. The handle is dropped here too, exactly as the editor drops it, to show
+    /// that the obligation does not die with the session.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn the_releases_of_swallowed_presses_are_swallowed_after_the_grab_has_let_go() {
+        const VK_LCONTROL: u16 = 0xA2;
+        const VK_F13: u16 = 0x7C;
+
+        let before = OWED_RELEASES_TAKEN.load(Ordering::Relaxed);
+        let grab = WindowsCapture::new().expect("the hook installs");
+        let events = grab.events();
+
+        key(VK_LCONTROL, false);
+        key(VK_F13, false);
+        assert!(events.recv_timeout(Duration::from_millis(1500)).is_ok());
+        assert_eq!(
+            CAPTURE_STATE.load(Ordering::Acquire),
+            CAPTURE_OFF,
+            "the keyboard goes back as soon as the combination is read, not seconds later",
+        );
+        drop(grab);
+
+        key(VK_F13, true);
+        key(VK_LCONTROL, true);
+        for _ in 0..100 {
+            if OWED_RELEASES_TAKEN.load(Ordering::Relaxed) >= before + 2 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the releases of the swallowed presses reached the rest of the system");
+    }
+
+    /// A key already held when the grab opens keeps its own release.
+    ///
+    /// The other half of the same rule, and the one that actually sticks keys: the application in
+    /// front saw that press, so taking the release would leave it holding a key for ever. Nothing
+    /// is owed for a press the grab never took.
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn a_key_already_down_when_the_grab_opens_keeps_its_release() {
+        const VK_LSHIFT: u16 = 0xA0;
+        const VK_F13: u16 = 0x7C;
+
+        key(VK_LSHIFT, false);
+        let before = OWED_RELEASES_TAKEN.load(Ordering::Relaxed);
+        let grab = WindowsCapture::new().expect("the hook installs");
+        let events = grab.events();
+        key(VK_F13, false);
+        let _ = events.recv_timeout(Duration::from_millis(1500));
+        key(VK_F13, true);
+        key(VK_LSHIFT, true);
+        drop(grab);
+        std::thread::sleep(Duration::from_millis(150));
+
+        // One release owed (F13's, whose press the grab took) and not two: Shift went down before
+        // the grab existed, so its release was never the grab's to take.
+        assert_eq!(
+            OWED_RELEASES_TAKEN.load(Ordering::Relaxed),
+            before + 1,
+            "the grab took the release of a key it never took the press of",
+        );
+    }
+
+    /// Press `keys` in order, let go in reverse, and report what the shortcut editor's grab read.
+    fn capture_probe(keys: &[u16]) -> Option<Captured> {
+        let grab = WindowsCapture::new().ok()?;
+        let events = grab.events();
+        for k in keys {
+            key(*k, false);
+        }
+        let first = events.recv_timeout(Duration::from_millis(800)).ok();
+        for k in keys.iter().rev() {
+            key(*k, true);
+        }
+        // A modifiers-only gesture is only settled on the way up.
+        let result = first.or_else(|| events.recv_timeout(Duration::from_millis(800)).ok());
+        drop(grab);
+        result
+    }
+
+    /// What the grab reads for each shape of combination, printed rather than asserted.
+    ///
+    /// Every combination here is built from `f13`/`f14`, which no keyboard has and nothing in
+    /// Windows listens for. That restriction is the whole design of this test and not an
+    /// incidental choice: it injects into the *live* session, so a combination the shell
+    /// understands is one the shell carries out. An earlier version of this asked whether the
+    /// hook is offered `win+d` and `win+space` before the shell is, and the answer cost a real
+    /// user a new virtual desktop, every window minimised and a switched keyboard layout. What
+    /// the hook sees does not depend on which key completes the combination, so the question is
+    /// answerable without touching a single key the shell knows.
+    ///
+    /// `cargo test -p lw-platform --lib live_tests::report_what_the_grab_reads -- --ignored --nocapture`
+    #[test]
+    #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    fn report_what_the_grab_reads() {
+        const LWIN: u16 = 0x5B;
+        const LCTRL: u16 = 0xA2;
+        const LSHIFT: u16 = 0xA0;
+        const F13: u16 = 0x7C;
+        const F14: u16 = 0x7D;
+
+        for (name, keys) in [
+            ("Ctrl+F13", &[LCTRL, F13][..]),
+            ("Meta+F13", &[LWIN, F13][..]),
+            ("Meta+F14", &[LWIN, F14][..]),
+            ("Ctrl+Meta+F13", &[LCTRL, LWIN, F13][..]),
+            ("Ctrl+Shift+F14", &[LCTRL, LSHIFT, F14][..]),
+            ("Ctrl+Meta (no key)", &[LCTRL, LWIN][..]),
+        ] {
+            let read = capture_probe(keys);
+            let shown = match read {
+                Some(Captured::Combo(c)) => format!(
+                    "mods={:#06b} key={}",
+                    c.mods,
+                    crate::hotkey::vk_name(c.vk).unwrap_or_else(|| format!("{:#x}", c.vk)),
+                ),
+                Some(Captured::Cancelled) => "cancelled".into(),
+                None => "NOTHING READ".into(),
+            };
+            println!("{name:<22} {shown}");
+        }
+    }
+
     /// Inject a combination this process is **not** bound to, so it passes through the chain.
     ///
     /// The point is to drive another running application's hotkey from here. A hook that matches a
@@ -680,6 +1273,15 @@ mod live_tests {
             (&["alt"][..], "space"),
             (&["ctrl"][..], "d"),
             (&["ctrl", "alt"][..], "f13"),
+            // Meta combinations, on keys nothing owns. Never `win+d`, `win+space` or anything
+            // else the shell acts on: this test injects into the live session, and a combination
+            // the shell understands is a combination the shell *does*. Asking whether the hook
+            // sees `win+d` once cost a real user a new virtual desktop, every window minimised
+            // and a switched keyboard layout. `f13`/`f14` answer the same question about the hook
+            // and mean nothing to anybody else.
+            (&["win"][..], "f13"),
+            (&["ctrl", "win"][..], "f14"),
+            (&["ctrl", "win"][..], "none"),
         ] {
             let ok = probe(mods, trigger);
             println!(

@@ -1,4 +1,4 @@
-# Package LocalWisper for Windows into a portable folder, a zip, and (where the tool is present)
+# Package OwlWhisp for Windows into a portable folder, a zip, and (where the tool is present)
 # an NSIS installer.
 #
 # This replaces the Tauri bundler, which went when the WebView front end did. Nothing here needs a
@@ -15,12 +15,14 @@
 #   pwsh -File scripts\build\package-windows.ps1 [-Target aarch64-pc-windows-msvc] [-NoInstaller]
 #
 # Output, under dist\:
-#   LocalWisper-<version>-<target>\        the portable folder; run the exe in place
-#   LocalWisper-<version>-<target>.zip     the same, zipped
-#   LocalWisper-<version>-<target>-setup.exe  only when makensis is on PATH
+#   OwlWhisp-<version>-<target>\        the portable folder; run the exe in place
+#   OwlWhisp-<version>-<target>.zip     the same, zipped
+#   OwlWhisp-<version>-<target>-setup.exe  only when makensis is on PATH
 
 param(
     [string]$Target = "aarch64-pc-windows-msvc",
+    [ValidateSet("win-arm64", "win-x64")]
+    [string]$Platform = "",
     [switch]$NoInstaller
 )
 
@@ -36,39 +38,88 @@ if ($manifest -notmatch '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"
 }
 $version = $Matches[1]
 
-$exe = Join-Path $root "target\$Target\release\localwisper-gui.exe"
+$exe = Join-Path $root "target\$Target\release\owlwhisp.exe"
 if (-not (Test-Path $exe)) {
     # Fall back to a host-target build, which is what a plain `cargo build --release` produces.
-    $exe = Join-Path $root "target\release\localwisper-gui.exe"
+    $exe = Join-Path $root "target\release\owlwhisp.exe"
 }
 if (-not (Test-Path $exe)) {
-    throw "localwisper-gui.exe was not found. Build it first: cargo build -p lw-gui --release"
+    throw "owlwhisp.exe was not found. Build it first: cargo build -p lw-gui --release"
 }
 
-$runtime = Join-Path $root "runtime\win-arm64"
+$Platform = if ($Platform) { $Platform } elseif ($Target -like "aarch64-*") { "win-arm64" } else { "win-x64" }
+$runtime = Join-Path $root "runtime\$Platform"
 if (-not (Test-Path $runtime)) {
-    throw "runtime\win-arm64 is missing. Fetch it first: scripts\runtime\fetch-runtime.ps1"
+    throw "runtime\$Platform is missing. Fetch it first: scripts\runtime\fetch-runtime.ps1 -Platform $Platform"
+}
+# A directory alone is not a usable runtime. Without this DLL the application can still show its
+# model catalogue, which made an incomplete installer look like a model problem at first use.
+if (-not (Test-Path (Join-Path $runtime "onnxruntime.dll"))) {
+    throw "runtime\$Platform\onnxruntime.dll is missing. Fetch the runtime before packaging: scripts\runtime\fetch-runtime.ps1 -Platform $Platform"
+}
+if ($Platform -eq "win-x64") {
+    foreach ($file in @(
+        "onnxruntime_providers_cuda.dll", "onnxruntime_providers_shared.dll",
+        "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll",
+        "cufft64_12.dll", "curand64_10.dll", "cudnn64_9.dll"
+    )) {
+        if (-not (Test-Path (Join-Path $runtime $file))) {
+            throw "CUDA package is incomplete: runtime\$Platform\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform win-x64."
+        }
+    }
+    foreach ($file in @(
+        "onnxruntime_providers_tensorrt.dll", "nvinfer_10.dll",
+        "nvinfer_plugin_10.dll", "nvonnxparser_10.dll",
+        "nvinfer_builder_resource_sm89_10.dll"
+    )) {
+        if (-not (Test-Path (Join-Path $runtime $file))) {
+            throw "TensorRT package is incomplete: runtime\$Platform\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform win-x64."
+        }
+    }
+    $directMlRuntime = Join-Path $root "runtime\win-x64-directml"
+    foreach ($file in @("onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll")) {
+        if (-not (Test-Path (Join-Path $directMlRuntime $file))) {
+            throw "DirectML package is incomplete: runtime\win-x64-directml\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform win-x64."
+        }
+    }
 }
 
-$name = "LocalWisper-$version-$Target"
+$name = "OwlWhisp-$version-$Target"
 $stage = Join-Path $root "dist\$name"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 Write-Host "== Staging $name ==" -ForegroundColor Cyan
-Copy-Item $exe (Join-Path $stage "LocalWisper.exe")
+Copy-Item $exe (Join-Path $stage "OwlWhisp.exe")
 
 # The runtime keeps its own folder, because that is where the application looks for it: the loader
-# resolves `runtime\win-arm64` relative to the executable.
-$runtimeDest = Join-Path $stage "runtime\win-arm64"
+# resolves `runtime\<platform>` relative to the executable.
+$runtimeDest = Join-Path $stage "runtime\$Platform"
 New-Item -ItemType Directory -Force -Path $runtimeDest | Out-Null
 Copy-Item -Recurse -Force (Join-Path $runtime "*") $runtimeDest
+if ($Platform -eq "win-x64") {
+    $directMlDest = Join-Path $stage "runtime\win-x64-directml"
+    New-Item -ItemType Directory -Force -Path $directMlDest | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $directMlRuntime "*") $directMlDest
+}
+
+# Model downloads are verified against pinned manifests. They are application data, not part of
+# the executable, so the weights stay out of the installer; the manifests must travel with it or
+# a fresh installed copy cannot download even the default Parakeet model.
+$manifests = Join-Path $root "models\manifests"
+if (-not (Test-Path $manifests)) {
+    throw "models\manifests is missing; cannot package verified model downloads."
+}
+$manifestsDest = Join-Path $stage "models\manifests"
+New-Item -ItemType Directory -Force -Path $manifestsDest | Out-Null
+Copy-Item -Recurse -Force (Join-Path $manifests "*") $manifestsDest
 
 # Licences travel with the binaries they cover. This is not decoration: the ONNX Runtime and
 # Qualcomm files are redistributed under terms that require their notices, and `option-ext` is
 # MPL-2.0 (see docs\licenses.md).
 Copy-Item (Join-Path $root "LICENSE") $stage -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root "docs\licenses.md") (Join-Path $stage "LICENSES.md")
+Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $stage
 
 $files = (Get-ChildItem -Recurse -File $stage).Count
 $bytes = (Get-ChildItem -Recurse -File $stage | Measure-Object -Property Length -Sum).Sum
@@ -93,7 +144,7 @@ if (-not $makensis) {
 }
 
 Write-Host "== Building the installer ==" -ForegroundColor Cyan
-$nsi = Join-Path $PSScriptRoot "localwisper.nsi"
+$nsi = Join-Path $PSScriptRoot "owlwhisp.nsi"
 & $makensis.Source "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$root\dist\$name-setup.exe" $nsi
 if ($LASTEXITCODE -ne 0) { throw "makensis exited with $LASTEXITCODE" }
 Write-Host "wrote dist\$name-setup.exe"

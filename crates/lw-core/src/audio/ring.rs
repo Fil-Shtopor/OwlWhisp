@@ -6,6 +6,7 @@
 //! increasing absolute sample index lets consumers reason about positions across overwrites.
 
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 /// Thread-safe rolling buffer of recent audio.
@@ -15,7 +16,7 @@ pub struct RingBuffer {
 }
 
 struct Inner {
-    buf: Vec<f32>,
+    buf: VecDeque<f32>,
     capacity: usize,
     /// Total samples ever written (absolute index of the next write).
     written: u64,
@@ -26,7 +27,7 @@ impl RingBuffer {
     pub fn new(capacity: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
-                buf: Vec::with_capacity(capacity),
+                buf: VecDeque::with_capacity(capacity.max(1)),
                 capacity: capacity.max(1),
                 written: 0,
             })),
@@ -38,26 +39,35 @@ impl RingBuffer {
         let mut g = self.inner.lock();
         g.written += samples.len() as u64;
         let cap = g.capacity;
-        if samples.len() >= cap {
-            g.buf.clear();
-            g.buf.extend_from_slice(&samples[samples.len() - cap..]);
-            return;
-        }
-        let overflow = (g.buf.len() + samples.len()).saturating_sub(cap);
-        if overflow > 0 {
-            g.buf.drain(0..overflow);
-        }
-        g.buf.extend_from_slice(samples);
+        let tail = &samples[samples.len().saturating_sub(cap)..];
+        let overflow = (g.buf.len() + tail.len()).saturating_sub(cap);
+        g.buf.drain(..overflow);
+        g.buf.extend(tail.iter().copied());
     }
 
     /// Snapshot the current contents (oldest → newest).
     pub fn snapshot(&self) -> Vec<f32> {
-        self.inner.lock().buf.clone()
+        self.inner.lock().buf.iter().copied().collect()
+    }
+
+    /// Return only samples written since an absolute index. If the reader fell behind the
+    /// rolling window, the returned index advances to the oldest retained sample.
+    pub fn read_from(&self, index: u64) -> (u64, Vec<f32>) {
+        let g = self.inner.lock();
+        let oldest = g.written - g.buf.len() as u64;
+        let start = index.max(oldest).min(g.written);
+        let samples = g.buf.iter().skip((start - oldest) as usize).copied().collect();
+        (start, samples)
     }
 
     /// Number of samples currently buffered.
     pub fn len(&self) -> usize {
         self.inner.lock().buf.len()
+    }
+
+    /// Maximum number of samples retained before the oldest are overwritten.
+    pub fn capacity(&self) -> usize {
+        self.inner.lock().capacity
     }
 
     /// Whether the buffer currently holds no samples.
@@ -113,5 +123,15 @@ mod tests {
         rb.reset();
         assert!(rb.is_empty());
         assert_eq!(rb.total_written(), 0);
+    }
+
+    #[test]
+    fn incremental_reader_survives_wraparound() {
+        let rb = RingBuffer::new(4);
+        rb.push(&[1.0, 2.0, 3.0]);
+        assert_eq!(rb.read_from(1), (1, vec![2.0, 3.0]));
+        rb.push(&[4.0, 5.0, 6.0]);
+        assert_eq!(rb.read_from(2), (2, vec![3.0, 4.0, 5.0, 6.0]));
+        assert_eq!(rb.read_from(0), (2, vec![3.0, 4.0, 5.0, 6.0]));
     }
 }

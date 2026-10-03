@@ -1,4 +1,4 @@
-# Build (if needed) and launch the LocalWisper desktop app from a working copy.
+# Build (if needed) and launch the OwlWhisp desktop app from a working copy.
 #
 # Does the three things a fresh checkout needs before the GUI can run:
 #   1. builds the Rust app for the host target;
@@ -28,21 +28,22 @@ if (-not $SkipBuild) {
 }
 
 $exeDir = Join-Path $root "target\release"
-$exe = Join-Path $exeDir "localwisper-gui.exe"
+$exe = Join-Path $exeDir "owlwhisp.exe"
 if (-not (Test-Path $exe)) { throw "not built: $exe" }
 
-# 2. Runtime DLLs beside the executable (the app looks in <exe dir>\runtime\win-arm64).
+# 2. Runtime DLLs beside the executable.
 $runtimeSrc = Join-Path $root "runtime"
 $runtimeLink = Join-Path $exeDir "runtime"
-if ((Test-Path (Join-Path $runtimeSrc "win-arm64\onnxruntime.dll")) -and -not (Test-Path $runtimeLink)) {
+$platform = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq "Arm64") { "win-arm64" } else { "win-x64" }
+if ((Test-Path (Join-Path $runtimeSrc "$platform\onnxruntime.dll")) -and -not (Test-Path $runtimeLink)) {
     cmd /c mklink /J "$runtimeLink" "$runtimeSrc" | Out-Null
 }
-if (-not (Test-Path (Join-Path $runtimeLink "win-arm64\onnxruntime.dll"))) {
+if (-not (Test-Path (Join-Path $runtimeLink "$platform\onnxruntime.dll"))) {
     Write-Warning "ONNX Runtime not staged - run scripts\runtime\fetch-runtime.ps1 first (the app will report an engine error)."
 }
 
 # 3. Model + optional QNN context cache in the app-data directory.
-$appData = Join-Path $env:APPDATA "ai.localwisper.app"
+$appData = Join-Path $env:APPDATA "ai.owlwhisp.app"
 New-Item -ItemType Directory -Force -Path $appData | Out-Null
 if ($ModelDir) {
     if (-not (Test-Path $ModelDir)) { throw "model directory not found: $ModelDir" }

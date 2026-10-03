@@ -1,4 +1,4 @@
-# LocalWisper — Phase 0 Research
+# OwlWhisp — Phase 0 Research
 
 _Compiled 2026-08-26. This document is the evidence base for every architectural decision in
 [`architecture.md`](architecture.md). It draws on twelve deep-dive dossiers (kept in the project's
@@ -111,7 +111,7 @@ CPU engine.
 
 | Component | SPDX / terms | Redistribution | 
 |---|---|---|
-| LocalWisper app code | **Apache-2.0** | ours |
+| OwlWhisp app code | **Apache-2.0** | ours |
 | NVIDIA Parakeet TDT 0.6B v3 weights (and istupakov / sherpa ONNX exports) | **CC-BY-4.0** | ✅ with attribution (name, link, licence URI, mark modifications) **[V]** |
 | ONNX Runtime | **MIT** | ✅ **[V]** |
 | `onnxruntime-qnn` EP (`onnxruntime_providers_qnn.dll`) | **MIT** | ✅ **[V]** |

@@ -1,4 +1,4 @@
-# LocalWisper documentation
+# OwlWhisp documentation
 
 | Document | What it covers |
 |---|---|

@@ -188,7 +188,17 @@ impl State {
             Message::FinishedOne(r) => {
                 self.running = false;
                 self.started = None;
-                self.single = Arc::try_unwrap(r).ok();
+                self.single = Some((*r).clone());
+                if let Some(Ok(report)) = &self.single {
+                    if let Some(measurement) = lw_app::measurements::from_report(report) {
+                        let path = lw_app::measurements::path_for(&lw_app::paths::settings_path());
+                        let mut measurements = lw_app::LocalMeasurements::load(&path);
+                        measurements.record(&report.model_id, measurement);
+                        if let Err(e) = measurements.save(&path) {
+                            tracing::warn!(%e, "could not save local accelerator measurement");
+                        }
+                    }
+                }
                 return Task::none();
             }
 
@@ -226,9 +236,19 @@ impl State {
             Message::Finished(r) => {
                 self.running = false;
                 self.started = None;
-                // The Arc exists only because iced messages must be Clone; nothing else holds
-                // a reference by the time it arrives, so unwrapping it is the normal path.
-                self.result = Arc::try_unwrap(r).ok();
+                self.result = Some((*r).clone());
+                if let Some(Ok(suite)) = &self.result {
+                    let path = lw_app::measurements::path_for(&lw_app::paths::settings_path());
+                    let mut measurements = lw_app::LocalMeasurements::load(&path);
+                    for run in &suite.runs {
+                        if let Some(measurement) = lw_app::measurements::from_report(run) {
+                            measurements.record(&suite.model_id, measurement);
+                        }
+                    }
+                    if let Err(e) = measurements.save(&path) {
+                        tracing::warn!(%e, "could not save local accelerator measurements");
+                    }
+                }
             }
         }
         Task::none()

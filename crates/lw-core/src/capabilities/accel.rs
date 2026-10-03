@@ -1,14 +1,13 @@
-//! The accelerators LocalWisper knows how to ask ONNX Runtime for.
+//! The accelerators OwlWhisp knows how to ask ONNX Runtime for.
 //!
 //! One vocabulary, used by settings (what the user picked), detection (what this machine has),
 //! the engine (what it will try), and the UI (what actually ran). Adding a vendor means adding a
 //! variant here and staging its execution-provider library — not touching the audio path, the
 //! text pipeline or the UI.
 //!
-//! Every accelerator except [`Accelerator::Cpu`] reaches ONNX Runtime through the **plugin
-//! execution-provider** mechanism (`RegisterExecutionProviderLibrary`), which is the same
-//! mechanism the verified Qualcomm NPU path already uses. That is why the list can grow without
-//! rebuilding ONNX Runtime: a vendor ships a provider library, we register it by name.
+//! Most accelerators reach ONNX Runtime through the plugin execution-provider mechanism
+//! (`RegisterExecutionProviderLibrary`). The Windows x64 CUDA package is an exception: its
+//! provider is built into a matched GPU edition of ONNX Runtime and added to each CUDA session.
 //!
 //! Two things a variant here does **not** promise:
 //!
@@ -44,7 +43,7 @@ impl AcceleratorKind {
     }
 }
 
-/// An execution provider LocalWisper can run the encoder on.
+/// An execution provider OwlWhisp can run the encoder on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Accelerator {
@@ -77,12 +76,11 @@ pub enum Accelerator {
 /// path it is both the fastest and the lowest-power option by a wide margin (RTF 0.0160 against
 /// 0.0324 on the CPU).
 ///
-/// A GPU comes *after* the CPU because the only GPU measurement this project has shows a GPU
-/// losing: an integrated Adreno at RTF 0.0862 against 0.0324 for the same machine's 18-core CPU.
-/// A discrete desktop GPU would very likely win, but "very likely" is not a measurement, and
-/// silently choosing a path that is 2.7x slower on the one machine we can check is not a default
-/// worth shipping. A GPU is one click away in Settings, and the benchmark panel exists precisely
-/// so a user can find out which is faster on their machine rather than trusting an ordering.
+/// A GPU comes *after* the CPU in this hardware-only fallback because speed also depends on the
+/// model graph. With the bundled Parakeet INT8 encoder, CUDA on an RTX 4080 was about equal to a
+/// Core i9 CPU; with the optional full-precision encoder it was about 8x faster. Settings offers
+/// that model download and selects the GPU after a successful test. A GPU is also selectable for
+/// other verified model/provider combinations rather than relying on this static order.
 ///
 /// Within GPUs, vendor-specific providers precede the portable one: when CUDA or CoreML is
 /// actually present it is the better-optimized path.
@@ -129,7 +127,7 @@ impl Accelerator {
             Accelerator::TensorRt => "NVIDIA GPU (TensorRT)",
             Accelerator::DirectMl => "GPU (DirectML)",
             Accelerator::CoreMl => "Apple Neural Engine / GPU",
-            Accelerator::OpenVino => "Intel CPU / GPU / NPU (OpenVINO)",
+            Accelerator::OpenVino => "Intel NPU (OpenVINO)",
             Accelerator::VitisAi => "AMD NPU (Ryzen AI)",
         }
     }
@@ -188,8 +186,9 @@ impl Accelerator {
         let macos = cfg!(target_os = "macos");
         match self {
             Accelerator::Cpu => None,
-            // Qualcomm ships Windows-only; Snapdragon Linux is not a target we stage for.
-            Accelerator::QnnNpu => windows.then_some("onnxruntime_providers_qnn.dll"),
+            // Qualcomm ships QNN for Windows on Snapdragon ARM64 only.
+            Accelerator::QnnNpu => cfg!(all(target_os = "windows", target_arch = "aarch64"))
+                .then_some("onnxruntime_providers_qnn.dll"),
             Accelerator::WebGpu => Some(if windows {
                 "onnxruntime_providers_webgpu.dll"
             } else if macos {
@@ -207,7 +206,8 @@ impl Accelerator {
             } else {
                 "libonnxruntime_providers_tensorrt.so"
             }),
-            Accelerator::DirectMl => windows.then_some("onnxruntime_providers_dml.dll"),
+            // DirectML is compiled into the Windows ML ONNX Runtime core, not a plugin DLL.
+            Accelerator::DirectMl => None,
             Accelerator::CoreMl => macos.then_some("libonnxruntime_providers_coreml.dylib"),
             Accelerator::OpenVino => Some(if windows {
                 "onnxruntime_providers_openvino.dll"
@@ -233,7 +233,40 @@ impl Accelerator {
 
     /// Whether this accelerator can exist at all on the platform this binary was built for.
     pub fn supported_on_this_platform(self) -> bool {
-        self == Accelerator::Cpu || self.library_file().is_some()
+        match self {
+            Accelerator::Cpu => true,
+            Accelerator::DirectMl => cfg!(target_os = "windows"),
+            _ => self.library_file().is_some(),
+        }
+    }
+
+    /// Whether this provider is relevant to the physical hardware detected on a machine.
+    /// `devices` is the post-probe ONNX Runtime device summary; `cpu_brand` comes from the OS.
+    /// This intentionally differs from [`Self::supported_on_this_platform`], which only answers
+    /// whether the provider can run on this OS/architecture.
+    pub fn relevant_to_hardware(self, cpu_brand: &str, devices: &[String]) -> bool {
+        let cpu = cpu_brand.to_ascii_lowercase();
+        let devices: Vec<String> = devices.iter().map(|d| d.to_ascii_lowercase()).collect();
+        let has_gpu = devices.iter().any(|d| d.contains(" gpu "));
+        let has_nvidia = devices.iter().any(|d| d.contains("nvidia") && d.contains(" gpu "));
+        // This provider is currently probed for an NPU, so an ordinary Intel CPU or integrated
+        // GPU must not be presented as an available OpenVINO NPU.
+        let has_intel_npu = cpu.contains("core ultra")
+            || devices.iter().any(|d| d.contains("intel") && d.contains(" npu "));
+        match self {
+            Accelerator::Cpu => true,
+            Accelerator::QnnNpu => {
+                cfg!(all(target_os = "windows", target_arch = "aarch64"))
+                    && (cpu.contains("qualcomm")
+                        || cpu.contains("snapdragon")
+                        || cpu.contains("oryon"))
+            }
+            Accelerator::VitisAi => cpu.contains("ryzen ai") || cpu.contains("xdna"),
+            Accelerator::OpenVino => has_intel_npu,
+            Accelerator::Cuda | Accelerator::TensorRt => has_nvidia,
+            Accelerator::DirectMl | Accelerator::WebGpu => has_gpu,
+            Accelerator::CoreMl => cfg!(target_os = "macos"),
+        }
     }
 }
 
@@ -310,12 +343,36 @@ mod tests {
     #[test]
     fn platform_only_providers_are_absent_off_platform() {
         if cfg!(target_os = "windows") {
-            assert!(Accelerator::QnnNpu.library_file().is_some());
+            assert_eq!(
+                Accelerator::QnnNpu.library_file().is_some(),
+                cfg!(target_arch = "aarch64")
+            );
             assert!(Accelerator::CoreMl.library_file().is_none());
         }
         if cfg!(target_os = "macos") {
             assert!(Accelerator::CoreMl.library_file().is_some());
             assert!(Accelerator::DirectMl.library_file().is_none());
         }
+    }
+
+    #[test]
+    fn hardware_relevance_uses_cpu_brand_and_gpu_adapters() {
+        let devices = vec![
+            "WebGpuExecutionProvider: NVIDIA GPU (id 10208)".into(),
+            "WebGpuExecutionProvider: Intel Corporation GPU (id 42888)".into(),
+        ];
+        assert!(!Accelerator::QnnNpu.relevant_to_hardware("Intel Core i9", &devices));
+        assert!(!Accelerator::VitisAi.relevant_to_hardware("Intel Core i9", &devices));
+        assert!(Accelerator::TensorRt.relevant_to_hardware("Intel Core i9", &devices));
+        assert!(!Accelerator::OpenVino.relevant_to_hardware("Intel Core i9", &devices));
+        assert!(Accelerator::OpenVino.relevant_to_hardware("Intel Core Ultra 7", &devices));
+        assert!(Accelerator::WebGpu.relevant_to_hardware("Intel Core i9", &devices));
+        let physical = vec!["Windows display: NVIDIA GeForce RTX 4080 GPU (PCI\\VEN_10DE)".into()];
+        assert!(Accelerator::Cuda.relevant_to_hardware("Intel Core i9", &physical));
+        assert!(Accelerator::VitisAi.relevant_to_hardware("AMD Ryzen AI 9", &[]));
+        assert_eq!(
+            Accelerator::QnnNpu.relevant_to_hardware("Qualcomm Snapdragon X", &[]),
+            cfg!(all(target_os = "windows", target_arch = "aarch64"))
+        );
     }
 }
