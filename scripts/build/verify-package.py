@@ -100,7 +100,9 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
             require(result.returncode == 0, f"packaged diagnostic failed: {result.stderr[-2000:]}")
             report = json.loads(result.stdout)
             require(report["runtime_error"] is None, f"packaged runtime did not load: {report['runtime_error']}")
-            require(Path(report["runtime_dir"]).resolve() == runtime.resolve(), "diagnostic loaded a runtime outside the package")
+            # Rust canonicalizes Windows paths with the extended-length prefix (\\?\).
+            # Compare directory identity so equivalent native path spellings remain valid.
+            require(Path(report["runtime_dir"]).samefile(runtime), "diagnostic loaded a runtime outside the package")
             require(any(a["id"] == "cpu" and a["usable"] for a in report["accelerators"]), "packaged CPU provider is unusable")
             require(report["sherpa_enabled"] == info["sherpa"], "metadata disagrees with compiled engine features")
             print(f"Native packaged runtime loaded: {report['os']} / {report['arch']}")

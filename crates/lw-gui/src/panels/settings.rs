@@ -1694,6 +1694,7 @@ mod tests {
     /// `cargo test -p lw-gui capture_reaches_the_panel -- --ignored --nocapture`
     #[test]
     #[ignore = "installs a real keyboard hook and injects keystrokes"]
+    #[cfg(windows)]
     fn a_captured_combination_reaches_the_binding_in_the_panel() {
         use windows_sys_keys::press;
 

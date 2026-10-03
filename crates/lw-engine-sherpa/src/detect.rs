@@ -354,7 +354,7 @@ pub fn detect(
             .onnx
             .get(stem)
             .and_then(|v| v.pick(prefer_quantized))
-            .map(&join)
+            .map(join)
     };
     let pick_any = |stems: &[&str]| -> Option<PathBuf> { stems.iter().find_map(|s| pick(s)) };
 
