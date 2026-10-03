@@ -57,7 +57,8 @@ The initial **0.1.0** release is a prerelease; Windows installers and macOS bund
 
 Each platform has a `SHA256SUMS-*.txt` file. Release builds verify executable/runtime architecture,
 model manifests and licence files, then unpack and load the packaged runtime on the native runner.
-Publication requires all six platforms and all checksums. Models are downloaded separately on first use.
+Publication requires all six platforms and all checksums. After publication, CI downloads every asset
+without authentication and checks its SHA-256. Models are downloaded separately on first use.
 
 ## Hardware tests
 
