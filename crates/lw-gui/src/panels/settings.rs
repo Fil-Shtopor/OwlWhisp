@@ -12,105 +12,30 @@
 
 use iced::widget::{Space, button, checkbox, column, container, pick_list, radio, row, slider};
 use iced::{Element, Length, Padding};
+use lw_app::accelerators::{AcceleratorAction, AcceleratorReadiness, ModelAvailability, model_availability};
 use lw_core::engine::BackendPreference;
 use lw_core::settings::{HotkeyMode, Settings};
 use lw_core::sound::{Cue, SoundTheme};
 
 use crate::{theme, widgets};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ModelAvailability {
-    Available,
-    Unavailable,
-    NeedAdditionalAction,
-}
-
-impl ModelAvailability {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Available => "Available",
-            Self::Unavailable => "Unavailable",
-            Self::NeedAdditionalAction => "Need additional action",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AcceleratorAction {
-    DownloadGpuModel,
-    InstallDriver,
-}
-
-struct AcceleratorReadiness {
-    parakeet: bool,
-    model_ready: bool,
-    gpu_model_ready: bool,
-    npu_model_ready: bool,
-    probe_ok: bool,
-    hardware_present: bool,
-    provider_registered: bool,
-    usable: bool,
-    gpu_check_failed: bool,
-    driver_install_failed: bool,
-}
-
-fn model_availability(
-    accel: lw_core::capabilities::Accelerator,
-    r: &AcceleratorReadiness,
-) -> (ModelAvailability, Option<AcceleratorAction>) {
-    use lw_core::capabilities::{Accelerator as A, AcceleratorKind};
-    use ModelAvailability as Status;
-
-    if !r.probe_ok || !accel.supported_on_this_platform() || !r.model_ready {
-        return (Status::Unavailable, None);
-    }
-    if !r.parakeet && accel != A::Cpu {
-        return (Status::Unavailable, None);
-    }
-    if accel.kind() == AcceleratorKind::Npu
-        && (accel != A::QnnNpu || !r.npu_model_ready)
-    {
-        // No pinned NPU artifact can be downloaded from the app for this combination.
-        return (Status::Unavailable, None);
-    }
-    if !r.hardware_present {
-        return (Status::Unavailable, None);
-    }
-    if !r.usable {
-        if r.driver_install_failed {
-            return (Status::Unavailable, None);
-        }
-        let driver_installable = cfg!(windows)
-            && r.provider_registered
-            && matches!(accel, A::Cuda | A::TensorRt | A::WebGpu | A::DirectMl);
-        return if driver_installable {
-            (Status::NeedAdditionalAction, Some(AcceleratorAction::InstallDriver))
-        } else {
-            (Status::Unavailable, None)
-        };
-    }
-    if r.gpu_check_failed {
-        // The provider enumerated, but the real model check failed. Keep retry available while
-        // reporting the current state honestly.
-        return (Status::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel));
-    }
-    if accel.kind() == AcceleratorKind::Gpu && !r.gpu_model_ready {
-        return (Status::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel));
-    }
-    (Status::Available, None)
-}
-
 fn selected_model_ready(id: &str) -> bool {
     use lw_core::model::{Catalog, InstallState, entry_paths, manifests_dir};
 
-    let Ok(catalog) = Catalog::builtin() else { return false };
-    let Some(entry) = catalog.get(id) else { return false };
+    let Ok(catalog) = Catalog::builtin() else {
+        return false;
+    };
+    let Some(entry) = catalog.get(id) else {
+        return false;
+    };
     entry_paths(
         entry,
         manifests_dir(None).as_deref(),
         &lw_app::paths::models_root(),
         lw_app::machine::probe_capabilities(),
-    ).state == InstallState::Installed
+    )
+    .state
+        == InstallState::Installed
 }
 
 /// A pickable wrapper, so a list can show a label while carrying the value.
@@ -166,6 +91,9 @@ pub enum Message {
     BackendSelected(BackendPreference),
     OpenProviderSetup(&'static str),
     ShowProviderInfo(&'static str),
+    InstallRuntime(&'static str),
+    RuntimeInstallTick,
+    CancelRuntimeInstall,
     InstallDriver(&'static str),
     DriverFinished(std::sync::Arc<Result<String, String>>),
     InstallGpuEncoder(&'static str),
@@ -248,6 +176,9 @@ pub struct State {
     /// Present when ONNX Runtime could not be loaded at all. In that case a missing accelerator
     /// row means "not checked", never "your hardware is absent".
     accelerator_probe_error: Option<String>,
+    runtime_actions: std::collections::BTreeMap<String, lw_app::runtime_install::SetupAction>,
+    runtime_install: Option<lw_app::runtime_install::Handle>,
+    runtime_target: Option<&'static str>,
     provider_info: Option<&'static str>,
     installing_driver: Option<&'static str>,
     driver_install_failed: std::collections::BTreeSet<&'static str>,
@@ -264,6 +195,11 @@ impl State {
         let settings = Settings::load(&path).unwrap_or_default();
         let selected_model_ready = selected_model_ready(&settings.model_id);
         let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
+        let runtime_actions = diag
+            .accelerators
+            .iter()
+            .filter_map(|a| a.setup_action.map(|action| (a.id.to_string(), action)))
+            .collect();
         let usable = diag
             .accelerators
             .iter()
@@ -344,6 +280,9 @@ impl State {
             accelerator_provider_registered,
             accelerator_details,
             accelerator_probe_error,
+            runtime_actions,
+            runtime_install: None,
+            runtime_target: None,
             provider_info: None,
             installing_driver: None,
             driver_install_failed: Default::default(),
@@ -381,11 +320,36 @@ impl State {
 
     fn refresh_accelerators(&mut self) {
         let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
-        self.usable = diag.accelerators.iter().map(|a| (a.id.to_string(), a.usable)).collect();
-        self.accelerator_hardware = diag.accelerators.iter().map(|a| (a.id.to_string(), a.hardware_present)).collect();
-        self.accelerator_provider_present = diag.accelerators.iter().map(|a| (a.id.to_string(), a.present)).collect();
-        self.accelerator_provider_registered = diag.accelerators.iter().map(|a| (a.id.to_string(), a.registered)).collect();
-        self.accelerator_details = diag.accelerators.iter().map(|a| (a.id.to_string(), a.detail.clone())).collect();
+        self.runtime_actions = diag
+            .accelerators
+            .iter()
+            .filter_map(|a| a.setup_action.map(|action| (a.id.to_string(), action)))
+            .collect();
+        self.usable = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.usable))
+            .collect();
+        self.accelerator_hardware = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.hardware_present))
+            .collect();
+        self.accelerator_provider_present = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.present))
+            .collect();
+        self.accelerator_provider_registered = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.registered))
+            .collect();
+        self.accelerator_details = diag
+            .accelerators
+            .iter()
+            .map(|a| (a.id.to_string(), a.detail.clone()))
+            .collect();
         self.accelerator_probe_error = diag.accelerators_error.or(diag.runtime_error);
         self.refresh_model_readiness();
     }
@@ -422,18 +386,21 @@ impl State {
     /// unbindable. Whichever answers first wins, and neither can leave the editor deaf.
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let mut subscriptions = Vec::new();
+        if self.runtime_install.is_some() {
+            subscriptions.push(
+                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::RuntimeInstallTick),
+            );
+        }
         if self.gpu_install.is_some() {
             subscriptions.push(
-                iced::time::every(std::time::Duration::from_millis(200))
-                    .map(|_| Message::GpuInstallTick),
+                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::GpuInstallTick),
             );
         }
         if self.capturing {
             let window_keys = Self::window_key_capture();
             if self.capture.is_some() {
                 subscriptions.push(
-                    iced::time::every(std::time::Duration::from_millis(25))
-                        .map(|_| Message::CapturePoll),
+                    iced::time::every(std::time::Duration::from_millis(25)).map(|_| Message::CapturePoll),
                 );
             }
             subscriptions.push(window_keys);
@@ -494,6 +461,39 @@ impl State {
             Message::ShowProviderInfo(id) => {
                 self.provider_info = (self.provider_info != Some(id)).then_some(id);
             }
+            Message::InstallRuntime(id) => {
+                if self.runtime_install.is_none()
+                    && let Some(accel) = lw_core::capabilities::Accelerator::from_id(id)
+                {
+                    self.runtime_target = Some(id);
+                    self.error = None;
+                    self.runtime_install = Some(lw_app::runtime_install::start(accel));
+                }
+            }
+            Message::CancelRuntimeInstall => {
+                if let Some(handle) = &self.runtime_install {
+                    handle.cancel();
+                }
+            }
+            Message::RuntimeInstallTick => {
+                if let Some(result) = self.runtime_install.as_ref().and_then(|h| h.poll()) {
+                    self.runtime_install = None;
+                    let target = self.runtime_target.take();
+                    self.refresh_accelerators();
+                    match result {
+                        Ok(_) => {
+                            self.notice = Some(
+                                "Runtime installed and accelerator checked. Preparing the GPU model..."
+                                    .into(),
+                            );
+                            if let Some(id) = target {
+                                wrote |= self.update(Message::InstallGpuEncoder(id));
+                            }
+                        }
+                        Err(error) => self.error = Some(error),
+                    }
+                }
+            }
             Message::InstallDriver(id) => self.installing_driver = Some(id),
             Message::InstallGpuEncoder(id) => {
                 if self.gpu_install.is_none()
@@ -515,16 +515,22 @@ impl State {
                     match outcome {
                         lw_app::install::Progress::Done { .. } => {
                             self.gpu_check_failed = None;
-                            if let Some(accel) = target.and_then(lw_core::capabilities::Accelerator::from_id) {
+                            if let Some(accel) = target.and_then(lw_core::capabilities::Accelerator::from_id)
+                            {
                                 self.settings.backend = BackendPreference::for_accelerator(accel);
                                 match self.settings.save(&lw_app::paths::settings_path()) {
                                     Ok(()) => {
                                         self.saved = self.settings.clone();
-                                        self.notice = Some(format!("GPU model installed; {} selected.", accel.label()));
+                                        self.notice =
+                                            Some(format!("GPU model installed; {} selected.", accel.label()));
                                         self.error = None;
                                         wrote = true;
                                     }
-                                    Err(e) => self.error = Some(format!("GPU model installed, but accelerator selection was not saved: {e}")),
+                                    Err(e) => {
+                                        self.error = Some(format!(
+                                            "GPU model installed, but accelerator selection was not saved: {e}"
+                                        ))
+                                    }
                                 }
                             }
                         }
@@ -532,7 +538,9 @@ impl State {
                             self.gpu_check_failed = target;
                             self.error = Some(message);
                         }
-                        lw_app::install::Progress::Cancelled => self.notice = Some("GPU model download stopped; click again to resume.".into()),
+                        lw_app::install::Progress::Cancelled => {
+                            self.notice = Some("GPU model download stopped; click again to resume.".into())
+                        }
                         _ => {}
                     }
                 }
@@ -952,7 +960,7 @@ impl State {
     }
 
     fn accelerator_card(&self) -> Element<'_, Message> {
-        use lw_core::capabilities::{Accelerator as A, AcceleratorKind, ALL_ACCELERATORS};
+        use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator as A, AcceleratorKind};
 
         let model_dir = lw_app::paths::models_root().join(&self.settings.model_id);
         let parakeet = self.settings.model_id == "parakeet-tdt-0.6b-v3";
@@ -963,36 +971,60 @@ impl State {
             || model_dir.join("encoder-static.onnx").is_file()
             || model_dir.join("encoder-model.onnx").is_file();
         let can_activate = |a: A| {
-            model_availability(a, &AcceleratorReadiness {
-                parakeet,
-                model_ready,
-                gpu_model_ready,
-                npu_model_ready,
-                probe_ok: self.accelerator_probe_error.is_none(),
-                hardware_present: self.accelerator_hardware.get(a.id()).copied().unwrap_or(false),
-                provider_registered: self.accelerator_provider_registered.get(a.id()).copied().unwrap_or(false),
-                usable: self.usable.get(a.id()).copied().unwrap_or(false),
-                gpu_check_failed: self.gpu_check_failed == Some(a.id()),
-                driver_install_failed: self.driver_install_failed.contains(a.id()),
-            }).0 == ModelAvailability::Available
+            model_availability(
+                a,
+                &AcceleratorReadiness {
+                    parakeet,
+                    model_ready,
+                    gpu_model_ready,
+                    npu_model_ready,
+                    probe_ok: self.accelerator_probe_error.is_none(),
+                    hardware_present: self.accelerator_hardware.get(a.id()).copied().unwrap_or(false),
+                    runtime_installable: matches!(
+                        self.runtime_actions.get(a.id()),
+                        Some(lw_app::runtime_install::SetupAction::DownloadRuntime)
+                    ),
+                    driver_needed: matches!(
+                        self.runtime_actions.get(a.id()),
+                        Some(lw_app::runtime_install::SetupAction::InstallDriver)
+                    ),
+                    provider_registered: self
+                        .accelerator_provider_registered
+                        .get(a.id())
+                        .copied()
+                        .unwrap_or(false),
+                    usable: self.usable.get(a.id()).copied().unwrap_or(false),
+                    gpu_check_failed: self.gpu_check_failed == Some(a.id())
+                        || self.gpu_target == Some(a.id()),
+                    driver_install_failed: self.driver_install_failed.contains(a.id()),
+                },
+            )
+            .0 == ModelAvailability::Available
         };
-        let choices: Vec<_> = self.backends.iter().filter(|b| {
-            if b.value == self.settings.backend || b.value == BackendPreference::Automatic {
-                return true;
-            }
-            match b.value.accelerator() {
-                Some(A::Cpu) => true,
-                Some(a) => can_activate(a),
-                None => {
-                    let kind = if b.value == BackendPreference::ForceNpu {
-                        AcceleratorKind::Npu
-                    } else {
-                        AcceleratorKind::Gpu
-                    };
-                    ALL_ACCELERATORS.iter().any(|a| a.kind() == kind && can_activate(*a))
+        let choices: Vec<_> = self
+            .backends
+            .iter()
+            .filter(|b| {
+                if b.value == self.settings.backend || b.value == BackendPreference::Automatic {
+                    return true;
                 }
-            }
-        }).cloned().collect();
+                match b.value.accelerator() {
+                    Some(A::Cpu) => true,
+                    Some(a) => can_activate(a),
+                    None => {
+                        let kind = if b.value == BackendPreference::ForceNpu {
+                            AcceleratorKind::Npu
+                        } else {
+                            AcceleratorKind::Gpu
+                        };
+                        ALL_ACCELERATORS
+                            .iter()
+                            .any(|a| a.kind() == kind && can_activate(*a))
+                    }
+                }
+            })
+            .cloned()
+            .collect();
         let selected = self
             .backends
             .iter()
@@ -1027,12 +1059,15 @@ impl State {
         };
         let compact = card_width < 680.0;
         if !compact {
-            body = body.push(row![
-                container(widgets::field_label("Accelerator")).width(Length::Fixed(190.0)),
-                container(widgets::field_label("For this model")).width(Length::Fixed(155.0)),
-                container(widgets::field_label("Action")).width(Length::Fill),
-                widgets::field_label("Info"),
-            ].spacing(8));
+            body = body.push(
+                row![
+                    container(widgets::field_label("Accelerator")).width(Length::Fixed(190.0)),
+                    container(widgets::field_label("For this model")).width(Length::Fixed(155.0)),
+                    container(widgets::field_label("Action")).width(Length::Fill),
+                    widgets::field_label("Info"),
+                ]
+                .spacing(8),
+            );
         }
 
         // Keep the full supported matrix visible so an unavailable provider has a clear reason.
@@ -1047,24 +1082,46 @@ impl State {
                 .copied()
                 .unwrap_or(false);
             let detail = self.accelerator_details.get(accel.id());
-            let provider_present = self.accelerator_provider_present.get(accel.id()).copied().unwrap_or(false);
-            let provider_registered = self.accelerator_provider_registered.get(accel.id()).copied().unwrap_or(false);
-            let (availability, needed_action) = model_availability(accel, &AcceleratorReadiness {
-                parakeet,
-                model_ready,
-                gpu_model_ready,
-                npu_model_ready,
-                probe_ok: self.accelerator_probe_error.is_none(),
-                hardware_present,
-                provider_registered,
-                usable,
-                gpu_check_failed: self.gpu_check_failed == Some(accel.id()),
-                driver_install_failed: self.driver_install_failed.contains(accel.id()),
-            });
+            let provider_present = self
+                .accelerator_provider_present
+                .get(accel.id())
+                .copied()
+                .unwrap_or(false);
+            let provider_registered = self
+                .accelerator_provider_registered
+                .get(accel.id())
+                .copied()
+                .unwrap_or(false);
+            let (availability, needed_action) = model_availability(
+                accel,
+                &AcceleratorReadiness {
+                    parakeet,
+                    model_ready,
+                    gpu_model_ready,
+                    npu_model_ready,
+                    probe_ok: self.accelerator_probe_error.is_none(),
+                    hardware_present,
+                    provider_registered,
+                    runtime_installable: matches!(
+                        self.runtime_actions.get(accel.id()),
+                        Some(lw_app::runtime_install::SetupAction::DownloadRuntime)
+                    ),
+                    driver_needed: matches!(
+                        self.runtime_actions.get(accel.id()),
+                        Some(lw_app::runtime_install::SetupAction::InstallDriver)
+                    ),
+                    usable,
+                    gpu_check_failed: self.gpu_check_failed == Some(accel.id())
+                        || self.gpu_target == Some(accel.id()),
+                    driver_install_failed: self.driver_install_failed.contains(accel.id()),
+                },
+            );
             let status: Element<'_, Message> = match availability {
                 ModelAvailability::Available => widgets::badge_yes(availability.label()),
                 ModelAvailability::Unavailable => widgets::badge_no(availability.label()),
-                ModelAvailability::NeedAdditionalAction => widgets::badge(availability.label(), theme::ESTIMATE),
+                ModelAvailability::NeedAdditionalAction => {
+                    widgets::badge(availability.label(), theme::ESTIMATE)
+                }
             };
             let action: Element<'_, Message> = if needed_action == Some(AcceleratorAction::DownloadGpuModel) {
                 let label = if let Some(handle) = &self.gpu_install {
@@ -1082,22 +1139,75 @@ impl State {
                         "Download in progress".to_string()
                     }
                 } else {
-                    if gpu_model_ready { "Retry GPU check" } else { "Download GPU model" }.to_string()
+                    if gpu_model_ready {
+                        "Retry GPU check"
+                    } else {
+                        "Download GPU model"
+                    }
+                    .to_string()
                 };
                 button(widgets::button_label(label))
                     .padding(Padding::from([5, 10]))
                     .style(theme::action(false))
-                    .on_press_maybe(self.gpu_install.is_none().then_some(Message::InstallGpuEncoder(accel.id())))
+                    .on_press_maybe(
+                        self.gpu_install
+                            .is_none()
+                            .then_some(Message::InstallGpuEncoder(accel.id())),
+                    )
                     .into()
-            } else if needed_action == Some(AcceleratorAction::InstallDriver) {
-                button(widgets::button_label(if self.installing_driver == Some(accel.id()) {
-                    "Installing..."
+            } else if needed_action == Some(AcceleratorAction::DownloadRuntime) {
+                let active = self.runtime_target == Some(accel.id());
+                let label = if active {
+                    self.runtime_install
+                        .as_ref()
+                        .map(|h| {
+                            let progress = h.progress();
+                            match progress.fraction {
+                                Some(f) => format!("Downloading {:.0}%", f * 100.0),
+                                None => progress.label,
+                            }
+                        })
+                        .unwrap_or_else(|| "Download runtime".into())
                 } else {
-                    "Install driver"
-                }))
+                    "Download runtime".into()
+                };
+                let download = button(widgets::button_label(label))
+                    .padding(Padding::from([5, 10]))
+                    .style(theme::action(false))
+                    .on_press_maybe(
+                        (self.runtime_install.is_none()
+                            && self.gpu_install.is_none()
+                            && self.installing_driver.is_none())
+                        .then_some(Message::InstallRuntime(accel.id())),
+                    );
+                if active {
+                    row![
+                        download,
+                        button(widgets::button_label("Cancel"))
+                            .on_press(Message::CancelRuntimeInstall)
+                            .padding(Padding::from([5, 10]))
+                            .style(theme::action(false))
+                    ]
+                    .spacing(4)
+                    .into()
+                } else {
+                    download.into()
+                }
+            } else if needed_action == Some(AcceleratorAction::InstallDriver) {
+                button(widgets::button_label(
+                    if self.installing_driver == Some(accel.id()) {
+                        "Installing..."
+                    } else {
+                        "Install driver"
+                    },
+                ))
                 .padding(Padding::from([5, 10]))
                 .style(theme::action(false))
-                .on_press_maybe(self.installing_driver.is_none().then_some(Message::InstallDriver(accel.id())))
+                .on_press_maybe(
+                    self.installing_driver
+                        .is_none()
+                        .then_some(Message::InstallDriver(accel.id())),
+                )
                 .into()
             } else {
                 widgets::sub(if availability == ModelAvailability::Available {
@@ -1117,34 +1227,45 @@ impl State {
                 } else if accel.kind() == AcceleratorKind::Npu && accel != A::QnnNpu {
                     "No model artifact"
                 } else if !provider_present {
-                    "Provider missing from this build"
+                    "No compatible runtime package"
                 } else if !provider_registered {
                     "Provider could not load"
                 } else {
                     "See details"
-                }).into()
+                })
+                .into()
             };
             let info = button(widgets::button_label("?"))
                 .padding(Padding::from([5, 10]))
                 .style(theme::action(false))
                 .on_press(Message::ShowProviderInfo(accel.id()));
             if compact {
-                body = body.push(widgets::inset(column![
-                    row![widgets::sub(&b.label), status, info]
-                        .spacing(8).align_y(iced::Alignment::Center),
-                    action,
-                ].spacing(6)));
+                body = body.push(widgets::inset(
+                    column![
+                        row![widgets::sub(&b.label), status, info]
+                            .spacing(8)
+                            .align_y(iced::Alignment::Center),
+                        action,
+                    ]
+                    .spacing(6),
+                ));
             } else {
-                body = body.push(row![
-                    container(widgets::sub(&b.label)).width(Length::Fixed(190.0)),
-                    container(status).width(Length::Fixed(155.0)),
-                    container(action).width(Length::Fill),
-                    info,
-                ].spacing(8).align_y(iced::Alignment::Center));
+                body = body.push(
+                    row![
+                        container(widgets::sub(&b.label)).width(Length::Fixed(190.0)),
+                        container(status).width(Length::Fixed(155.0)),
+                        container(action).width(Length::Fill),
+                        info,
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                );
             }
             if self.provider_info == Some(accel.id()) {
                 body = body.push(widgets::prose(format!(
-                    "{}: {}", b.label, detail.map(String::as_str).unwrap_or("not checked")
+                    "{}: {}",
+                    b.label,
+                    detail.map(String::as_str).unwrap_or("not checked")
                 )));
                 if let Some((description, url)) = provider_guide(accel.id()) {
                     body = body.push(widgets::prose(description));
@@ -1201,7 +1322,9 @@ impl State {
                     "System default follows whatever Windows is using, including a headset that \
                      appears later.",
                 ),
-                widgets::sub("A long dictation stops and transcribes after five minutes; earlier speech is preserved."),
+                widgets::sub(
+                    "A long dictation stops and transcribes after five minutes; earlier speech is preserved."
+                ),
                 self.mic_check(),
             ]
             .spacing(8),
@@ -1401,15 +1524,42 @@ impl State {
 /// keeps the two in step.
 fn provider_guide(id: &str) -> Option<(&'static str, &'static str)> {
     Some(match id {
-        "cpu" => ("Built into OwlWhisp; no driver download is needed.", "https://onnxruntime.ai/docs/execution-providers/"),
-        "qnn_npu" => ("Qualcomm NPU needs its OEM Windows driver, the QNN provider bundled with OwlWhisp, and a compatible model artifact.", "https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html"),
-        "web_gpu" => ("Uses the GPU's system graphics driver and OwlWhisp's WebGPU provider. Parakeet needs the optional full-precision GPU encoder; Add GPU model downloads and verifies it.", "https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html"),
-        "cuda" => ("Uses the NVIDIA display driver, CUDA/cuDNN libraries bundled with Windows x64 OwlWhisp, and the optional full-precision Parakeet encoder. Add GPU model downloads and verifies the encoder, then checks CUDA on this machine.", "https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html"),
-        "tensor_rt" => ("OwlWhisp's Windows x64 build includes TensorRT for Ada SM 8.9. The first Parakeet run compiles slowly and its engine cache uses about 2.5 GB of disk. Cached runs can still be slower than CUDA; choose CUDA for regular dictation.", "https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html"),
-        "direct_ml" => ("OwlWhisp's Windows x64 build includes a separate Windows ML runtime. A persistent worker runs Parakeet on DirectML while the main app keeps CUDA available.", "https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html"),
-        "open_vino" => ("OpenVINO NPU needs an Intel NPU, a compatible provider, and a model that runs on it.", "https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html"),
-        "core_ml" => ("CoreML requires macOS and an OwlWhisp build containing its provider.", "https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html"),
-        "vitis_ai" => ("Ryzen AI needs a supported AMD NPU, its OEM driver, the Vitis AI provider, and a compatible model artifact.", "https://onnxruntime.ai/docs/execution-providers/Vitis-AI-ExecutionProvider.html"),
+        "cpu" => (
+            "Built into OwlWhisp; no driver download is needed.",
+            "https://onnxruntime.ai/docs/execution-providers/",
+        ),
+        "qnn_npu" => (
+            "Qualcomm NPU needs its OEM Windows driver, the QNN provider bundled with OwlWhisp, and a compatible model artifact.",
+            "https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html",
+        ),
+        "web_gpu" => (
+            "Uses the GPU's system graphics driver and OwlWhisp's WebGPU provider. Parakeet needs the optional full-precision GPU encoder; Add GPU model downloads and verifies it.",
+            "https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html",
+        ),
+        "cuda" => (
+            "Uses the NVIDIA display driver, CUDA/cuDNN runtime packages selected and installed by OwlWhisp, and the optional full-precision Parakeet encoder. Add GPU model downloads and verifies the encoder, then checks CUDA on this machine.",
+            "https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html",
+        ),
+        "tensor_rt" => (
+            "Download runtime selects TensorRT libraries for the detected NVIDIA GPU; CUDA and TensorRT need a CUDA 13-compatible driver. Parakeet uses FP16 and a profile covering dictation windows up to 20 seconds. First preparation can take several minutes and the engine cache uses about 1.3 GB of disk. Benchmark it against CUDA on your machine.",
+            "https://onnxruntime.ai/docs/execution-providers/TensorRT-ExecutionProvider.html",
+        ),
+        "direct_ml" => (
+            "OwlWhisp's Windows x64 build includes a separate Windows ML runtime. Download runtime repairs missing DirectML components; the app checks the real device before enabling it.",
+            "https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html",
+        ),
+        "open_vino" => (
+            "OpenVINO NPU needs an Intel NPU, a compatible provider, and a model that runs on it.",
+            "https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html",
+        ),
+        "core_ml" => (
+            "CoreML requires macOS and an OwlWhisp build containing its provider.",
+            "https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html",
+        ),
+        "vitis_ai" => (
+            "Ryzen AI needs a supported AMD NPU, its OEM driver, the Vitis AI provider, and a compatible model artifact.",
+            "https://onnxruntime.ai/docs/execution-providers/Vitis-AI-ExecutionProvider.html",
+        ),
         _ => return None,
     })
 }
@@ -1532,91 +1682,9 @@ fn meter<'a, M: 'a>(level: f32) -> Element<'a, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lw_core::capabilities::Accelerator;
     use iced::keyboard::Key;
     use iced::keyboard::key::Named;
 
-    #[test]
-    fn model_status_has_a_working_action_or_is_unavailable() {
-        let mut ready = AcceleratorReadiness {
-            parakeet: true,
-            model_ready: true,
-            gpu_model_ready: false,
-            npu_model_ready: false,
-            probe_ok: true,
-            hardware_present: true,
-            provider_registered: true,
-            usable: true,
-            gpu_check_failed: false,
-            driver_install_failed: false,
-        };
-        assert_eq!(
-            model_availability(Accelerator::Cpu, &ready),
-            (ModelAvailability::Available, None)
-        );
-        ready.model_ready = false;
-        assert_eq!(
-            model_availability(Accelerator::Cpu, &ready),
-            (ModelAvailability::Unavailable, None)
-        );
-        ready.model_ready = true;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel))
-        );
-        assert_eq!(
-            model_availability(Accelerator::QnnNpu, &ready),
-            (ModelAvailability::Unavailable, None),
-            "an absent NPU artifact has no download action"
-        );
-        ready.npu_model_ready = true;
-        assert_eq!(
-            model_availability(Accelerator::QnnNpu, &ready),
-            if Accelerator::QnnNpu.supported_on_this_platform() {
-                (ModelAvailability::Available, None)
-            } else {
-                (ModelAvailability::Unavailable, None)
-            }
-        );
-        ready.parakeet = false;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            (ModelAvailability::Unavailable, None),
-            "the CPU-only sherpa engine cannot use a GPU add-on"
-        );
-        ready.parakeet = true;
-        ready.usable = false;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            if cfg!(windows) {
-                (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::InstallDriver))
-            } else {
-                (ModelAvailability::Unavailable, None)
-            }
-        );
-        ready.provider_registered = false;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            (ModelAvailability::Unavailable, None),
-            "a display driver does not supply a missing ONNX provider"
-        );
-        ready.provider_registered = true;
-        ready.driver_install_failed = true;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            (ModelAvailability::Unavailable, None),
-            "a failed driver installation must not promise another download"
-        );
-        ready.driver_install_failed = false;
-        ready.usable = true;
-        ready.gpu_model_ready = true;
-        ready.gpu_check_failed = true;
-        assert_eq!(
-            model_availability(Accelerator::Cuda, &ready),
-            (ModelAvailability::NeedAdditionalAction, Some(AcceleratorAction::DownloadGpuModel)),
-            "a failed model run must not be reported as available"
-        );
-    }
     /// The whole capture path as the panel really runs it: arm the grab, press keys, poll.
     ///
     /// Between the keyboard hook and the binding in the panel there is a channel, a poll, a name

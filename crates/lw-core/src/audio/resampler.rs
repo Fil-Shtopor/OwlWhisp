@@ -5,8 +5,7 @@
 
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{
-    Async, FixedAsync, Resampler as _, SincInterpolationParameters, SincInterpolationType,
-    WindowFunction,
+    Async, FixedAsync, Resampler as _, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
 use crate::{Error, Result};
@@ -110,10 +109,7 @@ mod tests {
 
         // Frequency, by counting zero crossings: 1 kHz for half a second is 500 cycles, so a
         // thousand crossings, give or take the ends.
-        let crossings = out
-            .windows(2)
-            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
-            .count();
+        let crossings = out.windows(2).filter(|w| (w[0] < 0.0) != (w[1] < 0.0)).count();
         assert!(
             (crossings as i64 - 1000).abs() <= 8,
             "counted {crossings} zero crossings, expected about 1000 -- the tone changed pitch"

@@ -11,8 +11,55 @@
 //!
 //! The string parsers are pure functions, unit-tested below.
 
-use lw_core::capabilities::{Capabilities, HtpArch, NpuInfo};
+use lw_core::capabilities::{Architecture, Capabilities, HtpArch, NpuInfo, OperatingSystem, Platform};
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+
+mod driver_store;
+pub use driver_store::detect_npu_in;
+
+/// Raw observations from the OS. Supplying these explicitly does not load any driver.
+#[derive(Clone, Debug)]
+pub struct CapabilityObservations {
+    /// Platform of the running executable.
+    pub platform: Platform,
+    /// OS version reported by sysinfo.
+    pub os_version: String,
+    /// CPU name reported by sysinfo.
+    pub cpu_brand: String,
+    /// Optional Windows registry refinement; ignored on other operating systems.
+    pub registry_cpu_brand: Option<String>,
+    /// Logical CPU count; zero means the OS could not report it.
+    pub cpu_cores: usize,
+    /// Physical memory in bytes.
+    pub ram_bytes: u64,
+    /// Qualcomm driver-store observation, independent of provider availability.
+    pub qnn_driver: NpuInfo,
+}
+
+/// Interpret OS observations using the same rules as [`detect`].
+pub fn capabilities_from_observations(o: CapabilityObservations) -> Capabilities {
+    let mut caps = Capabilities::unknown();
+    caps.os = o.platform.os_name().into();
+    caps.arch = o.platform.arch_name().into();
+    caps.os_version = o.os_version;
+    caps.cpu_brand = o.cpu_brand.trim().into();
+    if o.platform.os == OperatingSystem::Windows
+        && let Some(brand) = o.registry_cpu_brand.filter(|b| !b.trim().is_empty())
+    {
+        caps.cpu_brand = brand.trim().into();
+    }
+    caps.cpu_cores = o.cpu_cores.max(1);
+    caps.ram_mib = o.ram_bytes / (1024 * 1024);
+    caps.is_qualcomm = is_qualcomm_brand(&caps.cpu_brand);
+    caps.snapdragon_generation = snapdragon_generation(&caps.cpu_brand);
+    // DriverStore can retain packages for hardware no longer installed. A package alone
+    // must not turn an Intel/AMD PC or an x64 emulated process into a QNN-capable machine.
+    if o.platform.os == OperatingSystem::Windows && o.platform.arch == Architecture::Arm64 && caps.is_qualcomm
+    {
+        caps.npu = o.qnn_driver;
+    }
+    caps
+}
 
 /// Marker type for capability detection (see [`detect`]).
 #[derive(Clone, Copy, Debug, Default)]
@@ -29,49 +76,42 @@ impl PlatformCapabilities {
 ///
 /// Never fails: anything undetectable stays at the `Capabilities::unknown()` value.
 pub fn detect() -> Capabilities {
-    let mut caps = Capabilities::unknown();
-
     let sys = System::new_with_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything())
             .with_memory(MemoryRefreshKind::everything()),
     );
 
-    caps.os = std::env::consts::OS.to_string();
-    caps.arch = std::env::consts::ARCH.to_string();
-    caps.os_version = System::long_os_version()
+    let os_version = System::long_os_version()
         .or_else(System::os_version)
         .unwrap_or_default();
-    caps.cpu_cores = if sys.cpus().is_empty() {
+    let cpu_cores = if sys.cpus().is_empty() {
         std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
     } else {
         sys.cpus().len()
     };
-    caps.ram_mib = sys.total_memory() / (1024 * 1024);
-
-    caps.cpu_brand = sys
+    let cpu_brand = sys
         .cpus()
         .first()
         .map(|c| c.brand().trim().to_string())
         .unwrap_or_default();
     #[cfg(windows)]
-    {
-        // The registry brand string is usually more descriptive than sysinfo's
-        // (full "Snapdragon(R) X ..." marketing name).
-        if let Some(brand) = crate::windows::processor_name_from_registry() {
-            caps.cpu_brand = brand;
-        }
-    }
-
-    caps.is_qualcomm = is_qualcomm_brand(&caps.cpu_brand);
-    caps.snapdragon_generation = snapdragon_generation(&caps.cpu_brand);
-
+    let registry_cpu_brand = crate::windows::processor_name_from_registry();
+    #[cfg(not(windows))]
+    let registry_cpu_brand = None;
     #[cfg(windows)]
-    {
-        caps.npu = crate::windows::detect_npu();
-    }
-
-    caps
+    let qnn_driver = crate::windows::detect_npu();
+    #[cfg(not(windows))]
+    let qnn_driver = NpuInfo::default();
+    capabilities_from_observations(CapabilityObservations {
+        platform: Platform::current(),
+        os_version,
+        cpu_brand,
+        registry_cpu_brand,
+        cpu_cores,
+        ram_bytes: sys.total_memory(),
+        qnn_driver,
+    })
 }
 
 /// Physical GPU adapters, independent of whether an ONNX provider is installed.
@@ -79,37 +119,45 @@ pub fn detect() -> Capabilities {
 pub fn physical_gpu_descriptions() -> Vec<String> {
     #[cfg(windows)]
     {
-        return crate::windows::display_adapters()
+        crate::windows::display_adapters()
             .into_iter()
             .map(|a| format!("Windows display: {} GPU ({})", a.name, a.hardware_id))
-            .collect();
+            .collect()
     }
     #[cfg(target_os = "linux")]
     {
-        let Ok(cards) = std::fs::read_dir("/sys/class/drm") else {
-            return Vec::new();
-        };
-        return cards
-            .flatten()
-            .filter(|entry| {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                name.starts_with("card") && name[4..].chars().all(|c| c.is_ascii_digit())
-            })
-            .filter_map(|entry| {
-                let vendor = std::fs::read_to_string(entry.path().join("device/vendor")).ok()?;
-                let name = match vendor.trim().to_ascii_lowercase().as_str() {
-                    "0x10de" => "NVIDIA",
-                    "0x8086" => "Intel",
-                    "0x1002" => "AMD",
-                    _ => "Other",
-                };
-                Some(format!("Linux display: {name} GPU ({})", entry.file_name().to_string_lossy()))
-            })
-            .collect();
+        linux_gpu_descriptions(std::path::Path::new("/sys/class/drm"))
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     Vec::new()
+}
+
+/// Read a Linux DRM tree at an explicit root; connectors and render nodes are not adapters.
+pub fn linux_gpu_descriptions(root: &std::path::Path) -> Vec<String> {
+    let Ok(cards) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    cards
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("card") && name.len() > 4 && name[4..].chars().all(|c| c.is_ascii_digit())
+        })
+        .filter_map(|entry| {
+            let vendor = std::fs::read_to_string(entry.path().join("device/vendor")).ok()?;
+            let name = match vendor.trim().to_ascii_lowercase().as_str() {
+                "0x10de" => "NVIDIA",
+                "0x8086" => "Intel",
+                "0x1002" => "AMD",
+                _ => "Other",
+            };
+            Some(format!(
+                "Linux display: {name} GPU ({})",
+                entry.file_name().to_string_lossy()
+            ))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

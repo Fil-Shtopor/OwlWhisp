@@ -23,22 +23,62 @@ mod tray;
 mod widgets;
 
 fn main() -> iced::Result {
-    if std::env::args_os().nth(1).is_some_and(|arg| arg == "--diagnose-accelerators") {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--diagnose-accelerators")
+    {
         let report = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
         println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
         return Ok(());
     }
-    if std::env::args_os().nth(1).is_some_and(|arg| arg == "--provider-probe") {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--provider-probe")
+    {
         let runtime_dir = std::env::args_os().nth(2).map(std::path::PathBuf::from);
         let result = runtime_dir
             .ok_or_else(|| "missing runtime directory".to_string())
-            .and_then(|dir| lw_app::provider_worker::run_directml_probe(&dir));
+            .and_then(|dir| {
+                lw_app::provider_worker::run_provider_probe(
+                    &dir,
+                    std::env::args()
+                        .nth(3)
+                        .and_then(|id| lw_core::capabilities::Accelerator::from_id(&id))
+                        .unwrap_or(lw_core::capabilities::Accelerator::DirectMl),
+                )
+            });
         println!("{}", serde_json::to_string(&result).unwrap_or_default());
+        lw_ort::exit_without_teardown(i32::from(result.is_err()));
+    }
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--provider-worker")
+    {
+        if let Err(error) = lw_app::provider_worker::run_provider_worker() {
+            eprintln!("Provider worker: {error}");
+            std::process::exit(1);
+        }
         return Ok(());
     }
-    if std::env::args_os().nth(1).is_some_and(|arg| arg == "--provider-worker") {
-        if let Err(error) = lw_app::provider_worker::run_directml_worker() {
-            eprintln!("DirectML worker: {error}");
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--install-runtime")
+    {
+        let result = std::env::args()
+            .nth(2)
+            .and_then(|id| lw_core::capabilities::Accelerator::from_id(&id))
+            .ok_or_else(|| "missing or invalid accelerator".to_string())
+            .and_then(|accel| {
+                let handle = lw_app::runtime_install::start(accel);
+                loop {
+                    if let Some(result) = handle.poll() {
+                        break result.map(|p| p.display().to_string());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            });
+        println!("{}", serde_json::to_string(&result).unwrap_or_default());
+        if result.is_err() {
             std::process::exit(1);
         }
         return Ok(());
@@ -74,9 +114,9 @@ fn main() -> iced::Result {
         app::App::update,
         app::App::view,
     )
-        .title(app::App::title)
-        .theme(app::App::theme)
-        .style(app::App::style)
-        .subscription(app::App::subscription)
-        .run()
+    .title(app::App::title)
+    .theme(app::App::theme)
+    .style(app::App::style)
+    .subscription(app::App::subscription)
+    .run()
 }

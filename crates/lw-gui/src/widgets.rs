@@ -4,7 +4,7 @@
 //! and a measurement must never look alike, and these shapes are how that rule stays visible. They
 //! live in one place so the rule is enforced once rather than remembered at every call site.
 
-use iced::widget::{container, text, Container, Text};
+use iced::widget::{Container, Text, container, text};
 use iced::{Color, Element, Length, Padding};
 
 use crate::theme;
@@ -13,14 +13,10 @@ use crate::theme;
 pub fn badge<'a, M: 'a>(label: impl text::IntoFragment<'a>, colour: Color) -> Element<'a, M> {
     // Never wrapped. A pill is a label, and a label broken across four lines reads as damage:
     // "Recommended" came out as "* Reco / mme / nded" the first time this was drawn.
-    container(
-        text(label)
-            .size(12)
-            .wrapping(text::Wrapping::None),
-    )
-    .padding(Padding::from([1, 9]))
-    .style(theme::pill(colour))
-    .into()
+    container(text(label).size(12).wrapping(text::Wrapping::None))
+        .padding(Padding::from([1, 9]))
+        .style(theme::pill(colour))
+        .into()
 }
 
 /// A badge in the palette's "yes" green.

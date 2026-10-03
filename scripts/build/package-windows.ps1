@@ -23,6 +23,8 @@ param(
     [string]$Target = "aarch64-pc-windows-msvc",
     [ValidateSet("win-arm64", "win-x64")]
     [string]$Platform = "",
+    [switch]$WithNvidiaRuntime,
+    [switch]$RequireInstaller,
     [switch]$NoInstaller
 )
 
@@ -57,7 +59,7 @@ if (-not (Test-Path $runtime)) {
 if (-not (Test-Path (Join-Path $runtime "onnxruntime.dll"))) {
     throw "runtime\$Platform\onnxruntime.dll is missing. Fetch the runtime before packaging: scripts\runtime\fetch-runtime.ps1 -Platform $Platform"
 }
-if ($Platform -eq "win-x64") {
+if ($Platform -eq "win-x64" -and $WithNvidiaRuntime) {
     foreach ($file in @(
         "onnxruntime_providers_cuda.dll", "onnxruntime_providers_shared.dll",
         "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll",
@@ -69,12 +71,16 @@ if ($Platform -eq "win-x64") {
     }
     foreach ($file in @(
         "onnxruntime_providers_tensorrt.dll", "nvinfer_10.dll",
-        "nvinfer_plugin_10.dll", "nvonnxparser_10.dll",
-        "nvinfer_builder_resource_sm89_10.dll"
+        "nvinfer_plugin_10.dll", "nvonnxparser_10.dll"
     )) {
         if (-not (Test-Path (Join-Path $runtime $file))) {
             throw "TensorRT package is incomplete: runtime\$Platform\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform win-x64."
         }
+    }
+}
+if ($Platform -eq "win-x64") {
+    foreach ($file in @("onnxruntime_providers_webgpu.dll", "dxcompiler.dll", "dxil.dll")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $runtime $file))) { throw "Portable GPU runtime is missing $file" }
     }
     $directMlRuntime = Join-Path $root "runtime\win-x64-directml"
     foreach ($file in @("onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll")) {
@@ -86,7 +92,10 @@ if ($Platform -eq "win-x64") {
 
 $name = "OwlWhisp-$version-$Target"
 $stage = Join-Path $root "dist\$name"
-if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+$resolvedStage = [IO.Path]::GetFullPath($stage)
+$distRoot = [IO.Path]::GetFullPath((Join-Path $root 'dist')) + [IO.Path]::DirectorySeparatorChar
+if (-not $resolvedStage.StartsWith($distRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "Staging path is outside dist" }
+if (Test-Path -LiteralPath $resolvedStage) { Remove-Item -LiteralPath $resolvedStage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 Write-Host "== Staging $name ==" -ForegroundColor Cyan
@@ -96,7 +105,15 @@ Copy-Item $exe (Join-Path $stage "OwlWhisp.exe")
 # resolves `runtime\<platform>` relative to the executable.
 $runtimeDest = Join-Path $stage "runtime\$Platform"
 New-Item -ItemType Directory -Force -Path $runtimeDest | Out-Null
-Copy-Item -Recurse -Force (Join-Path $runtime "*") $runtimeDest
+if ($Platform -eq "win-x64" -and -not $WithNvidiaRuntime) {
+    # CPU and portable GPU support work out of the box. NVIDIA packages are downloaded per GPU.
+    foreach ($file in @("onnxruntime.dll", "onnxruntime_providers_shared.dll", "onnxruntime_providers_webgpu.dll", "dxcompiler.dll", "dxil.dll", "onnxruntime-gpu-LICENSE.txt", "onnxruntime-gpu-ThirdPartyNotices.txt", "onnxruntime-webgpu-LICENSE.txt")) {
+        $source = Join-Path $runtime $file
+        if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $runtimeDest }
+    }
+} else {
+    Copy-Item -Recurse -Force (Join-Path $runtime "*") $runtimeDest
+}
 if ($Platform -eq "win-x64") {
     $directMlDest = Join-Path $stage "runtime\win-x64-directml"
     New-Item -ItemType Directory -Force -Path $directMlDest | Out-Null
@@ -120,6 +137,10 @@ Copy-Item -Recurse -Force (Join-Path $manifests "*") $manifestsDest
 Copy-Item (Join-Path $root "LICENSE") $stage -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root "docs\licenses.md") (Join-Path $stage "LICENSES.md")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $stage
+@{
+    version = $version; target = $Target; platform = $Platform
+    commit = (git rev-parse HEAD); sherpa = [bool]$env:SHERPA_ONNX_LIB_DIR
+} | ConvertTo-Json | Set-Content (Join-Path $stage 'BUILD_INFO.json')
 
 $files = (Get-ChildItem -Recurse -File $stage).Count
 $bytes = (Get-ChildItem -Recurse -File $stage | Measure-Object -Property Length -Sum).Sum
@@ -135,6 +156,12 @@ if ($NoInstaller) { Write-Host "Skipping the installer (-NoInstaller)."; exit 0 
 
 $makensis = Get-Command makensis -ErrorAction SilentlyContinue
 if (-not $makensis) {
+    $nsisPaths = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe")
+    $nsisPath = $nsisPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($nsisPath) { $makensis = Get-Command $nsisPath }
+}
+if (-not $makensis) {
+    if ($RequireInstaller) { throw 'NSIS is required for a release; no installer was produced' }
     # Not a failure. The portable folder and the zip above are a complete, working build; the
     # installer is the one artefact that needs a tool this machine does not have, and saying so
     # plainly beats failing a release build over a packaging nicety.

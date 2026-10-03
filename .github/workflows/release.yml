@@ -4,14 +4,24 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a prerelease after every package passes verification
+        type: boolean
+        default: false
+      tag:
+        description: Release tag (must match the workspace version)
+        type: string
+        default: v0.1.0
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -21,37 +31,60 @@ jobs:
             target: aarch64-pc-windows-msvc
             platform: win-arm64
             package: windows
+            msvc_arch: arm64
+            sherpa: true
           - name: windows-x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             platform: win-x64
             package: windows
+            msvc_arch: x64
+            sherpa: true
           - name: macos-arm64
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
             platform: osx-arm64
             package: unix
+            sherpa: true
           - name: macos-x64
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
             platform: osx-x64
             package: unix
+            sherpa: true
           - name: linux-x64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
             package: unix
+            sherpa: true
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+            package: unix
+            sherpa: false
+    env:
+      CARGO_BUILD_JOBS: 3
+      MACOSX_DEPLOYMENT_TARGET: "13.3"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc_arch }}
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang libasound2-dev libxdo-dev \
-            libxkbcommon-dev libwayland-dev libxcb1-dev libgtk-3-dev
+            libxkbcommon-dev libwayland-dev libxcb1-dev libgtk-3-dev libayatana-appindicator3-dev
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
@@ -59,22 +92,39 @@ jobs:
       - name: Install LLVM for Windows ARM64 dependencies
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install llvm --no-progress -y
+        run: |
+          choco install llvm --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM installation failed' }
+          "C:\Program Files\LLVM\bin" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Cache Intel macOS ONNX Runtime
+        if: matrix.platform == 'osx-x64'
+        uses: actions/cache@v4
+        with:
+          path: runtime/osx-x64
+          key: ort-1.28.1-osx-x64-${{ hashFiles('scripts/runtime/build-ort-macos-intel.ps1') }}
       - name: Stage ONNX Runtime
         shell: pwsh
         run: pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform ${{ matrix.platform }}
       - name: Stage GPL-free sherpa-onnx libraries
+        if: matrix.sherpa
         shell: pwsh
         run: |
           $dir = pwsh -File scripts/build/fetch-sherpa.ps1 -Platform ${{ matrix.platform }} -Quiet
-          if (-not $dir -or -not (Test-Path $dir)) { throw "fetch-sherpa.ps1 produced no library directory" }
+          if ($LASTEXITCODE -ne 0 -or -not $dir -or -not (Test-Path $dir)) { throw "fetch-sherpa.ps1 produced no library directory" }
           "SHERPA_ONNX_LIB_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Test simulated hardware configurations
+        run: cargo test --locked -p lw-app --test hardware_matrix --target ${{ matrix.target }}
       - name: Build OwlWhisp
-        run: cargo build -p lw-gui --release --target ${{ matrix.target }} --features sherpa
+        shell: pwsh
+        run: |
+          $features = @()
+          if ('${{ matrix.sherpa }}' -eq 'true') { $features = @('--features', 'sherpa') }
+          cargo build --locked -p lw-gui --release --target ${{ matrix.target }} @features
+          if ($LASTEXITCODE -ne 0) { throw 'OwlWhisp build failed' }
       - name: Package Windows application
         if: matrix.package == 'windows'
         shell: pwsh
-        run: pwsh -File scripts/build/package-windows.ps1 -Target ${{ matrix.target }} -Platform ${{ matrix.platform }}
+        run: pwsh -File scripts/build/package-windows.ps1 -Target ${{ matrix.target }} -Platform ${{ matrix.platform }} -RequireInstaller
       - name: Package macOS or Linux application
         if: matrix.package == 'unix'
         shell: pwsh
@@ -86,11 +136,14 @@ jobs:
           $hits = Get-ChildItem -Recurse dist -Include "Qnn*","libQnn*","*QnnHtp*" -ErrorAction SilentlyContinue
           if ($hits) { $hits | ForEach-Object { Write-Error $_.FullName }; exit 1 }
       - name: Create checksums
+        # The archive is checked on its native host before anything can be published.
         shell: pwsh
         run: |
-          Get-ChildItem dist -File | ForEach-Object {
-            (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.Name
-          } | Set-Content "dist/SHA256SUMS-${{ matrix.name }}.txt"
+          Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
+            (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + "  " + $_.Name
+          } | Set-Content "dist/SHA256SUMS-${{ matrix.name }}.txt" -Encoding ascii
+      - name: Verify archive architecture, contents and packaged runtime
+        run: python scripts/build/verify-package.py --platform ${{ matrix.platform }} --target ${{ matrix.target }} --commit ${{ github.sha }} --smoke
       - uses: actions/upload-artifact@v4
         with:
           name: owlwhisp-${{ matrix.name }}
@@ -100,19 +153,33 @@ jobs:
             dist/*-setup.exe
             dist/SHA256SUMS-*.txt
           if-no-files-found: error
+          retention-days: 14
 
   publish:
-    name: Publish GitHub Release
+    name: Publish verified GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: owlwhisp-*
           merge-multiple: true
+      - name: Verify complete asset set and checksums
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: python scripts/build/verify-release-assets.py release-assets --tag "$RELEASE_TAG"
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
           generate_release_notes: true
+          body_path: docs/release-notes-v0.1.0.md
+          fail_on_unmatched_files: true
           files: release-assets/*

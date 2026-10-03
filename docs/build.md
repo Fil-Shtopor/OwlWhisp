@@ -2,16 +2,18 @@
 
 ## Build matrix
 
-| Target | Status | Notes |
+| Target | Package/profile | Status |
 |---|---|---|
-| **Windows ARM64** (`aarch64-pc-windows-msvc`) | **first-class, verified** | Native binary; NPU (QNN HTP V81) + CPU |
-| Windows x64 (`x86_64-pc-windows-msvc`) | buildable | CPU only (QNN EP path is ARM64) |
-| macOS arm64 (`aarch64-apple-darwin`) | buildable; ANE path not verified on our hardware | ORT CoreML EP / CPU |
-| macOS x64 | buildable where ORT provides a build | CPU |
-| Linux x64 / ARM64 | scaffolding (platform layer stubbed) | ORT CPU |
+| Windows ARM64 (`aarch64-pc-windows-msvc`) | NSIS + ZIP; CPU, WebGPU, QNN on compatible Snapdragon | Primary; NPU/CPU verified on X2 |
+| Windows x64 (`x86_64-pc-windows-msvc`) | NSIS + ZIP; CPU, DirectML, WebGPU; optional CUDA/TensorRT | Primary; verified on RTX 4080 Laptop |
+| macOS ARM64 (`aarch64-apple-darwin`) | `.app` ZIP; CPU + WebGPU, macOS 13.3+ | Preview; desktop integration is partial |
+| macOS x64 (`x86_64-apple-darwin`) | `.app` ZIP; CPU, macOS 13.3+ | Preview; ORT 1.28.1 is built from pinned upstream source |
+| Linux x64 (`x86_64-unknown-linux-gnu`) | Tarball; CPU + WebGPU, built on Ubuntu 22.04 | Preview; desktop integration is partial |
+| Linux ARM64 (`aarch64-unknown-linux-gnu`) | Tarball; Parakeet CPU only, built on Ubuntu 24.04 | Preview; no pinned no-TTS sherpa package available |
 
-At minimum, **Windows ARM64 works correctly** (CPU and NPU transcription verified — see
-[`benchmarks.md`](benchmarks.md)).
+CI checks and tests all six native targets. Release builds unpack each archive on its native
+runner and load the packaged runtime before publishing. macOS/Linux hotkeys, text injection and
+foreground-app detection remain unimplemented; see [platform support](../README.md#supported-platforms).
 
 ## Prerequisites (Windows ARM64)
 
@@ -114,12 +116,14 @@ Hold **Ctrl+Alt+Space** to dictate; the tray icon opens Settings / Diagnostics /
 
 On Windows x64, `fetch-runtime.ps1` also stages DirectML and TensorRT. DirectML uses a separate
 Windows ML ONNX Runtime 1.28 core because the CUDA core cannot be replaced after the app starts.
-TensorRT is staged with the Ada SM 8.9 builder resource used by the RTX 4080 test machine. Its
-dynamic Parakeet graph did transcribe successfully there, but compiled for each clip length. Before
-enabling its engine cache, two clips measured RTF above 11. With the cache enabled, the same six
-second clip measured RTF 4.881 on its first run and 0.375 on a repeat. CUDA remains the practical
-GPU choice for dictation. The TensorRT engine cache used 2.44 GB in the model directory on this
-machine. The two runtimes
+TensorRT is staged with the Ada SM 8.9 builder resource used by the RTX 4080 test machine.
+Parakeet now uses FP16 and an explicit 1/600/2000-frame profile instead of rebuilding for each
+new clip length. On 2026-10-03, fully prepared real-speech runs measured RTF 0.0077–0.0097,
+against CUDA 0.0246–0.0275, with identical WER 5.4%. First preparation took about 136 seconds;
+the engine cache used 1.25 GB and subsequent session loading took about 4 seconds. TensorRT is
+an optional prepared mode; CUDA precedes it in the ordinary GPU startup policy. See
+[the profile comparison](accelerator-profiles-2026-10-03.md) for cold/new-shape timings,
+scope and reproduction commands. The two runtimes
 and their licence notices are included by `package-windows.ps1`.
 
 ## Tests
@@ -196,3 +200,47 @@ Windows packages contain a portable ZIP and an NSIS per-user installer. macOS pa
 self-contained `.app` bundle in a ZIP; Linux packages are portable `.tar.gz` archives. All stage
 the matching ONNX Runtime files and licence notices. Pushing a `v*` tag runs the same matrix on
 GitHub Actions and attaches each package plus SHA-256 checksums to the GitHub Release.
+
+## Hardware-selected runtime add-ons (Windows x64)
+
+The standard Windows x64 package includes CPU, DirectML and WebGPU. CUDA/cuDNN and TensorRT
+are optional: Settings ? Accelerator ? **Download runtime** installs the pinned packages for
+this machine in `%APPDATA%/ai.owlwhisp.app/runtimes/win-x64`. No administrator rights or full CUDA
+Toolkit installation are required. A missing/old NVIDIA display driver has a separate **Install
+driver** action. CUDA 13 requires a driver exposing CUDA API 13.0 or later and compute capability
+7.5 or later; older cards can use compatible DirectML/WebGPU providers.
+
+TensorRT 10.14.1.48 downloads only the matching Windows builder partition (SM 75, 80, 86, 89,
+90 or 120). Detection uses the NVIDIA driver API, never a table of marketing names. The add-on
+lock pins archive sizes and SHA-256/SHA-512 hashes, allowlists extracted files, and carries the
+redistribution licences. Verified bundled files are reused. Interrupted downloads support HTTP
+Range resumption. `scripts/runtime/lock-addons.py` deliberately refreshes the lock only when a
+maintainer runs it; the shipping app never selects a newer package from a live feed.
+
+Installation probes the provider in a fresh process, then prepares/checks the GPU model before
+selecting the backend. Optional runtimes run in persistent workers because ONNX Runtime's API is
+process-global. Installing another runtime never replaces loaded DLLs or requires restarting the
+GUI. Failed downloads leave the current working backend intact and expose a retry action.
+
+TensorRT caches are separated by GPU UUID/capability, driver compatibility, operating system,
+runtime binary fingerprints, model graph hash/external-weight fingerprint, precision, shapes and
+diagnostic overrides. Changing these creates a new cache; old unlabelled caches are not imported.
+The first build after this change therefore prepares a fresh engine once.
+
+```powershell
+# Default portable package: CPU + DirectML + WebGPU, NVIDIA add-ons installed in Settings
+pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform win-x64 -BundleProfile Base
+pwsh -File scripts/build/package-windows.ps1 -Target x86_64-pc-windows-msvc -NoInstaller
+
+# Optional offline NVIDIA bundle for an explicitly selected architecture
+pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform win-x64 -BundleProfile Full -TensorRtSm 89
+pwsh -File scripts/build/package-windows.ps1 -Target x86_64-pc-windows-msvc -WithNvidiaRuntime -NoInstaller
+```
+
+Automatic package downloads currently target **Windows x64**. Windows ARM64 retains bundled QNN;
+macOS/Linux retain their existing bundled providers. No automatic CUDA/TensorRT installer is
+advertised on those platforms. Selection rules cover other NVIDIA architectures, but inference
+and performance have been measured only on the RTX 4080 Laptop; other cards need hardware QA.
+
+See [Simulated hardware tests](hardware-tests.md) for the OS/architecture/GPU detection and
+installation-policy matrix, which runs without native providers or downloaded models.

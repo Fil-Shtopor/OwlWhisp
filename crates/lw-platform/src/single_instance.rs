@@ -124,8 +124,7 @@ fn raise_existing_window(title: &str) {
             return false;
         }
         // SAFETY: opening for a query only; the handle is closed below.
-        let Ok(process) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) })
-        else {
+        let Ok(process) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
             return false;
         };
         let mut buf = [0u16; 32768];

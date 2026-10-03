@@ -90,8 +90,12 @@ impl ModelDownloader {
                 model_dir.display()
             )));
         }
-        let need = files.iter().filter(|f| !model_dir.join(&f.path).exists())
-            .map(|f| f.bytes).sum::<u64>() + self.margin_bytes;
+        let need = files
+            .iter()
+            .filter(|f| !model_dir.join(&f.path).exists())
+            .map(|f| f.bytes)
+            .sum::<u64>()
+            + self.margin_bytes;
         if let Some(free) = available_space(model_dir)
             && free < need
         {
@@ -102,8 +106,7 @@ impl ModelDownloader {
             )));
         }
         let staging = model_dir.join(".addon");
-        std::fs::create_dir_all(&staging)
-            .map_err(|e| Error::io(staging.display().to_string(), e))?;
+        std::fs::create_dir_all(&staging).map_err(|e| Error::io(staging.display().to_string(), e))?;
         for (index, f) in files.iter().enumerate() {
             if cancel.is_cancelled() {
                 return Err(Error::Model("download cancelled".into()));
@@ -119,15 +122,17 @@ impl ModelDownloader {
             }
             let staged = staging.join(&f.path);
             if let Some(parent) = staged.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| Error::io(parent.display().to_string(), e))?;
+                std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
             }
-            on_event(DownloadEvent::FileStarted { path: f.path.clone(), total: f.bytes });
-            self.download_one(f, &staged, index, files.len(), &cancel, &mut on_event).await?;
+            on_event(DownloadEvent::FileStarted {
+                path: f.path.clone(),
+                total: f.bytes,
+            });
+            self.download_one(f, &staged, index, files.len(), &cancel, &mut on_event)
+                .await?;
             super::verify_file(&staging, f)?;
             if let Some(parent) = final_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| Error::io(parent.display().to_string(), e))?;
+                std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
             }
             std::fs::rename(&staged, &final_path)
                 .map_err(|e| Error::io(final_path.display().to_string(), e))?;
@@ -380,7 +385,9 @@ mod tests {
             let (mut stream, _) = server.accept().unwrap();
             let mut request = [0u8; 1024];
             let _ = std::io::Read::read(&mut stream, &mut request);
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\ngpu model").unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\ngpu model")
+                .unwrap();
         });
         let file = FileEntry {
             path: "gpu.onnx".into(),
@@ -389,9 +396,11 @@ mod tests {
             sha256: sha256_bytes(b"gpu model"),
             extract: None,
         };
-        ModelDownloader::new().unwrap()
+        ModelDownloader::new()
+            .unwrap()
             .install_addon(&[file], &model, CancellationToken::new(), |_| {})
-            .await.unwrap();
+            .await
+            .unwrap();
         serving.join().unwrap();
         assert_eq!(std::fs::read(model.join("cpu.onnx")).unwrap(), b"cpu model");
         assert_eq!(std::fs::read(model.join("gpu.onnx")).unwrap(), b"gpu model");

@@ -76,7 +76,6 @@ pub fn foreground_is_own_process() -> bool {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-tested; used by the per-OS implementations)
 // ---------------------------------------------------------------------------

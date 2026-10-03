@@ -14,14 +14,13 @@ use std::path::{Path, PathBuf};
 
 use lw_core::capabilities::Capabilities;
 use lw_core::model::{
-    Catalog, HardwareTarget, InstallState, LanguageRate, MeasuredPoint, ModelRole, QualityTier,
-    SpeedTier, entry_paths, manifests_dir,
+    Catalog, HardwareTarget, InstallState, LanguageRate, MeasuredPoint, ModelRole, QualityTier, SpeedTier,
+    entry_paths, manifests_dir,
 };
 use serde::Serialize;
 
 /// The sentence a front end must show beside any estimated number.
-pub const ESTIMATE_DISCLAIMER: &str =
-    "The Fast recommendation uses an estimate from the model's speed tier and your hardware. \
+pub const ESTIMATE_DISCLAIMER: &str = "The Fast recommendation uses an estimate from the model's speed tier and your hardware. \
      RTF and Accuracy use Zenbook A16 measurements; run Benchmark to fill On your machine.";
 
 /// One of the jobs an entry can be tagged with, as shown.
@@ -115,8 +114,7 @@ impl EntryView {
         if language.is_empty() {
             return None;
         }
-        self.a16_reference()
-            .and_then(|p| p.per_language.get(language))
+        self.a16_reference().and_then(|p| p.per_language.get(language))
     }
 }
 
@@ -273,11 +271,7 @@ fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, 
 ///
 /// `language` is a code or the empty string for "any". Returns `None` when nothing in the catalog
 /// carries the role, or carries it and claims the language.
-pub fn pick_for_role<'a>(
-    entries: &'a [EntryView],
-    role: ModelRole,
-    language: &str,
-) -> Option<&'a EntryView> {
+pub fn pick_for_role<'a>(entries: &'a [EntryView], role: ModelRole, language: &str) -> Option<&'a EntryView> {
     entries
         .iter()
         .filter(|e| e.roles.iter().any(|r| r.id == role.id()))
@@ -415,10 +409,7 @@ pub fn group_by_vendor<'a>(
 /// Deliberately not `default_models_root`: the app owns its data directory, and the two must not
 /// disagree about what is installed.
 pub fn models_root_for(settings_path: &Path) -> PathBuf {
-    settings_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("models")
+    settings_path.parent().unwrap_or(Path::new(".")).join("models")
 }
 
 #[cfg(test)]
@@ -429,15 +420,46 @@ mod tests {
     /// rename here breaks it at runtime and nowhere else -- there is no compiler spanning the two.
     /// When the web front end is gone this test goes with it.
     const ENTRY_KEYS: &[&str] = &[
-        "id", "name", "description", "engine", "vendor", "roles", "licence", "upstream_url",
-        "languages", "language_names", "language_summary", "quality", "quality_label", "speed",
-        "speed_label", "download_bytes", "disk_bytes", "hardware", "accelerators", "runnable",
-        "best_hardware", "estimated_rtf", "measured_reference", "measurements", "wer_estimates",
-        "reason", "blockers", "install_state", "install_dir", "manifest_error", "notes",
+        "id",
+        "name",
+        "description",
+        "engine",
+        "vendor",
+        "roles",
+        "licence",
+        "upstream_url",
+        "languages",
+        "language_names",
+        "language_summary",
+        "quality",
+        "quality_label",
+        "speed",
+        "speed_label",
+        "download_bytes",
+        "disk_bytes",
+        "hardware",
+        "accelerators",
+        "runnable",
+        "best_hardware",
+        "estimated_rtf",
+        "measured_reference",
+        "measurements",
+        "wer_estimates",
+        "reason",
+        "blockers",
+        "install_state",
+        "install_dir",
+        "manifest_error",
+        "notes",
     ];
 
     const TOP_KEYS: &[&str] = &[
-        "machine", "models_root", "manifests_dir", "recommended", "estimate_disclaimer", "roles",
+        "machine",
+        "models_root",
+        "manifests_dir",
+        "recommended",
+        "estimate_disclaimer",
+        "roles",
         "entries",
     ];
 
@@ -450,9 +472,19 @@ mod tests {
         for key in TOP_KEYS {
             assert!(obj.contains_key(*key), "top level lost the key {key}");
         }
-        assert_eq!(obj.len(), TOP_KEYS.len(), "top level gained a key: {:?}", obj.keys());
+        assert_eq!(
+            obj.len(),
+            TOP_KEYS.len(),
+            "top level gained a key: {:?}",
+            obj.keys()
+        );
 
-        let first = obj["entries"].as_array().expect("entries").first().cloned().expect("an entry");
+        let first = obj["entries"]
+            .as_array()
+            .expect("entries")
+            .first()
+            .cloned()
+            .expect("an entry");
         let e = first.as_object().expect("an object");
         for key in ENTRY_KEYS {
             assert!(e.contains_key(*key), "an entry lost the key {key}");
@@ -530,14 +562,24 @@ mod tests {
             .measured_for_language("zh")
             .expect("its Chinese was measured and stored");
         assert!((zh.rate - 0.141).abs() < 1e-3, "{}", zh.rate);
-        assert!(sense.measured_for_language("ja").is_none(), "no Japanese fixtures exist");
-        assert!(sense.measured_for_language("").is_none(), "no language chosen is not a language");
+        assert!(
+            sense.measured_for_language("ja").is_none(),
+            "no Japanese fixtures exist"
+        );
+        assert!(
+            sense.measured_for_language("").is_none(),
+            "no language chosen is not a language"
+        );
     }
 
     #[test]
     fn parakeet_reference_uses_the_a16_npu_run_on_every_machine() {
         let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
-        let parakeet = view.entries.iter().find(|e| e.id == "parakeet-tdt-0.6b-v3").unwrap();
+        let parakeet = view
+            .entries
+            .iter()
+            .find(|e| e.id == "parakeet-tdt-0.6b-v3")
+            .unwrap();
         let reference = parakeet.a16_reference().expect("A16 run");
         assert_eq!(reference.hardware, HardwareTarget::QnnNpu);
         assert!((reference.rtf - 0.0145).abs() < 1e-6);

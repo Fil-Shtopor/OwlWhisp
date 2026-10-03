@@ -63,24 +63,27 @@ available.
 
 ## 3. Platform support
 
-| Platform | Installer | CPU | Accelerators | Status |
-|---|---|---|---|---|
-| **Windows 11 ARM64** (Snapdragon X / X2) | `.exe` (NSIS), `.msi` | ✅ | ✅ Qualcomm NPU, ✅ GPU (WebGPU) | **verified end to end** |
-| **Windows 11/10 x64** (Intel / AMD) | `.exe` (NSIS), `.msi` | ⚙️ | ⚙️ GPU (WebGPU), 📦 CUDA, 📦 TensorRT, 📦 DirectML, 📦 OpenVINO, 📦 Vitis AI | builds; not executed |
-| **macOS 11+ Apple Silicon** | `.dmg`, `.app` | ⚙️ | ⚙️ GPU (WebGPU → Metal), 📦 CoreML / ANE | builds; not executed |
-| **macOS Intel** | `.dmg`, `.app` | 🧩 | — | ONNX Runtime dropped macOS x86-64 after 1.24 |
-| **Linux x64** | `.deb`, `.rpm`, `.AppImage` | ⚙️ | ⚙️ GPU (WebGPU → Vulkan), 📦 CUDA, 📦 TensorRT, 📦 OpenVINO | builds; platform layer is partial (§7) |
-| **Linux ARM64** | — | ⚙️ | ⚙️ CPU only | no ORT WebGPU build for this RID |
+| Platform | Package | Included inference | Desktop status |
+|---|---|---|---|
+| Windows 11 ARM64 | NSIS installer, portable ZIP | CPU, WebGPU, QNN on compatible Snapdragon with a matching model | Primary; X2 verified |
+| Windows 10/11 x64 | NSIS installer, portable ZIP | CPU, DirectML, WebGPU; CUDA/TensorRT installed in Settings | Primary; RTX 4080 Laptop verified |
+| macOS 13.3+ Apple Silicon | `.app` ZIP | CPU, bundled WebGPU/Metal | Preview |
+| macOS 13.3+ Intel | `.app` ZIP | CPU; ONNX Runtime built from pinned 1.28.1 source | Preview |
+| Linux x64 (Ubuntu 22.04 build) | Portable tarball | CPU, bundled WebGPU/Vulkan | Preview |
+| Linux ARM64 (Ubuntu 24.04 build) | Portable tarball | Parakeet CPU only; sherpa omitted | Preview |
 
-Packaging is configured for all of these (`bundle.targets: "all"`, one release job per platform),
-and the staged execution-provider libraries are bundled with the app so an installed build has a
-runtime. Windows x64 has also been built as a portable package and exercised through the CLI on
-an RTX 4080: Parakeet completed real speech fixtures on CPU, CUDA, and WebGPU. The x64 GUI and NSIS
-installer have not yet been visually verified on this machine; do not treat a device count alone
-as proof that a particular model runs on it. The remaining platforms have not been executed here.
+macOS/Linux global hotkeys, automatic text injection and foreground-app detection are still
+unimplemented. CoreML/ANE and Intel/AMD NPU model packages are not shipped. Linux ARM64 lacks a
+no-TTS sherpa archive for the pinned version, so the other CPU models remain unavailable there.
 
-Not yet done for public distribution: Windows code signing (unsigned installers trigger
-SmartScreen) and macOS signing + notarization (unsigned `.app` is blocked by Gatekeeper).
+All six native targets have CI build/test jobs. Release archives are unpacked on native runners,
+checked for the right architecture, model manifests and licence notices, then exercised with the
+packaged CPU runtime. This validates packaging and startup; it does not claim GPU/NPU inference
+or a complete desktop workflow was tested on those virtual runners. Windows GPU inference was
+measured on the RTX 4080 Laptop, and Qualcomm NPU inference on the Snapdragon X2.
+
+For download links and current requirements, see [README](../README.md#supported-platforms).
+Windows and macOS packages are unsigned.
 
 ---
 
@@ -89,7 +92,7 @@ SmartScreen) and macOS signing + notarization (unsigned `.app` is blocked by Gat
 `lw diagnose` prints this table for the machine it runs on, and the app shows the same in
 Settings and Diagnostics. Present / registered / device-count are reported separately on purpose:
 a driver package can be installed while the provider fails to load, and a provider can load while
-finding no device. **Only a device count above zero means acceleration.**
+finding no device. **Usability requires a present, registered provider, a matching device and no probe error.**
 
 | Accelerator | Provider library | Ships with OwlWhisp | Needs its own model artifact | Status |
 |---|---|---|---|---|
@@ -118,7 +121,10 @@ ONNX Runtime, WebGPU, NVIDIA CUDA with its private CUDA 13/cuDNN 9 redistributab
 and Qualcomm QNN on win-arm64. CUDA's DLL is the legacy provider from Microsoft's GPU NuGet: its
 matching `onnxruntime.dll` is staged with it, and the app creates a CUDA session directly. A driver
 or CUDA Toolkit installation alone does not add this provider to an older OwlWhisp installation.
-For the rest:
+Windows x64 standard packages omit the optional NVIDIA dependencies. Settings installs the
+pinned packages for the detected compute capability and probes them in a separate worker; no
+full CUDA Toolkit is needed. See [runtime add-ons](build.md#hardware-selected-runtime-add-ons-windows-x64).
+For providers not shipped by the application:
 
 | Provider | What to install | Then |
 |---|---|---|

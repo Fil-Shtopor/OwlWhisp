@@ -437,8 +437,7 @@ impl CatalogEntry {
         // accelerator's own name is already beside the reason wherever this is shown.
         if accel.kind() != AcceleratorKind::Cpu && self.requires_engine_feature.as_deref() == Some("sherpa") {
             return Some(
-                "the sherpa engine links its own ONNX Runtime, built with the CPU provider only"
-                    .to_string(),
+                "the sherpa engine links its own ONNX Runtime, built with the CPU provider only".to_string(),
             );
         }
         if accel.needs_dedicated_artifact() {
@@ -626,7 +625,15 @@ pub struct Recommendation<'a> {
 
 impl Recommendation<'_> {
     /// Sort key: runnable first, then better quality, then lower estimated RTF, then id.
-    fn sort_key(&self) -> (u8, std::cmp::Reverse<QualityTier>, u32, std::cmp::Reverse<usize>, &str) {
+    fn sort_key(
+        &self,
+    ) -> (
+        u8,
+        std::cmp::Reverse<QualityTier>,
+        u32,
+        std::cmp::Reverse<usize>,
+        &str,
+    ) {
         // The estimate is bucketed before it is compared, because it cannot support a finer
         // ordering than that. It is a tier median scaled by a core count, accurate to about a
         // factor of two -- so ranking one model above another on a 0.001 difference in it is
@@ -1264,7 +1271,10 @@ mod tests {
         let catalog = Catalog::builtin().expect("builtin catalog");
         let mut best: Option<(&CatalogEntry, f32, usize)> = None;
         for entry in &catalog.entries {
-            let Some(m) = entry.measurements.iter().find(|m| m.hardware == HardwareTarget::Cpu)
+            let Some(m) = entry
+                .measurements
+                .iter()
+                .find(|m| m.hardware == HardwareTarget::Cpu)
             else {
                 continue;
             };
@@ -1355,7 +1365,10 @@ mod tests {
                 );
             }
         }
-        assert!(seen_any, "no entry refused any accelerator, so this proved nothing");
+        assert!(
+            seen_any,
+            "no entry refused any accelerator, so this proved nothing"
+        );
         // And the grouping actually collapses: one sherpa entry, one distinct reason.
         let sherpa = catalog
             .entries
@@ -1516,7 +1529,10 @@ mod tests {
                 checked += 1;
             }
         }
-        assert!(checked >= 8, "only {checked} measurements checked; the catalog lost some");
+        assert!(
+            checked >= 8,
+            "only {checked} measurements checked; the catalog lost some"
+        );
     }
 
     // ----- recommendation -----
@@ -1537,16 +1553,23 @@ mod tests {
         narrow.languages = vec!["ru".to_string()];
         narrow.speed = SpeedTier::VeryFast;
         narrow.hardware = vec![HardwareTarget::Cpu];
-        assert_eq!(wide.quality, narrow.quality, "the test needs them tied on quality");
+        assert_eq!(
+            wide.quality, narrow.quality,
+            "the test needs them tied on quality"
+        );
 
         let c = catalog(vec![narrow, wide]);
         let recs = c.recommend(&npu_machine());
         let est: Vec<f32> = recs.iter().filter_map(|r| r.estimated_rtf).collect();
         assert_eq!(est.len(), 2);
         let spread = est[0].max(est[1]) / est[0].min(est[1]);
-        assert!(spread < 2.0, "the two estimates must be close for this test to mean anything: {spread}");
+        assert!(
+            spread < 2.0,
+            "the two estimates must be close for this test to mean anything: {spread}"
+        );
         assert_eq!(
-            recs[0].entry.id, "wide",
+            recs[0].entry.id,
+            "wide",
             "within one speed bucket the broader model leads; got {:?}",
             recs.iter().map(|r| r.entry.id.as_str()).collect::<Vec<_>>()
         );

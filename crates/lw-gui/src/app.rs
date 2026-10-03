@@ -125,8 +125,10 @@ impl App {
             tray,
             ..Self::default()
         };
-        app.models.update(panels::models::Message::Resized(size.width - 48.0));
-        app.settings.update(panels::settings::Message::Resized(size.width - 48.0));
+        app.models
+            .update(panels::models::Message::Resized(size.width - 48.0));
+        app.settings
+            .update(panels::settings::Message::Resized(size.width - 48.0));
         (app, open.map(Message::MainOpened))
     }
 
@@ -185,7 +187,9 @@ impl App {
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch([
             iced::event::listen_with(|event, _status, id| match event {
-                iced::Event::Window(iced::window::Event::Resized(size)) => Some(Message::Resized(id, size.width)),
+                iced::Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Message::Resized(id, size.width))
+                }
                 _ => None,
             }),
             self.benchmark.subscription().map(Message::Benchmark),
@@ -247,6 +251,7 @@ impl App {
                     transparent: true,
                     level: window::Level::AlwaysOnTop,
                     exit_on_close_request: false,
+                    #[cfg(windows)]
                     platform_specific: window::settings::PlatformSpecific {
                         // Off the taskbar: this is an indicator, not a window the user manages.
                         skip_taskbar: true,
@@ -409,19 +414,22 @@ impl App {
                     return Task::perform(
                         async move {
                             tokio::task::spawn_blocking(move || {
-                                lw_platform::drivers::install_display_driver(id)
-                                    .map_err(|e| e.to_string())
+                                lw_platform::drivers::install_display_driver(id).map_err(|e| e.to_string())
                             })
                             .await
                             .unwrap_or_else(|e| Err(format!("driver installer stopped: {e}")))
                         },
-                        |result| Message::Settings(panels::settings::Message::DriverFinished(std::sync::Arc::new(result))),
+                        |result| {
+                            Message::Settings(panels::settings::Message::DriverFinished(std::sync::Arc::new(
+                                result,
+                            )))
+                        },
                     );
                 }
-                if let panels::settings::Message::OpenProviderSetup(url) = &m {
-                    if let Err(e) = lw_platform::browser::open_https(url) {
-                        tracing::warn!(%e, "could not open accelerator setup instructions");
-                    }
+                if let panels::settings::Message::OpenProviderSetup(url) = &m
+                    && let Err(e) = lw_platform::browser::open_https(url)
+                {
+                    tracing::warn!(%e, "could not open accelerator setup instructions");
                 }
                 // The microphone belongs to the worker, which the Dictate panel owns. Forwarded
                 // here rather than shared, so neither panel reaches into the other.

@@ -141,6 +141,9 @@ enum Command {
         /// audio and says so. Every number it prints is measured on this machine.
         #[arg(long)]
         quick: bool,
+        /// Run the eligible clips once before timing, to separate shape/kernel preparation.
+        #[arg(long, conflicts_with = "quick")]
+        warm_up: bool,
     },
     /// Browse, inspect, install and compare speech models.
     Models {
@@ -241,6 +244,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             languages,
             include_unsupported,
             quick,
+            warm_up,
         } => {
             let cache = cache_dir.unwrap_or_else(|| std::env::temp_dir().join("owlwhisp-cache"));
             if quick {
@@ -269,6 +273,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 threads,
                 languages: &languages,
                 include_unsupported,
+                warm_up,
             })
         }
         Command::Models { cmd } => models::run(cmd, &cli.runtime_dir),
@@ -512,6 +517,8 @@ struct BenchArgs<'a> {
     languages: &'a [String],
     /// Run clips in languages the model does not claim, instead of skipping them.
     include_unsupported: bool,
+    /// Prepare every measured input shape before the timed pass.
+    warm_up: bool,
 }
 
 fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
@@ -524,6 +531,7 @@ fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
         threads,
         languages,
         include_unsupported,
+        warm_up,
     } = args;
     use lw_core::bench::{ClipResult, ClipSource, MeasureOptions, fixture_clips, measure_with};
 
@@ -553,8 +561,41 @@ fn bench(args: BenchArgs<'_>) -> anyhow::Result<()> {
         anyhow::bail!("no clips in {}", fixtures.display());
     }
 
+    let load_start = Instant::now();
     let mut engine = build_engine(rt, model_dir, cache_dir, backend, threads)?;
+    println!(
+        "engine load (sessions): {:.0} ms",
+        load_start.elapsed().as_secs_f64() * 1000.0
+    );
     println!("backend: {} on {}", engine.provider(), engine.device().name);
+    if warm_up {
+        let start = Instant::now();
+        let claimed: Vec<_> = engine
+            .supported_languages()
+            .iter()
+            .map(|l| l.0.to_ascii_lowercase())
+            .collect();
+        let mut prepared = 0;
+        for clip in &clips {
+            if !include_unsupported
+                && !claimed.is_empty()
+                && clip
+                    .language
+                    .as_ref()
+                    .is_some_and(|l| !claimed.contains(&l.to_ascii_lowercase()))
+            {
+                continue;
+            }
+            engine
+                .transcribe(&clip.audio)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            prepared += 1;
+        }
+        println!(
+            "untimed warm-up: {prepared} clips, {:.0} ms",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
     // "err" rather than "WER": the column can hold either a word rate or a character rate, and
     // each row says which. A fixed WER header would mislabel every Chinese line under it.
     println!(

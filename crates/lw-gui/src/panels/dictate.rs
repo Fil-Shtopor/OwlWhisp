@@ -10,7 +10,7 @@
 //! that is actually in force, and it says so when the registration failed -- an instruction to
 //! press keys that do nothing is the worst line this panel could print.
 
-use iced::widget::{button, column, container, row, text_editor, Space};
+use iced::widget::{Space, button, column, container, row, text_editor};
 use iced::{Color, Element, Length, Padding};
 use lw_app::dictation::{Command, Delivery, Event, Handle, RecordingState};
 use lw_core::settings::HotkeyConfig;
@@ -146,8 +146,7 @@ impl State {
     /// Called by the shell rather than discovered here. A panel that polled `settings.json` would
     /// be reading a file sixty times a second to learn something the application already knows.
     pub fn settings_saved(&mut self) {
-        let settings = lw_core::settings::Settings::load(&lw_app::paths::settings_path())
-            .unwrap_or_default();
+        let settings = lw_core::settings::Settings::load(&lw_app::paths::settings_path()).unwrap_or_default();
         self.worker.send(Command::ReloadSettings);
         self.overlay_enabled = settings.overlay_enabled;
         if settings.hotkey != self.hotkey {
@@ -212,9 +211,10 @@ impl State {
                             // Our own window had focus, so the text comes here rather than through
                             // a synthetic paste: this panel owns the box the user was typing in.
                             if delivery == Delivery::OwnWindow {
-                                self.scratchpad.perform(text_editor::Action::Edit(
-                                    text_editor::Edit::Paste(std::sync::Arc::new(text.clone())),
-                                ));
+                                self.scratchpad
+                                    .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                                        std::sync::Arc::new(text.clone()),
+                                    )));
                             }
                             self.last = Some((text, delivery, provider));
                             // Ask again: the first utterance is what loads the engine, so this is
@@ -235,8 +235,7 @@ impl State {
             }
             Message::Scratchpad(action) => self.scratchpad.perform(action),
             Message::CopyLast => {
-                if let (Some((text, _, _)), Ok(mut clip)) =
-                    (&self.last, lw_platform::platform().clipboard())
+                if let (Some((text, _, _)), Ok(mut clip)) = (&self.last, lw_platform::platform().clipboard())
                 {
                     let _ = clip.set_text(text);
                 }
@@ -246,16 +245,16 @@ impl State {
 
     pub fn view(&self) -> Element<'_, Message> {
         column![
-                self.pill(),
-                self.backend_line(),
-                self.scratchpad_card(),
-                self.last_card(),
-                widgets::prose(
-                    "If the bar above does not change when you press the hotkey, or nothing is \
+            self.pill(),
+            self.backend_line(),
+            self.scratchpad_card(),
+            self.last_card(),
+            widgets::prose(
+                "If the bar above does not change when you press the hotkey, or nothing is \
                      transcribed, check the microphone: Settings has the input picker.",
-                ),
-                Space::new().height(8),
-            ]
+            ),
+            Space::new().height(8),
+        ]
         .spacing(12)
         .padding(Padding::from([0, 8]))
         .into()
@@ -285,7 +284,13 @@ impl State {
             let w = (self.level.clamp(0.0, 1.0) * 160.0).max(2.0);
             container(Space::new().width(w).height(4))
                 .style(|_t| container::Style {
-                    background: Some(Color { a: 0.85, ..Color::WHITE }.into()),
+                    background: Some(
+                        Color {
+                            a: 0.85,
+                            ..Color::WHITE
+                        }
+                        .into(),
+                    ),
                     border: iced::Border {
                         radius: 2.0.into(),
                         ..Default::default()
@@ -352,16 +357,10 @@ impl State {
                     "{} on {}{}",
                     b.provider.clone().unwrap_or_default(),
                     b.acceleration.clone().unwrap_or_default(),
-                    b.device
-                        .as_ref()
-                        .map(|d| format!(" ({d})"))
-                        .unwrap_or_default(),
+                    b.device.as_ref().map(|d| format!(" ({d})")).unwrap_or_default(),
                 ),
             ),
-            Some(b) if b.error.is_some() => (
-                widgets::badge_no("error"),
-                b.error.clone().unwrap_or_default(),
-            ),
+            Some(b) if b.error.is_some() => (widgets::badge_no("error"), b.error.clone().unwrap_or_default()),
             // Before the first utterance nothing is loaded, and saying which accelerator it
             // *would* use is a prediction. It is labelled as one rather than shown as a fact.
             _ => (
@@ -371,9 +370,11 @@ impl State {
             ),
         };
 
-        let mut c = column![row![badge, widgets::sub(text)]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)]
+        let mut c = column![
+            row![badge, widgets::sub(text)]
+                .spacing(8)
+                .align_y(iced::Alignment::Center)
+        ]
         .spacing(4);
         if let Some(b) = self.backend.as_deref() {
             for note in &b.notes {
@@ -425,8 +426,7 @@ impl State {
                 row![
                     match delivery {
                         Delivery::OwnWindow => widgets::badge_yes("put in the box above"),
-                        Delivery::Injected =>
-                            widgets::badge_yes("typed into the focused window"),
+                        Delivery::Injected => widgets::badge_yes("typed into the focused window"),
                         _ => widgets::badge("copied to the clipboard", theme::ESTIMATE),
                     },
                     widgets::sub(provider.clone()),

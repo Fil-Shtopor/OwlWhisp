@@ -1,13 +1,15 @@
 //! Hardware/OS capability model. The *data* lives here; the *detection* lives in `lw-platform`
 //! (which fills these structs from the registry, driver store, ORT device enumeration, etc.).
 //!
-//! Detection is capability-based, never CPU-marketing-string-based: an NPU is "present" only if a
-//! QNN/NPU execution-provider device enumerates, and the HTP arch is read from the driver package.
+//! Driver-store evidence and usable providers are separate: the HTP arch comes from the driver
+//! package, while `providers.qnn` requires a QNN execution-provider device to enumerate.
 
 use serde::{Deserialize, Serialize};
 
 pub mod accel;
 pub use accel::{ALL_ACCELERATORS, Accelerator, AcceleratorKind};
+pub mod platform;
+pub use platform::{Architecture, OperatingSystem, Platform};
 
 /// Hexagon HTP architecture generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,7 +56,8 @@ impl HtpArch {
 /// Details of a detected Qualcomm NPU.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NpuInfo {
-    /// True if an NPU execution-provider device enumerated.
+    /// True if a compatible Qualcomm NPU driver package was detected on a native ARM64 system.
+    /// This does not imply a usable QNN provider; check `Capabilities::providers.qnn` as well.
     pub present: bool,
     /// HTP architecture, if determined from the driver package.
     pub htp_arch: Option<HtpArch>,

@@ -3,16 +3,12 @@
 
 use crate::{Error, Result};
 
-/// Windows Update can provide display drivers. Provider libraries are app components and are
-/// deliberately outside this operation.
-#[cfg(windows)]
-pub fn install_display_driver(accelerator_id: &str) -> Result<String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
+/// Select physical PCI devices for a display-driver update, without starting Windows Update.
+/// Vendor IDs remain readable when Windows uses the generic Basic Display Adapter driver.
+pub fn display_driver_targets(accelerator_id: &str, hardware_ids: &[String]) -> Result<Vec<String>> {
     let vendor = match accelerator_id {
-        "cuda" | "tensor_rt" => Some("nvidia"),
-        "open_vino" => Some("intel"),
+        "cuda" | "tensor_rt" => Some("10DE"),
+        "open_vino" => Some("8086"),
         "web_gpu" | "direct_ml" => None,
         _ => {
             return Err(Error::Unavailable(
@@ -20,16 +16,35 @@ pub fn install_display_driver(accelerator_id: &str) -> Result<String> {
             ));
         }
     };
-    let ids: Vec<_> = crate::windows::display_adapters()
-        .into_iter()
-        .filter(|adapter| vendor.is_none_or(|name| adapter.name.to_ascii_lowercase().contains(name)))
-        .filter_map(|adapter| hardware_id_key(&adapter.hardware_id))
-        .collect();
+    let mut ids = Vec::new();
+    for id in hardware_ids {
+        if let Some(key) = hardware_id_key(id)
+            && vendor.is_none_or(|vendor| &key[8..12] == vendor)
+            && !ids.contains(&key)
+        {
+            ids.push(key);
+        }
+    }
     if ids.is_empty() {
         return Err(Error::Unavailable(
             "no matching physical display adapter was found".into(),
         ));
     }
+    Ok(ids)
+}
+
+/// Windows Update can provide display drivers. Provider libraries are app components and are
+/// deliberately outside this operation.
+#[cfg(windows)]
+pub fn install_display_driver(accelerator_id: &str) -> Result<String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    let hardware_ids: Vec<_> = crate::windows::display_adapters()
+        .into_iter()
+        .map(|adapter| adapter.hardware_id)
+        .collect();
+    let ids = display_driver_targets(accelerator_id, &hardware_ids)?;
 
     // PowerShell is only a COM bridge to the OS update service. The script is a constant and
     // adapter IDs are passed as data through the environment, never interpolated into code.
@@ -87,7 +102,6 @@ pub fn install_display_driver(_accelerator_id: &str) -> Result<String> {
     ))
 }
 
-#[cfg(windows)]
 fn hardware_id_key(id: &str) -> Option<String> {
     let upper = id.to_ascii_uppercase();
     let start = upper.find("PCI\\VEN_")?;
@@ -105,7 +119,7 @@ fn hardware_id_key(id: &str) -> Option<String> {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::hardware_id_key;
 

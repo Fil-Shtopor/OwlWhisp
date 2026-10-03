@@ -17,6 +17,7 @@
 //!    specific NPU; GPUs generally run the ordinary graph. [`Accelerator::needs_dedicated_artifact`]
 //!    is the difference, and it is the reason GPU support generalizes and NPU support does not.
 
+use super::{Architecture, OperatingSystem, Platform};
 use serde::{Deserialize, Serialize};
 
 /// Broad class of compute an accelerator provides, for grouping in the UI and for coarse
@@ -56,7 +57,7 @@ pub enum Accelerator {
     WebGpu,
     /// NVIDIA GPU via the CUDA execution provider.
     Cuda,
-    /// NVIDIA GPU via TensorRT (faster than CUDA, longer first-run build).
+    /// NVIDIA GPU via TensorRT. Performance depends on the model and shape profile.
     TensorRt,
     /// Any Direct3D 12 GPU on Windows via the DirectML execution provider.
     DirectMl,
@@ -84,16 +85,18 @@ pub enum Accelerator {
 ///
 /// Within GPUs, vendor-specific providers precede the portable one: when CUDA or CoreML is
 /// actually present it is the better-optimized path.
+/// TensorRT is last in this startup policy because a fresh cache can require minutes of
+/// preparation. A measured, explicitly selected TensorRT backend can still be the fastest.
 pub const ALL_ACCELERATORS: [Accelerator; 9] = [
     Accelerator::QnnNpu,
     Accelerator::OpenVino,
     Accelerator::VitisAi,
     Accelerator::Cpu,
     Accelerator::CoreMl,
-    Accelerator::TensorRt,
     Accelerator::Cuda,
     Accelerator::DirectMl,
     Accelerator::WebGpu,
+    Accelerator::TensorRt,
 ];
 
 impl Accelerator {
@@ -182,13 +185,20 @@ impl Accelerator {
     /// `None` means this accelerator cannot be loaded as a plugin on the current platform — either
     /// it is built in (CPU) or the vendor does not ship a plugin library for this OS.
     pub fn library_file(self) -> Option<&'static str> {
-        let windows = cfg!(target_os = "windows");
-        let macos = cfg!(target_os = "macos");
+        self.library_file_on(Platform::current())
+    }
+
+    /// Provider library for an explicit target; this does not promise it is installed.
+    pub fn library_file_on(self, platform: Platform) -> Option<&'static str> {
+        if !self.supported_on(platform) {
+            return None;
+        }
+        let windows = platform.os == OperatingSystem::Windows;
+        let macos = platform.os == OperatingSystem::Macos;
         match self {
             Accelerator::Cpu => None,
             // Qualcomm ships QNN for Windows on Snapdragon ARM64 only.
-            Accelerator::QnnNpu => cfg!(all(target_os = "windows", target_arch = "aarch64"))
-                .then_some("onnxruntime_providers_qnn.dll"),
+            Accelerator::QnnNpu => Some("onnxruntime_providers_qnn.dll"),
             Accelerator::WebGpu => Some(if windows {
                 "onnxruntime_providers_webgpu.dll"
             } else if macos {
@@ -233,10 +243,30 @@ impl Accelerator {
 
     /// Whether this accelerator can exist at all on the platform this binary was built for.
     pub fn supported_on_this_platform(self) -> bool {
+        self.supported_on(Platform::current())
+    }
+
+    /// Whether this provider can run on an explicit OS and process architecture.
+    pub fn supported_on(self, platform: Platform) -> bool {
+        use Architecture::{Arm64, X64};
+        use OperatingSystem::{Linux, Macos, Windows};
+        if self == Accelerator::Cpu {
+            return true;
+        }
+        if platform.runtime_dir().is_none() {
+            return false;
+        }
         match self {
             Accelerator::Cpu => true,
-            Accelerator::DirectMl => cfg!(target_os = "windows"),
-            _ => self.library_file().is_some(),
+            Accelerator::QnnNpu => platform.os == Windows && platform.arch == Arm64,
+            Accelerator::DirectMl => platform.os == Windows,
+            Accelerator::CoreMl => platform.os == Macos,
+            Accelerator::Cuda | Accelerator::TensorRt => {
+                (platform.os == Windows && platform.arch == X64) || platform.os == Linux
+            }
+            Accelerator::OpenVino => matches!(platform.os, Windows | Linux) && platform.arch == X64,
+            Accelerator::VitisAi => platform.os == Windows && platform.arch == X64,
+            Accelerator::WebGpu => true,
         }
     }
 
@@ -245,27 +275,46 @@ impl Accelerator {
     /// This intentionally differs from [`Self::supported_on_this_platform`], which only answers
     /// whether the provider can run on this OS/architecture.
     pub fn relevant_to_hardware(self, cpu_brand: &str, devices: &[String]) -> bool {
+        self.relevant_to_hardware_on(Platform::current(), cpu_brand, devices)
+    }
+
+    /// Hardware relevance with injected observations, using the production detection policy.
+    pub fn relevant_to_hardware_on(self, platform: Platform, cpu_brand: &str, devices: &[String]) -> bool {
         let cpu = cpu_brand.to_ascii_lowercase();
         let devices: Vec<String> = devices.iter().map(|d| d.to_ascii_lowercase()).collect();
-        let has_gpu = devices.iter().any(|d| d.contains(" gpu "));
-        let has_nvidia = devices.iter().any(|d| d.contains("nvidia") && d.contains(" gpu "));
+        let is_physical_gpu = |d: &str| {
+            d.contains(" gpu ")
+                && ![
+                    "microsoft basic render",
+                    "software adapter",
+                    "warp",
+                    "remote display",
+                    "llvmpipe",
+                    "swiftshader",
+                ]
+                .iter()
+                .any(|software| d.contains(software))
+        };
+        let has_gpu = devices.iter().any(|d| is_physical_gpu(d));
+        let has_nvidia = devices
+            .iter()
+            .any(|d| (d.contains("nvidia") || d.contains("ven_10de")) && is_physical_gpu(d));
         // This provider is currently probed for an NPU, so an ordinary Intel CPU or integrated
         // GPU must not be presented as an available OpenVINO NPU.
-        let has_intel_npu = cpu.contains("core ultra")
-            || devices.iter().any(|d| d.contains("intel") && d.contains(" npu "));
+        let has_intel_npu =
+            cpu.contains("core ultra") || devices.iter().any(|d| d.contains("intel") && d.contains(" npu "));
         match self {
             Accelerator::Cpu => true,
             Accelerator::QnnNpu => {
-                cfg!(all(target_os = "windows", target_arch = "aarch64"))
-                    && (cpu.contains("qualcomm")
-                        || cpu.contains("snapdragon")
-                        || cpu.contains("oryon"))
+                platform.os == OperatingSystem::Windows
+                    && platform.arch == Architecture::Arm64
+                    && (cpu.contains("qualcomm") || cpu.contains("snapdragon") || cpu.contains("oryon"))
             }
             Accelerator::VitisAi => cpu.contains("ryzen ai") || cpu.contains("xdna"),
             Accelerator::OpenVino => has_intel_npu,
             Accelerator::Cuda | Accelerator::TensorRt => has_nvidia,
             Accelerator::DirectMl | Accelerator::WebGpu => has_gpu,
-            Accelerator::CoreMl => cfg!(target_os = "macos"),
+            Accelerator::CoreMl => platform.os == OperatingSystem::Macos,
         }
     }
 }

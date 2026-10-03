@@ -25,4 +25,3 @@ pub fn probe_capabilities() -> &'static Capabilities {
         caps
     })
 }
-

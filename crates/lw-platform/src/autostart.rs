@@ -64,9 +64,7 @@ mod imp {
         if status.success() {
             Ok(())
         } else {
-            Err(std::io::Error::other(format!(
-                "reg exited with {status}"
-            )))
+            Err(std::io::Error::other(format!("reg exited with {status}")))
         }
     }
 }
@@ -77,8 +75,7 @@ mod imp {
     use std::io::Write;
 
     fn plist_path() -> std::io::Result<std::path::PathBuf> {
-        let home = std::env::var("HOME")
-            .map_err(|_| std::io::Error::other("HOME is not set"))?;
+        let home = std::env::var("HOME").map_err(|_| std::io::Error::other("HOME is not set"))?;
         Ok(std::path::PathBuf::from(home)
             .join("Library/LaunchAgents")
             .join(format!("ai.owlwhisp.{RUN_VALUE}.plist")))

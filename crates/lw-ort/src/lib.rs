@@ -17,6 +17,7 @@
 #![allow(clippy::result_large_err)]
 
 mod manifest;
+pub mod nvidia;
 mod qnn;
 mod runtime;
 mod session;
@@ -24,7 +25,10 @@ mod session;
 pub use manifest::{RuntimeFile, RuntimeManifest};
 pub use qnn::{HtpPerformanceMode, QnnSessionConfig, build_qnn_session};
 pub use runtime::{AcceleratorStatus, OrtRuntime, RuntimeError, locate_runtime_dir, onnxruntime_lib_name};
-pub use session::{CpuSessionConfig, build_accel_session, build_cpu_session};
+pub use session::{
+    CpuSessionConfig, TensorRtSessionConfig, TensorRtShapeProfile, build_accel_session,
+    build_accel_session_with_tensorrt_config, build_cpu_session,
+};
 
 /// Re-export of the underlying `ort` crate.
 pub use ort;

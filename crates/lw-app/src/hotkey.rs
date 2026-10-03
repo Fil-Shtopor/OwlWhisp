@@ -113,9 +113,7 @@ impl Binding {
     /// binding: a hotkey that quietly became a different hotkey is worse than one that is plainly
     /// reported as not working, because the user cannot tell the first case from a broken machine.
     pub fn new(cfg: &HotkeyConfig) -> Result<Self, String> {
-        let mut listener = lw_platform::platform()
-            .hotkeys()
-            .map_err(|e| e.to_string())?;
+        let mut listener = lw_platform::platform().hotkeys().map_err(|e| e.to_string())?;
         let spec = spec_from(cfg);
         listener.register(&spec).map_err(|e| e.to_string())?;
         Ok(Self {
@@ -250,10 +248,7 @@ pub fn has_modifier(cfg: &HotkeyConfig, id: &str) -> bool {
 pub fn modifier_label(name: &str) -> String {
     let trimmed = name.trim();
     let lower = trimmed.to_ascii_lowercase();
-    if let Some(m) = MODIFIERS
-        .iter()
-        .find(|m| m.aliases.contains(&lower.as_str()))
-    {
+    if let Some(m) = MODIFIERS.iter().find(|m| m.aliases.contains(&lower.as_str())) {
         return m.label.to_string();
     }
     let mut chars = trimmed.chars();
@@ -391,13 +386,9 @@ impl Pump {
                 let mut binding: Option<Binding> = None;
                 let status = Arc::clone(&thread_status);
                 let disconnected = Arc::clone(&thread_status);
-                pump_loop(
-                    cfg,
-                    remote,
-                    control_rx,
-                    disconnected,
-                    move |cfg| bind(cfg, &mut binding, &status),
-                )
+                pump_loop(cfg, remote, control_rx, disconnected, move |cfg| {
+                    bind(cfg, &mut binding, &status)
+                })
             })
             .ok();
 
@@ -629,10 +620,7 @@ mod tests {
 
     #[test]
     fn toggle_starts_on_the_first_press_and_stops_on_the_second() {
-        assert_eq!(
-            decide(Pressed, Toggle, Idle),
-            Action::Start { hands_free: false }
-        );
+        assert_eq!(decide(Pressed, Toggle, Idle), Action::Start { hands_free: false });
         assert_eq!(decide(Pressed, Toggle, Listening), Action::Stop);
     }
 
@@ -712,7 +700,10 @@ mod tests {
             hint(&cfg(&["ctrl", "win"], "none", PushToTalk)),
             "No hotkey is set - pick one in Settings to dictate."
         );
-        assert_eq!(format_hotkey(&cfg(&["ctrl", "win"], "none", Toggle)), "Ctrl + Meta + (no key)");
+        assert_eq!(
+            format_hotkey(&cfg(&["ctrl", "win"], "none", Toggle)),
+            "Ctrl + Meta + (no key)"
+        );
     }
 
     #[test]
@@ -758,9 +749,8 @@ mod tests {
         let (remote, commands, state) = crate::dictation::Remote::detached();
         let status = Arc::new(Mutex::new(Status::default()));
         let cfg = cfg.clone();
-        let thread = std::thread::spawn(move || {
-            pump_loop(cfg, remote, control_rx, status, move |_| edges_rx.clone())
-        });
+        let thread =
+            std::thread::spawn(move || pump_loop(cfg, remote, control_rx, status, move |_| edges_rx.clone()));
         Harness {
             edges: edges_tx,
             control: control_tx,
@@ -771,9 +761,7 @@ mod tests {
     }
 
     fn next(commands: &Receiver<Command>) -> Option<Command> {
-        commands
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .ok()
+        commands.recv_timeout(std::time::Duration::from_secs(2)).ok()
     }
 
     #[test]
@@ -811,11 +799,7 @@ mod tests {
         );
 
         h.control
-            .send(Control::Rebind(Box::new(cfg(
-                &["ctrl", "alt"],
-                "space",
-                Toggle,
-            ))))
+            .send(Control::Rebind(Box::new(cfg(&["ctrl", "alt"], "space", Toggle))))
             .unwrap();
         // The same press, in the new mode, is now "stop".
         h.edges.send(Pressed).unwrap();

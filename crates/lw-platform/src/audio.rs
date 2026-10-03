@@ -383,10 +383,12 @@ mod tests {
         let mut capture = Capture::for_duration(None, 3);
         capture.start().expect("open the default input device");
         println!("native rate: {} Hz", capture.native_sample_rate());
-        assert_eq!(capture.ring().capacity(), capture.native_sample_rate() as usize * 3);
+        assert_eq!(
+            capture.ring().capacity(),
+            capture.native_sample_rate() as usize * 3
+        );
         let _ = capture.stop();
     }
-
 
     use super::*;
 

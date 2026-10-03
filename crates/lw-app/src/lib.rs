@@ -14,6 +14,7 @@
 //! `serde_json::Value` at an API boundary: a front end gets typed structs, because the last time
 //! types were mirrored by hand across a boundary they drifted and printed `NaN%` at a user.
 
+pub mod accelerators;
 pub mod bench;
 pub mod catalog;
 pub mod diagnostics;
@@ -25,10 +26,9 @@ pub mod machine;
 pub mod measurements;
 pub mod paths;
 pub mod provider_worker;
+pub mod runtime_install;
 
-pub use catalog::{
-    AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role,
-};
+pub use catalog::{AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role};
 pub use diagnostics::{AcceleratorStatus, Diagnostics};
 pub use dictation::{Command, Delivery, Event, Handle, RecordingState};
 pub use hotkey::{Binding as HotkeyBinding, Pump as HotkeyPump, decide as decide_hotkey};

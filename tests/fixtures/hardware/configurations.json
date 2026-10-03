@@ -1,0 +1,755 @@
+[
+  {
+    "name": "windows_intel_headless",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i9-13900HX",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "windows_amd_cpu",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9 7950X",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "windows_rtx_2080",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "Windows display: NVIDIA GeForce RTX 2080 GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 2080",
+        7,
+        5,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 75
+  },
+  {
+    "name": "windows_a100",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD EPYC",
+    "gpus": [
+      "CUDAExecutionProvider: NVIDIA GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "A100",
+        8,
+        0,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 80
+  },
+  {
+    "name": "windows_rtx_3090",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9",
+    "gpus": [
+      "Windows display: NVIDIA GeForce RTX 3090 GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 3090",
+        8,
+        6,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 86
+  },
+  {
+    "name": "windows_rtx_4080_hybrid",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i9-13900HX",
+    "gpus": [
+      "Windows display: Intel UHD GPU (PCI\\VEN_8086)",
+      "Windows display: NVIDIA RTX 4080 Laptop GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 4080 Laptop",
+        8,
+        9,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 89
+  },
+  {
+    "name": "windows_h100",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD EPYC",
+    "gpus": [
+      "CUDAExecutionProvider: NVIDIA GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "H100",
+        9,
+        0,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 90
+  },
+  {
+    "name": "windows_rtx_5090",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9",
+    "gpus": [
+      "Windows display: NVIDIA RTX 5090 GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 5090",
+        12,
+        0,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 120
+  },
+  {
+    "name": "windows_pascal_too_old",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "Windows display: NVIDIA GTX 1080 GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "GTX 1080",
+        6,
+        1,
+        13000
+      ]
+    ]
+  },
+  {
+    "name": "windows_nvidia_old_driver",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i9",
+    "gpus": [
+      "Windows display: NVIDIA RTX 4080 GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 4080",
+        8,
+        9,
+        12080
+      ]
+    ],
+    "expect_cuda_action": "install_driver",
+    "expect_trt_action": "install_driver"
+  },
+  {
+    "name": "windows_nvidia_missing_driver",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "Windows display: Microsoft Basic Display Adapter GPU (PCI\\VEN_10DE&DEV_2704)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "expect_cuda_action": "install_driver",
+    "expect_trt_action": "install_driver"
+  },
+  {
+    "name": "windows_future_nvidia_sm",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i9",
+    "gpus": [
+      "Windows display: NVIDIA future GPU (PCI\\VEN_10DE)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "Future GPU",
+        12,
+        3,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime"
+  },
+  {
+    "name": "windows_multi_gpu_uses_device_zero",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD EPYC",
+    "gpus": [
+      "CUDAExecutionProvider: NVIDIA GPU (id 0)",
+      "CUDAExecutionProvider: NVIDIA GPU (id 1)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 3090",
+        8,
+        6,
+        13000
+      ],
+      [
+        "RTX 5090",
+        12,
+        0,
+        13000
+      ]
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 86
+  },
+  {
+    "name": "windows_amd_radeon",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 7",
+    "gpus": [
+      "Windows display: AMD Radeon RX 7800 XT GPU (PCI\\VEN_1002)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "windows_intel_arc",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "WebGpuExecutionProvider: Intel Corporation GPU (id 42888)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "windows_software_and_remote",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Xeon",
+    "gpus": [
+      "WebGpuExecutionProvider: Microsoft Basic Render Driver GPU (id 0)",
+      "Windows display: Remote Display Adapter GPU (ROOT\\RDP)",
+      "WebGpuExecutionProvider: NVIDIA software adapter GPU (id 1)"
+    ],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "windows_intel_npu",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core Ultra 7 155H",
+    "gpus": [
+      "OpenVINOExecutionProvider: Intel NPU (id 0)",
+      "Windows display: Intel Arc GPU (PCI\\VEN_8086)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "open_vino",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "windows_amd_npu",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "AMD Ryzen AI 9 HX 370",
+    "gpus": [
+      "Windows display: AMD Radeon GPU (PCI\\VEN_1002)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "vitis_ai",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "windows_arm_snapdragon_x2",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "ARM Processor",
+    "gpus": [
+      "Windows display: Qualcomm Adreno GPU (ACPI\\QCOM)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "qnn_npu",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "registry": " Snapdragon(R) X2 Elite Extreme Qualcomm Oryon ",
+    "npu_driver_arch": 81,
+    "expect_npu_arch": 81,
+    "expect_generation": "X2 Elite Extreme"
+  },
+  {
+    "name": "windows_arm_snapdragon_x",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "Snapdragon X Elite Qualcomm Oryon",
+    "gpus": [
+      "Windows display: Qualcomm Adreno GPU (ACPI\\QCOM)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "qnn_npu",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "npu_driver_arch": 73,
+    "expect_npu_arch": 73,
+    "expect_generation": "X Elite"
+  },
+  {
+    "name": "windows_arm_missing_npu_driver",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "Qualcomm Snapdragon X Plus",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu",
+      "qnn_npu"
+    ],
+    "expect_generation": "X Plus"
+  },
+  {
+    "name": "windows_arm_non_qualcomm_stale_driver",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "Ampere Altra",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ],
+    "npu_driver_arch": 81
+  },
+  {
+    "name": "windows_x64_emulation_on_snapdragon",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Qualcomm Snapdragon X Elite",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ],
+    "npu_driver_arch": 73,
+    "expect_generation": "X Elite"
+  },
+  {
+    "name": "windows_intel_stale_qnn_driver",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ],
+    "npu_driver_arch": 81
+  },
+  {
+    "name": "macos_m1",
+    "os": "macos",
+    "arch": "arm64",
+    "cpu": "Apple M1",
+    "gpus": [
+      "WebGpuExecutionProvider: Apple GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "core_ml",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "macos_m4",
+    "os": "macos",
+    "arch": "arm64",
+    "cpu": "Apple M4 Pro",
+    "gpus": [
+      "WebGpuExecutionProvider: Apple GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "core_ml",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "macos_intel_iris",
+    "os": "macos",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "WebGpuExecutionProvider: Intel Iris GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "core_ml",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "macos_intel_amd",
+    "os": "macos",
+    "arch": "x64",
+    "cpu": "Intel Core i9",
+    "gpus": [
+      "WebGpuExecutionProvider: AMD Radeon GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "core_ml",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "macos_legacy_nvidia",
+    "os": "macos",
+    "arch": "x64",
+    "cpu": "Intel Xeon",
+    "gpus": [
+      "WebGpuExecutionProvider: NVIDIA GPU (id 0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "core_ml",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "Legacy NVIDIA",
+        7,
+        5,
+        13000
+      ]
+    ]
+  },
+  {
+    "name": "linux_nvidia",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 9",
+    "gpus": [
+      "Linux display: NVIDIA GPU (card0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "RTX 4080",
+        8,
+        9,
+        13000
+      ]
+    ]
+  },
+  {
+    "name": "linux_amd",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 7",
+    "gpus": [
+      "Linux display: AMD GPU (card0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "linux_intel",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "Intel Core i7",
+    "gpus": [
+      "Linux display: Intel GPU (card0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "linux_headless",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "Intel Xeon",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "linux_software_renderer",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC",
+    "gpus": [
+      "WebGpuExecutionProvider: llvmpipe GPU (id 0)",
+      "WebGpuExecutionProvider: SwiftShader GPU (id 1)"
+    ],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "linux_arm_jetson",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "ARM Cortex-A78AE",
+    "gpus": [
+      "Linux display: NVIDIA GPU (card0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "nvidia": [
+      [
+        "Jetson Orin",
+        8,
+        7,
+        13000
+      ]
+    ]
+  },
+  {
+    "name": "linux_arm_amd",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "Ampere Altra",
+    "gpus": [
+      "Linux display: AMD GPU (card0)"
+    ],
+    "expect_hardware": [
+      "cpu",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "linux_arm_headless",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "Ampere Altra",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "unknown_cpu_probe_failed",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ],
+    "cores": 0,
+    "ram_bytes": 0
+  },
+  {
+    "name": "unsupported_32bit_process",
+    "os": "windows",
+    "arch": "x86",
+    "cpu": "Intel Core i7",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "unsupported_os",
+    "os": "freebsd",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 7",
+    "gpus": [],
+    "expect_hardware": [
+      "cpu"
+    ]
+  },
+  {
+    "name": "windows_headless_nvidia_driver_api",
+    "os": "windows",
+    "arch": "x64",
+    "cpu": "Intel Xeon",
+    "gpus": [],
+    "nvidia": [
+      [
+        "A100",
+        8,
+        0,
+        13000
+      ]
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ],
+    "expect_cuda_action": "download_runtime",
+    "expect_trt_action": "download_runtime",
+    "expect_trt_sm": 80
+  },
+  {
+    "name": "linux_headless_nvidia_driver_api",
+    "os": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC",
+    "gpus": [],
+    "nvidia": [
+      [
+        "A100",
+        8,
+        0,
+        13000
+      ]
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
+  }
+]

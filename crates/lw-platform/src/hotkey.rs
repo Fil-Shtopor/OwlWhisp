@@ -591,8 +591,7 @@ impl CaptureTracker {
                 return None;
             }
             let peak = std::mem::take(&mut self.peak);
-            return (peak.count_ones() >= 2)
-                .then_some(Captured::Combo(RawCombo { mods: peak, vk: 0 }));
+            return (peak.count_ones() >= 2).then_some(Captured::Combo(RawCombo { mods: peak, vk: 0 }));
         }
         let vk = u16::try_from(code).ok()?;
         self.peak |= self.mods_down();
@@ -622,7 +621,10 @@ mod capture_tests {
         assert_eq!(t.on_key(u32::from(vk::LWIN), true), None, "Win alone waits");
         assert_eq!(
             t.on_key(0x44, true),
-            Some(Captured::Combo(RawCombo { mods: MOD_WIN, vk: 0x44 })),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_WIN,
+                vk: 0x44
+            })),
         );
     }
 
@@ -649,7 +651,10 @@ mod capture_tests {
         assert_eq!(t.on_key(u32::from(vk::LSHIFT), false), None);
         assert_eq!(
             t.on_key(0x20, true),
-            Some(Captured::Combo(RawCombo { mods: MOD_CTRL, vk: 0x20 })),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_CTRL,
+                vk: 0x20
+            })),
         );
     }
 
@@ -662,7 +667,10 @@ mod capture_tests {
         t.on_key(u32::from(vk::LCONTROL), true);
         assert_eq!(
             t.on_key(u32::from(vk::ESCAPE), true),
-            Some(Captured::Combo(RawCombo { mods: MOD_CTRL, vk: vk::ESCAPE })),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_CTRL,
+                vk: vk::ESCAPE
+            })),
         );
     }
 
@@ -697,7 +705,10 @@ mod capture_tests {
         );
         assert_eq!(
             t.on_key(0x44, true),
-            Some(Captured::Combo(RawCombo { mods: MOD_SHIFT, vk: 0x44 })),
+            Some(Captured::Combo(RawCombo {
+                mods: MOD_SHIFT,
+                vk: 0x44
+            })),
             "the abandoned Ctrl is not part of it",
         );
     }
@@ -821,8 +832,14 @@ mod swallow_tests {
         let c = combo(&["ctrl"], "space");
         let mut sw = false;
         for vk in [vk::CONTROL, vk::LCONTROL, vk::RCONTROL, vk::SHIFT] {
-            assert!(!swallow_trigger(&c, true, &mut sw, u32::from(vk), true), "{vk:#x}");
-            assert!(!swallow_trigger(&c, true, &mut sw, u32::from(vk), false), "{vk:#x}");
+            assert!(
+                !swallow_trigger(&c, true, &mut sw, u32::from(vk), true),
+                "{vk:#x}"
+            );
+            assert!(
+                !swallow_trigger(&c, true, &mut sw, u32::from(vk), false),
+                "{vk:#x}"
+            );
         }
     }
 

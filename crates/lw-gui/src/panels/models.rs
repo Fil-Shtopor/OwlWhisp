@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use iced::widget::{button, column, container, pick_list, row, Space};
+use iced::widget::{Space, button, column, container, pick_list, row};
 use iced::{Element, Length, Padding};
 use lw_app::catalog::{CatalogView, EntryView};
 use lw_core::model::{InstallState, ModelRole};
@@ -116,10 +116,12 @@ impl State {
                 .entries
                 .iter()
                 .find(|entry| entry.id == DEFAULT_MODEL)
-                .is_some_and(|entry| matches!(
-                    entry.install_state,
-                    lw_core::model::InstallState::Missing | lw_core::model::InstallState::Incomplete
-                ))
+                .is_some_and(|entry| {
+                    matches!(
+                        entry.install_state,
+                        lw_core::model::InstallState::Missing | lw_core::model::InstallState::Incomplete
+                    )
+                })
         });
         if missing {
             self.notice = Some("Downloading the default Parakeet model…".into());
@@ -172,11 +174,7 @@ impl State {
                 }
                 out.push(Lang {
                     code: code.clone(),
-                    name: e
-                        .language_names
-                        .get(i)
-                        .cloned()
-                        .unwrap_or_else(|| code.clone()),
+                    name: e.language_names.get(i).cloned().unwrap_or_else(|| code.clone()),
                 });
             }
         }
@@ -220,10 +218,7 @@ impl State {
                 }
                 self.notice = None;
                 self.error = None;
-                self.install = Some(lw_app::install::start(
-                    &lw_app::paths::settings_path(),
-                    &id,
-                ));
+                self.install = Some(lw_app::install::start(&lw_app::paths::settings_path(), &id));
             }
             Message::CancelInstall => {
                 if let Some(h) = &self.install {
@@ -304,21 +299,21 @@ impl State {
         };
 
         column![
-                machine_card(view),
-                row![
-                    button(widgets::button_label("Refresh"))
-                        .padding(Padding::from([6, 14]))
-                        .on_press(Message::Refresh)
-                        .style(theme::action(false)),
-                    widgets::mono(view.models_root.clone()),
-                ]
-                .spacing(12)
-                .align_y(iced::Alignment::Center),
-                disclaimer(view.estimate_disclaimer),
-                self.role_picks(view),
-                self.glossary_block(view),
-                self.table(view),
+            machine_card(view),
+            row![
+                button(widgets::button_label("Refresh"))
+                    .padding(Padding::from([6, 14]))
+                    .on_press(Message::Refresh)
+                    .style(theme::action(false)),
+                widgets::mono(view.models_root.clone()),
             ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+            disclaimer(view.estimate_disclaimer),
+            self.role_picks(view),
+            self.glossary_block(view),
+            self.table(view),
+        ]
         .spacing(12)
         .padding(Padding::from([0, 8]))
         .into()
@@ -326,11 +321,7 @@ impl State {
 
     fn role_picks<'a>(&'a self, view: &'a CatalogView) -> Element<'a, Message> {
         let measured = lw_app::catalog::measured_languages(&view.entries);
-        let selected = self
-            .languages
-            .iter()
-            .find(|l| l.code == self.language)
-            .cloned();
+        let selected = self.languages.iter().find(|l| l.code == self.language).cloned();
 
         let head = row![
             column![
@@ -352,12 +343,14 @@ impl State {
         let mut body = column![head].spacing(10);
 
         for role in ModelRole::ALL {
-            let mut block = column![row![
-                widgets::badge(role.label(), theme::TEXT_DIM),
-                widgets::sub(role.blurb()),
+            let mut block = column![
+                row![
+                    widgets::badge(role.label(), theme::TEXT_DIM),
+                    widgets::sub(role.blurb()),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center)
             ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)]
             .spacing(2);
 
             match lw_app::catalog::pick_for_role(&view.entries, *role, &self.language) {
@@ -442,11 +435,11 @@ impl State {
             block = block
                 .push(widgets::prose(
                     "RTF and Accuracy show the catalog's ASUS Zenbook A16 measurements. Parakeet \
-                     uses its NPU run. Benchmarks on this computer appear only under On your machine."
+                     uses its NPU run. Benchmarks on this computer appear only under On your machine.",
                 ))
                 .push(widgets::prose(
                     "The Fast recommendation still uses an estimated speed tier. It does not \
-                     change the measured RTF in the table."
+                     change the measured RTF in the table.",
                 ))
                 .push(widgets::prose(
                     "WER is the word error rate and CER the character error rate: the share of \
@@ -491,9 +484,7 @@ impl State {
         let mut body = column![header(&cols)].spacing(0);
         body = body.push(iced::widget::rule::horizontal(1).style(theme::rule));
 
-        for (vendor, rows) in
-            lw_app::catalog::group_by_vendor(&view.entries, view.recommended.as_deref())
-        {
+        for (vendor, rows) in lw_app::catalog::group_by_vendor(&view.entries, view.recommended.as_deref()) {
             body = body.push(Space::new().height(8));
             body = body.push(
                 row![
@@ -537,11 +528,8 @@ impl State {
         let open = self.open.contains(&entry.id);
         let recommended = view.recommended.as_deref() == Some(entry.id.as_str());
         static EMPTY: &[lw_app::LocalMeasurement] = &[];
-        let mine: &[lw_app::LocalMeasurement] = self
-            .mine
-            .get(&entry.id)
-            .map(|v| v.as_slice())
-            .unwrap_or(EMPTY);
+        let mine: &[lw_app::LocalMeasurement] =
+            self.mine.get(&entry.id).map(|v| v.as_slice()).unwrap_or(EMPTY);
 
         // The name and its badges get separate, bounded cells. Sharing one cell went wrong twice:
         // in the web build the badges were unshrinkable and the name collapsed to "S", and here
@@ -669,11 +657,7 @@ impl State {
 
         // --- download ------------------------------------------------------
         if installing {
-            let state = self
-                .install
-                .as_ref()
-                .map(|h| h.state())
-                .unwrap_or_default();
+            let state = self.install.as_ref().map(|h| h.state()).unwrap_or_default();
             buttons = buttons.push(
                 button(widgets::button_label(if state.cancelling {
                     "Stopping..."
@@ -692,11 +676,9 @@ impl State {
             if !can {
                 why.push(match entry.install_state {
                     Install::Installed => "Already downloaded.".into(),
-                    Install::Unpinned => {
-                        "No pinned manifest yet, so there is nothing to verify a download \
+                    Install::Unpinned => "No pinned manifest yet, so there is nothing to verify a download \
                          against - this one cannot be fetched from here."
-                            .into()
-                    }
+                        .into(),
                     _ => "This build cannot run the model on this machine, so downloading it \
                           would not help."
                         .to_string(),
@@ -712,9 +694,7 @@ impl State {
                 }))
                 .padding(Padding::from([6, 12]))
                 .style(theme::action(false))
-                .on_press_maybe(
-                    (can && !other_installing).then(|| Message::Install(entry.id.clone())),
-                ),
+                .on_press_maybe((can && !other_installing).then(|| Message::Install(entry.id.clone()))),
             );
         }
 
@@ -728,8 +708,7 @@ impl State {
             .padding(Padding::from([6, 12]))
             .style(theme::action(false))
             .on_press_maybe(
-                (installed && entry.runnable && !is_selected)
-                    .then(|| Message::Select(entry.id.clone())),
+                (installed && entry.runnable && !is_selected).then(|| Message::Select(entry.id.clone())),
             ),
         );
         if !is_selected && installed && !entry.runnable {
@@ -772,14 +751,11 @@ impl State {
                         .padding(Padding::from([6, 12]))
                         .style(theme::action(true))
                         .on_press_maybe(
-                            (!is_selected && !installing)
-                                .then(|| Message::AskDelete(entry.id.clone())),
+                            (!is_selected && !installing).then(|| Message::AskDelete(entry.id.clone())),
                         ),
                 );
                 if is_selected {
-                    why.push(
-                        "This is the model dictation uses. Choose another one first.".into(),
-                    );
+                    why.push("This is the model dictation uses. Choose another one first.".into());
                 }
             }
         }
@@ -814,12 +790,7 @@ impl State {
             .into();
         }
         let head = if s.file_count > 0 {
-            format!(
-                "File {} of {}: {}",
-                s.file_index + 1,
-                s.file_count,
-                s.file
-            )
+            format!("File {} of {}: {}", s.file_index + 1, s.file_count, s.file)
         } else {
             "Starting...".to_string()
         };
@@ -841,9 +812,7 @@ impl State {
 fn machine_card(view: &CatalogView) -> Element<'_, Message> {
     widgets::card(
         column![
-            iced::widget::text("THIS MACHINE")
-                .size(11)
-                .color(theme::TEXT_DIM),
+            iced::widget::text("THIS MACHINE").size(11).color(theme::TEXT_DIM),
             widgets::mono(view.machine.clone()),
             widgets::sub("RTF and accuracy below use the ASUS Zenbook A16 reference runs."),
         ]
@@ -893,10 +862,7 @@ fn fact(label: &str, value: String) -> Element<'_, Message> {
     .into()
 }
 
-fn accelerator_table<'a>(
-    entry: &'a EntryView,
-    mine: &'a [lw_app::LocalMeasurement],
-) -> Element<'a, Message> {
+fn accelerator_table<'a>(entry: &'a EntryView, mine: &'a [lw_app::LocalMeasurement]) -> Element<'a, Message> {
     // Rows only for accelerators there is something to say about; the rest are summarised under
     // the table grouped by reason, because a sherpa entry refuses eight of them for one reason and
     // eight rows repeating one sentence is worse than the chips this replaced.
@@ -908,40 +874,34 @@ fn accelerator_table<'a>(
             || mine.iter().any(|m| same_accel(&m.accelerator, a.id))
     };
 
-    let mut table = column![row![
-        container(
-            iced::widget::text("Accelerator")
-                .size(11)
-                .color(theme::TEXT_DIM)
-        )
-        .width(Length::FillPortion(3)),
-        container(
-            iced::widget::text("Model supports")
-                .size(11)
-                .color(theme::TEXT_DIM)
-        )
-        .width(Length::FillPortion(3)),
-        container(
-            iced::widget::text("On your machine")
-                .size(11)
-                .color(theme::TEXT_DIM)
-        )
-        .width(Length::FillPortion(4)),
-        container(
-            iced::widget::text("In the catalog")
-                .size(11)
-                .color(theme::TEXT_DIM)
-        )
-        .width(Length::FillPortion(4)),
+    let mut table = column![
+        row![
+            container(iced::widget::text("Accelerator").size(11).color(theme::TEXT_DIM))
+                .width(Length::FillPortion(3)),
+            container(
+                iced::widget::text("Model supports")
+                    .size(11)
+                    .color(theme::TEXT_DIM)
+            )
+            .width(Length::FillPortion(3)),
+            container(
+                iced::widget::text("On your machine")
+                    .size(11)
+                    .color(theme::TEXT_DIM)
+            )
+            .width(Length::FillPortion(4)),
+            container(
+                iced::widget::text("In the catalog")
+                    .size(11)
+                    .color(theme::TEXT_DIM)
+            )
+            .width(Length::FillPortion(4)),
+        ]
+        .spacing(8)
     ]
-    .spacing(8)]
     .spacing(4);
 
-    for a in entry
-        .accelerators
-        .iter()
-        .filter(|a| a.supported || has_number(a))
-    {
+    for a in entry.accelerators.iter().filter(|a| a.supported || has_number(a)) {
         // A "no" carries its reason in the cell. The badge alone says the row is off and not
         // what would turn it on, which is the only part a reader can act on.
         let runs: Element<'_, Message> = if a.supported {
@@ -955,32 +915,31 @@ fn accelerator_table<'a>(
             .into()
         };
         // Local benchmark records and the fixed A16 catalog runs stay in separate columns.
-        let here: Element<'_, Message> =
-            match mine.iter().find(|m| same_accel(&m.accelerator, a.id)) {
-                Some(local) => {
-                    let mut c = column![widgets::mono(format!(
-                        "RTF {:.4}",
-                        local.warm_rtf.unwrap_or(local.cold_rtf)
-                    ))]
-                    .spacing(2);
-                    for u in &local.by_unit {
-                        c = c.push(widgets::measured(
-                            if u.unit == lw_core::bench::ErrorUnit::Character {
-                                "CER"
-                            } else {
-                                "WER"
-                            },
-                            u.rate,
-                        ));
-                    }
-                    // What the figure covers, and when. A rate over three clips is not a rate over
-                    // twelve, and a measurement from a month ago is not a measurement of today's
-                    // build -- neither is visible from the number alone.
-                    c = c.push(widgets::sub(local_detail(local)));
-                    c.into()
+        let here: Element<'_, Message> = match mine.iter().find(|m| same_accel(&m.accelerator, a.id)) {
+            Some(local) => {
+                let mut c = column![widgets::mono(format!(
+                    "RTF {:.4}",
+                    local.warm_rtf.unwrap_or(local.cold_rtf)
+                ))]
+                .spacing(2);
+                for u in &local.by_unit {
+                    c = c.push(widgets::measured(
+                        if u.unit == lw_core::bench::ErrorUnit::Character {
+                            "CER"
+                        } else {
+                            "WER"
+                        },
+                        u.rate,
+                    ));
                 }
-                None => widgets::sub(if a.supported { "not measured yet" } else { "-" }).into(),
-            };
+                // What the figure covers, and when. A rate over three clips is not a rate over
+                // twelve, and a measurement from a month ago is not a measurement of today's
+                // build -- neither is visible from the number alone.
+                c = c.push(widgets::sub(local_detail(local)));
+                c.into()
+            }
+            None => widgets::sub(if a.supported { "not measured yet" } else { "-" }).into(),
+        };
         let there: Element<'_, Message> = match entry
             .measurements
             .iter()
@@ -998,9 +957,12 @@ fn accelerator_table<'a>(
                 // tooltip, which is where the web version kept both of them.
                 iced::widget::tooltip(
                     column![r, widgets::sub(short_machine(&m.machine))].spacing(2),
-                    widgets::inset(widgets::prose(format!("{}
+                    widgets::inset(widgets::prose(format!(
+                        "{}
 
-{}", m.machine, m.source))),
+{}",
+                        m.machine, m.source
+                    ))),
                     iced::widget::tooltip::Position::FollowCursor,
                 )
                 .into()
@@ -1181,12 +1143,7 @@ fn same_accel(a: &str, b: &str) -> bool {
 /// Windows 11 build 28000 ARM64, idle". The first segment identifies it; the rest is detail the
 /// tooltip carries.
 fn short_machine(machine: &str) -> String {
-    machine
-        .split(" - ")
-        .next()
-        .unwrap_or(machine)
-        .trim()
-        .to_string()
+    machine.split(" - ").next().unwrap_or(machine).trim().to_string()
 }
 
 /// `qnn_npu` reads as `npu` in a column this narrow; everything else keeps its own name.
@@ -1264,26 +1221,25 @@ impl Col {
                 .color(theme::TEXT_DIM)
                 .wrapping(iced::widget::text::Wrapping::None)
                 .into(),
-            Col::Speed => {
-                match entry.a16_reference() {
-                    Some(reference) => row![
-                        widgets::mono(format!("{:.4}", reference.rtf)),
-                        widgets::chip(short_hardware(reference.hardware.label())),
-                    ].spacing(5).into(),
-                    None => widgets::sub("-").into(),
-                }
+            Col::Speed => match entry.a16_reference() {
+                Some(reference) => row![
+                    widgets::mono(format!("{:.4}", reference.rtf)),
+                    widgets::chip(short_hardware(reference.hardware.label())),
+                ]
+                .spacing(5)
+                .into(),
+                None => widgets::sub("-").into(),
             },
-            Col::Accuracy => {
-                match entry.a16_reference().and_then(|m| m.wer) {
-                    Some(wer) => widgets::measured("WER", wer).into(),
-                    None => widgets::sub("-").into(),
-                }
-            }
+            Col::Accuracy => match entry.a16_reference().and_then(|m| m.wer) {
+                Some(wer) => widgets::measured("WER", wer).into(),
+                None => widgets::sub("-").into(),
+            },
             Col::Mine => match pick_local(mine, entry.best_hardware) {
                 None => widgets::sub("not yet").into(),
                 Some(local) => {
                     let mut r = row![widgets::chip(short_hardware(&local.accelerator))]
-                        .spacing(5).align_y(iced::Alignment::Center);
+                        .spacing(5)
+                        .align_y(iced::Alignment::Center);
                     match headline_rate(local) {
                         Some((rate, extra)) => {
                             r = r.push(
@@ -1356,13 +1312,9 @@ fn header(cols: &[Col]) -> Element<'static, Message> {
     .spacing(8);
     for col in cols {
         r = r.push(
-            container(
-                iced::widget::text(col.label())
-                    .size(11)
-                    .color(theme::TEXT_DIM),
-            )
-            .width(Length::FillPortion(col.portion()))
-            .clip(true),
+            container(iced::widget::text(col.label()).size(11).color(theme::TEXT_DIM))
+                .width(Length::FillPortion(col.portion()))
+                .clip(true),
         );
     }
     container(r).padding(Padding::from([6, 4])).into()

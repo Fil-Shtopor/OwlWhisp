@@ -75,9 +75,7 @@ pub fn primary_work_area() -> Option<WorkArea> {
 /// trying to avoid. Asking the display is the only way to know.
 #[cfg(windows)]
 pub fn refresh_hz() -> Option<u32> {
-    use windows::Win32::Graphics::Gdi::{
-        DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
-    };
+    use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 
     let mut mode = DEVMODEW {
         dmSize: std::mem::size_of::<DEVMODEW>() as u16,

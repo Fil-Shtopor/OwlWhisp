@@ -8,6 +8,23 @@
 
 use serde::Serialize;
 
+/// Merge independent OS, provider and NVIDIA driver observations into hardware descriptions.
+/// The driver API also reports headless/TCC NVIDIA devices absent from the display-adapter list.
+pub fn hardware_device_descriptions(
+    provider_devices: &[String],
+    physical_devices: &[String],
+    nvidia: &[lw_ort::nvidia::NvidiaDevice],
+) -> Vec<String> {
+    let mut devices = provider_devices.to_vec();
+    devices.extend_from_slice(physical_devices);
+    devices.extend(
+        nvidia
+            .iter()
+            .map(|gpu| format!("NVIDIA driver: {} GPU (ordinal {})", gpu.name, gpu.ordinal)),
+    );
+    devices
+}
+
 /// One accelerator as this machine actually reports it.
 #[derive(Clone, Debug, Serialize)]
 pub struct AcceleratorStatus {
@@ -31,6 +48,8 @@ pub struct AcceleratorStatus {
     /// A sentence saying which of the above failed, for a reader who is not going to cross-
     /// reference four booleans.
     pub detail: String,
+    /// An actionable package or driver installation for this physical device.
+    pub setup_action: Option<crate::runtime_install::SetupAction>,
 }
 
 /// Everything the Diagnostics tab shows.
@@ -40,6 +59,8 @@ pub struct Diagnostics {
     pub core_version: &'static str,
     pub os: &'static str,
     pub arch: &'static str,
+    /// Whether the portable sherpa engine was compiled into this application.
+    pub sherpa_enabled: bool,
     /// Where the ONNX Runtime was loaded from, when it loaded at all.
     pub runtime_dir: Option<String>,
     /// Why it did not, when it did not. Present and `runtime_dir` absent means the same thing said
@@ -63,6 +84,7 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
         core_version: lw_core::VERSION,
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
+        sherpa_enabled: cfg!(feature = "sherpa"),
         runtime_dir: None,
         runtime_error: None,
         qnn_dll_present: false,
@@ -92,7 +114,9 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
             }
             let mut probes = rt.probe_accelerators();
             #[cfg(windows)]
-            if let Some(directml) = probes.iter_mut().find(|st| st.accel == lw_core::capabilities::Accelerator::DirectMl)
+            if let Some(directml) = probes
+                .iter_mut()
+                .find(|st| st.accel == lw_core::capabilities::Accelerator::DirectMl)
                 && crate::provider_worker::directml_runtime_present(rt.runtime_dir())
             {
                 directml.present = true;
@@ -105,19 +129,52 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
                     Err(error) => directml.error = Some(error),
                 }
             }
+            for st in &mut probes {
+                if let Some(dir) = crate::runtime_install::installed_runtime(st.accel) {
+                    st.present = true;
+                    match crate::provider_worker::probe_runtime(&dir, st.accel) {
+                        Ok(count) => {
+                            st.registered = true;
+                            st.devices = count;
+                            st.error = None;
+                        }
+                        Err(error) => {
+                            st.registered = false;
+                            st.devices = 0;
+                            st.error = Some(error);
+                        }
+                    }
+                }
+            }
             let devices = rt.device_summary();
-            let mut hardware_devices = devices.clone();
-            hardware_devices.extend(lw_platform::caps::physical_gpu_descriptions());
+            let nvidia = if lw_core::capabilities::Accelerator::Cuda.supported_on_this_platform() {
+                lw_ort::nvidia::devices().unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let hardware_devices = hardware_device_descriptions(
+                &devices,
+                &lw_platform::caps::physical_gpu_descriptions(),
+                &nvidia,
+            );
             d.accelerators = probes
                 .into_iter()
                 .map(|st| AcceleratorStatus {
+                    setup_action: crate::runtime_install::setup_action(
+                        st.accel,
+                        st.accel
+                            .relevant_to_hardware(&machine.cpu_brand, &hardware_devices),
+                        st.usable(),
+                    ),
                     id: st.accel.id(),
                     label: st.accel.label(),
                     kind_label: st.accel.kind().label(),
                     vendor: st.accel.vendor(),
                     library: st.accel.library_file(),
                     needs_dedicated_artifact: st.accel.needs_dedicated_artifact(),
-                    hardware_present: st.accel.relevant_to_hardware(&machine.cpu_brand, &hardware_devices),
+                    hardware_present: st
+                        .accel
+                        .relevant_to_hardware(&machine.cpu_brand, &hardware_devices),
                     present: st.present,
                     registered: st.registered,
                     usable: st.usable(),
@@ -127,7 +184,10 @@ pub fn collect(app_version: &'static str) -> Diagnostics {
                             std::env::consts::OS,
                             std::env::consts::ARCH
                         )
-                    } else if !st.accel.relevant_to_hardware(&machine.cpu_brand, &hardware_devices) {
+                    } else if !st
+                        .accel
+                        .relevant_to_hardware(&machine.cpu_brand, &hardware_devices)
+                    {
                         format!("no compatible {} detected on this machine", st.accel.label())
                     } else {
                         st.explain()

@@ -445,7 +445,8 @@ mod tests {
                 trigger: "none".into(),
                 mode: HotkeyMode::PushToTalk,
             };
-            h.validate().unwrap_or_else(|e| panic!("{mods:?} was refused: {e}"));
+            h.validate()
+                .unwrap_or_else(|e| panic!("{mods:?} was refused: {e}"));
         }
     }
 
@@ -497,7 +498,9 @@ mod tests {
             mode: HotkeyMode::PushToTalk,
         };
         assert!(empty.is_modifier_only());
-        empty.validate().expect("two modifiers, spelled with an empty trigger");
+        empty
+            .validate()
+            .expect("two modifiers, spelled with an empty trigger");
 
         let one = HotkeyConfig {
             modifiers: vec!["ctrl".into()],

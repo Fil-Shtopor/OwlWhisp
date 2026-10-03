@@ -1,4 +1,4 @@
-//! Keep the DirectML ONNX Runtime in a separate process from the CUDA runtime.
+//! Keep each optional provider runtime isolated from the process-global bundled ORT.
 //! ORT's dynamic API is process-global, so two different core DLLs cannot be selected per session.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -41,9 +41,14 @@ pub fn probe_directml(primary: &Path) -> Result<usize, String> {
     if !directml_runtime_present(primary) {
         return Err("DirectML runtime is not installed".into());
     }
+    probe_runtime(&directml_runtime_dir(primary), Accelerator::DirectMl)
+}
+
+/// Probe a selected add-on in a clean process, without replacing any loaded DLLs.
+pub fn probe_runtime(runtime_dir: &Path, accel: Accelerator) -> Result<usize, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut command = Command::new(exe);
-    command.arg("--provider-probe").arg(directml_runtime_dir(primary));
+    command.arg("--provider-probe").arg(runtime_dir).arg(accel.id());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -51,7 +56,7 @@ pub fn probe_directml(primary: &Path) -> Result<usize, String> {
     }
     command.stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = command.spawn().map_err(|e| e.to_string())?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         if child.try_wait().map_err(|e| e.to_string())?.is_some() {
             break;
@@ -59,20 +64,29 @@ pub fn probe_directml(primary: &Path) -> Result<usize, String> {
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("DirectML probe timed out".into());
+            return Err(format!("{} probe timed out", accel.label()));
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
     let answer = serde_json::from_slice::<Result<usize, String>>(&output.stdout)
-        .map_err(|e| format!("DirectML probe did not answer: {e}"))?;
-    answer
+        .map_err(|e| format!("{} probe did not answer: {e}", accel.label()))?;
+    answer.and_then(|count| {
+        if count > 0 {
+            Ok(count)
+        } else {
+            Err(format!(
+                "{} enumerated no compatible device; check the display driver",
+                accel.label()
+            ))
+        }
+    })
 }
 
 /// Called by `--provider-probe` in the isolated GUI child.
-pub fn run_directml_probe(runtime_dir: &Path) -> Result<usize, String> {
+pub fn run_provider_probe(runtime_dir: &Path, accel: Accelerator) -> Result<usize, String> {
     let runtime = OrtRuntime::init(runtime_dir).map_err(|e| e.to_string())?;
-    Ok(runtime.device_count(Accelerator::DirectMl))
+    Ok(runtime.device_count(accel))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,26 +105,28 @@ impl Worker {
     fn response<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, String> {
         let mut line = String::new();
         if self.output.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-            return Err("DirectML worker closed its output".into());
+            return Err("Provider worker closed its output".into());
         }
         serde_json::from_str::<Result<T, String>>(&line).map_err(|e| e.to_string())?
     }
 }
 
-/// A Parakeet engine whose ONNX sessions live in the DirectML worker process.
-pub struct DirectMlEngine {
+/// A Parakeet engine whose ONNX sessions live in the Provider worker process.
+pub struct ProviderEngine {
+    accel: Accelerator,
     runtime_dir: PathBuf,
     worker: Option<Worker>,
     device: DeviceInfo,
     selected: Option<Accelerator>,
 }
 
-impl DirectMlEngine {
-    pub fn new(runtime_dir: PathBuf) -> Self {
+impl ProviderEngine {
+    pub fn new(runtime_dir: PathBuf, accel: Accelerator) -> Self {
         Self {
+            accel,
             runtime_dir,
             worker: None,
-            device: DeviceInfo::new("DirectML GPU"),
+            device: DeviceInfo::new(accel.label()),
             selected: None,
         }
     }
@@ -118,16 +134,21 @@ impl DirectMlEngine {
     fn worker(&mut self) -> lw_core::Result<&mut Worker> {
         self.worker
             .as_mut()
-            .ok_or_else(|| lw_core::Error::Unavailable("DirectML worker has not started".into()))
+            .ok_or_else(|| lw_core::Error::Unavailable("Provider worker has not started".into()))
     }
 }
 
-impl SpeechEngine for DirectMlEngine {
+impl SpeechEngine for ProviderEngine {
     fn backend_name(&self) -> &str {
         "parakeet-tdt-0.6b-v3"
     }
     fn provider(&self) -> Provider {
-        Provider::DirectMl
+        match self.accel {
+            Accelerator::DirectMl => Provider::DirectMl,
+            Accelerator::Cuda => Provider::Cuda,
+            Accelerator::TensorRt => Provider::TensorRt,
+            _ => Provider::Gpu,
+        }
     }
     fn device(&self) -> DeviceInfo {
         self.device.clone()
@@ -146,11 +167,10 @@ impl SpeechEngine for DirectMlEngine {
         if self.worker.is_some() {
             return Ok(());
         }
-        if !self.runtime_dir.join("onnxruntime.dll").is_file()
-            || !self.runtime_dir.join("DirectML.dll").is_file()
-        {
+        if !self.runtime_dir.join(lw_ort::onnxruntime_lib_name()).is_file() {
             return Err(lw_core::Error::Unavailable(format!(
-                "DirectML runtime is missing from {}",
+                "{} runtime is missing from {}",
+                self.accel.label(),
                 self.runtime_dir.display()
             )));
         }
@@ -162,6 +182,7 @@ impl SpeechEngine for DirectMlEngine {
             .arg(&ctx.model_dir)
             .arg(&ctx.cache_dir)
             .arg(ctx.cpu_threads.to_string())
+            .arg(self.accel.id())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -185,10 +206,11 @@ impl SpeechEngine for DirectMlEngine {
             output: BufReader::new(output),
         };
         let ready: Ready = worker.response().map_err(lw_core::Error::other)?;
-        if ready.accelerator != Some(Accelerator::DirectMl) {
-            return Err(lw_core::Error::Unavailable(
-                "DirectML worker did not select DirectML".into(),
-            ));
+        if ready.accelerator != Some(self.accel) {
+            return Err(lw_core::Error::Unavailable(format!(
+                "Provider worker did not select {}",
+                self.accel.label()
+            )));
         }
         self.device = ready.device;
         self.selected = ready.accelerator;
@@ -204,7 +226,7 @@ impl SpeechEngine for DirectMlEngine {
         });
         result.unwrap_or_else(|error| HealthReport {
             ok: false,
-            provider: Provider::DirectMl,
+            provider: self.provider(),
             probe_latency_ms: None,
             message: error.to_string(),
         })
@@ -247,7 +269,7 @@ impl SpeechEngine for DirectMlEngine {
     }
 }
 
-impl Drop for DirectMlEngine {
+impl Drop for ProviderEngine {
     fn drop(&mut self) {
         if let Some(mut worker) = self.worker.take() {
             let _ = worker.child.kill();
@@ -257,7 +279,7 @@ impl Drop for DirectMlEngine {
 }
 
 /// Entry point used only by the GUI executable's private worker mode.
-pub fn run_directml_worker() -> Result<(), String> {
+pub fn run_provider_worker() -> Result<(), String> {
     let mut args = std::env::args_os().skip(2);
     let runtime_dir = PathBuf::from(args.next().ok_or("missing runtime directory")?);
     let model_dir = PathBuf::from(args.next().ok_or("missing model directory")?);
@@ -268,6 +290,11 @@ pub fn run_directml_worker() -> Result<(), String> {
         .to_string_lossy()
         .parse::<usize>()
         .map_err(|e| e.to_string())?;
+    let accel = args
+        .next()
+        .map(|s| Accelerator::from_id(&s.to_string_lossy()).ok_or("invalid worker accelerator"))
+        .transpose()?
+        .unwrap_or(Accelerator::DirectMl);
     let output = std::io::stdout();
     let mut output = output.lock();
     let init = (|| {
@@ -277,7 +304,7 @@ pub fn run_directml_worker() -> Result<(), String> {
             cache_dir,
             cpu_threads,
         };
-        let config = ParakeetConfig::from_ctx(&ctx, BackendKind::Exact(Accelerator::DirectMl));
+        let config = ParakeetConfig::from_ctx(&ctx, BackendKind::Exact(accel));
         let config = config.with_capabilities(crate::machine::probe_capabilities());
         let mut engine = ParakeetEngine::new(Arc::clone(&runtime), config);
         engine.initialize(&ctx).map_err(|e| e.to_string())?;
@@ -317,8 +344,10 @@ pub fn run_directml_worker() -> Result<(), String> {
                 let mut bytes = vec![0u8; count * 4];
                 input.read_exact(&mut bytes).map_err(|e| e.to_string())?;
                 let samples = bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
                     .collect();
                 let result = engine
                     .transcribe(&AudioBuffer::new(samples, sample_rate))

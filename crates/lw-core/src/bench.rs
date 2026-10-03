@@ -316,9 +316,17 @@ pub fn measure_with(
         // never claimed.
         return Err(Error::Other(format!(
             "this model claims {}, and none of the {} clip(s) are in those languages -- they are in {}.              Nothing was measured: a figure from clips a model does not claim describes the fixtures, not the model.",
-            if claimed.is_empty() { "nothing".to_string() } else { claimed.join("/") },
+            if claimed.is_empty() {
+                "nothing".to_string()
+            } else {
+                claimed.join("/")
+            },
             clips.len(),
-            if skipped_languages.is_empty() { "no declared language".to_string() } else { skipped_languages.join("/") },
+            if skipped_languages.is_empty() {
+                "no declared language".to_string()
+            } else {
+                skipped_languages.join("/")
+            },
         )));
     }
 
@@ -741,7 +749,11 @@ mod tests {
         assert_eq!(word.rate, 0.0);
         assert_eq!(word.clips, 1);
         assert_eq!(word.tokens, 4);
-        assert!((ch.rate - 0.25).abs() < 1e-6, "one character in four: {}", ch.rate);
+        assert!(
+            (ch.rate - 0.25).abs() < 1e-6,
+            "one character in four: {}",
+            ch.rate
+        );
         assert_eq!(ch.clips, 1);
         assert_eq!(ch.tokens, 4);
         // Words first, so a caller that shows one figure shows the one the catalog column uses.
@@ -1131,7 +1143,10 @@ mod tests {
         let err = measure(&mut engine, &clips, ClipSource::Synthetic, |_| {})
             .expect_err("nothing is measurable, so this must not return a number");
         let msg = err.to_string();
-        assert!(msg.contains("ja"), "the message must name what the model claims: {msg}");
+        assert!(
+            msg.contains("ja"),
+            "the message must name what the model claims: {msg}"
+        );
         assert!(msg.contains("ru"), "and what the clips are: {msg}");
     }
 

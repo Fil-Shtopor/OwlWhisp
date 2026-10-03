@@ -168,13 +168,11 @@ impl Scroll {
         // changes nothing for them -- but a panel that did not would leave a strip down the side
         // where a notch reached the scrollable directly and jumped, and that is a trap to close
         // rather than to remember.
-        scrollable(
-            mouse_area(iced::widget::container(content).width(Length::Fill)).on_scroll(wheel),
-        )
-        .id(self.id.clone())
-        .on_scroll(viewport)
-        .height(Length::Fill)
-        .into()
+        scrollable(mouse_area(iced::widget::container(content).width(Length::Fill)).on_scroll(wheel))
+            .id(self.id.clone())
+            .on_scroll(viewport)
+            .height(Length::Fill)
+            .into()
     }
 
     /// A wheel notch, or a trackpad's pixel delta.

@@ -9,7 +9,7 @@
 //! top, off the taskbar, and click-through -- is set where the window is opened, in `app.rs`. What
 //! is here is only what it draws.
 
-use iced::widget::{column, container, row, text, Space};
+use iced::widget::{Space, column, container, row, text};
 use iced::{Color, Element, Length};
 use lw_app::dictation::RecordingState;
 
@@ -77,12 +77,9 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
         .center_y(12.0);
 
     let pill = container(
-        row![
-            dot_cell,
-            text(label).size(13).color(rgb(0xe5, 0xe7, 0xee)),
-        ]
-        .spacing(10)
-        .align_y(iced::Alignment::Center),
+        row![dot_cell, text(label).size(13).color(rgb(0xe5, 0xe7, 0xee)),]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
     )
     .padding(iced::Padding::from([0, 16]))
     .height(40)
@@ -109,8 +106,12 @@ pub fn view<'a, M: 'a>(state: RecordingState, phase: f32) -> Element<'a, M> {
     // Centred in the window, with the window itself transparent: the 8px margin the web version had
     // is what keeps the pill's shadowless edge off the window edge.
     container(
-        column![Space::new().height(Length::Fill), pill, Space::new().height(Length::Fill)]
-            .align_x(iced::Alignment::Center),
+        column![
+            Space::new().height(Length::Fill),
+            pill,
+            Space::new().height(Length::Fill)
+        ]
+        .align_x(iced::Alignment::Center),
     )
     .width(Length::Fill)
     .height(Length::Fill)
@@ -152,11 +153,7 @@ mod tests {
         // would suggest the app was still busy with an utterance it had in fact finished with.
         assert!(visual(RecordingState::Listening).2);
         assert!(visual(RecordingState::Processing).2);
-        for quiet in [
-            RecordingState::Idle,
-            RecordingState::Done,
-            RecordingState::Error,
-        ] {
+        for quiet in [RecordingState::Idle, RecordingState::Done, RecordingState::Error] {
             assert!(!visual(quiet).2, "{quiet:?} pulses");
         }
     }

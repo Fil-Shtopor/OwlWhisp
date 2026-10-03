@@ -265,25 +265,36 @@ impl ParakeetEngine {
     /// Build the encoder on `accel` (a GPU provider), using the same static-shape graph the NPU
     /// path uses.
     ///
-    /// Nothing is compiled or cached: a GPU execution provider consumes the ordinary graph, so
-    /// the one artifact that already ships serves every GPU vendor. That is the whole reason GPU
-    /// coverage generalizes where NPU coverage does not.
+    /// GPU providers consume the ordinary graph. TensorRT additionally compiles a cached engine
+    /// for a bounded profile, so different dictation lengths do not trigger repeated builds.
     fn try_build_gpu_encoder(
         &self,
         accel: lw_core::capabilities::Accelerator,
     ) -> Result<Box<dyn EncoderBackend>> {
-        // A GPU has no static-shape requirement -- that was only ever the Hexagon HTP's -- so
-        // prefer the ordinary dynamic graph and fall back to the static one when that is all the
-        // install has. Either way nothing is compiled or cached: one artifact serves every GPU
-        // vendor, which is the whole reason GPU coverage generalizes and NPU coverage does not.
+        // Prefer the dynamic graph. The engine already bounds long audio to `t` frames below,
+        // which gives TensorRT an explicit range covering every chunk, including a short tail.
         let t = self.config.npu_window_frames;
         if let Ok(path) = self.model_file(&["encoder-model.onnx", "encoder.onnx"]) {
-            return Ok(Box::new(CpuEncoder::on_accelerator(
+            let tensorrt = if accel == Accelerator::TensorRt {
+                let max = t.max(1);
+                lw_ort::TensorRtSessionConfig {
+                    fp16: true,
+                    profile: Some(lw_ort::TensorRtShapeProfile {
+                        min_shapes: "audio_signal:1x128x1,length:1".into(),
+                        opt_shapes: format!("audio_signal:1x128x{},length:1", 600.min(max)),
+                        max_shapes: format!("audio_signal:1x128x{max},length:1"),
+                    }),
+                }
+            } else {
+                lw_ort::TensorRtSessionConfig::default()
+            };
+            return Ok(Box::new(CpuEncoder::on_accelerator_with_tensorrt_config(
                 &self.runtime,
                 accel,
                 &path,
                 self.config.cpu_threads,
                 accel.label(),
+                &tensorrt,
             )?));
         }
         if let Ok(path) = self.model_file(&[&format!("encoder-static-t{t}.onnx"), "encoder-static.onnx"]) {

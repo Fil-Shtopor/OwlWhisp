@@ -1,7 +1,7 @@
 //! Windows-specific capability probes: the registry CPU brand string and Qualcomm NPU
 //! detection from the driver store (filesystem + registry only, no admin rights).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use lw_core::capabilities::NpuInfo;
 use windows::Win32::Foundation::ERROR_SUCCESS;
@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW};
 use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, REG_VALUE_TYPE, RRF_RT_REG_SZ, RegGetValueW};
 use windows::core::w;
 
-use crate::caps::{driver_version_from_inf_line, htp_arch_from_filename, npu_info_from_arch};
+use crate::caps::detect_npu_in;
 
 /// The CPU marketing name from
 /// `HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0\ProcessorNameString`.
@@ -43,7 +43,7 @@ pub fn processor_name_from_registry() -> Option<String> {
 pub fn has_nvidia_gpu() -> bool {
     display_adapters()
         .iter()
-        .any(|adapter| adapter.name.to_ascii_lowercase().contains("nvidia"))
+        .any(|adapter| adapter.hardware_id.to_ascii_lowercase().contains("ven_10de"))
 }
 
 /// Physical display adapters, even when no OwlWhisp execution provider has loaded yet.
@@ -75,7 +75,9 @@ pub fn display_adapters() -> Vec<DisplayAdapter> {
             .to_string();
         if !name.is_empty()
             && !hardware_id.is_empty()
-            && !adapters.iter().any(|a: &DisplayAdapter| a.hardware_id == hardware_id)
+            && !adapters
+                .iter()
+                .any(|a: &DisplayAdapter| a.hardware_id == hardware_id)
         {
             adapters.push(DisplayAdapter { name, hardware_id });
         }
@@ -93,76 +95,6 @@ pub fn detect_npu() -> NpuInfo {
     let windir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     let repository = Path::new(&windir).join(r"System32\DriverStore\FileRepository");
     detect_npu_in(&repository)
-}
-
-/// [`detect_npu`] with an explicit driver-store root (separated for testability).
-pub fn detect_npu_in(repository: &Path) -> NpuInfo {
-    let Ok(entries) = std::fs::read_dir(repository) else {
-        return NpuInfo::default();
-    };
-    let mut best: Option<(u32, PathBuf)> = None;
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_lowercase();
-        if !name.starts_with("qcnspmcdm") {
-            continue;
-        }
-        let package = entry.path();
-        if !package.is_dir() {
-            continue;
-        }
-        if let Some(arch) = scan_htp_arch(&package.join("HTP"))
-            && best.as_ref().is_none_or(|(a, _)| arch > *a)
-        {
-            best = Some((arch, package));
-        }
-    }
-    match best {
-        Some((arch, package)) => npu_info_from_arch(arch, read_driver_version(&package)),
-        None => NpuInfo::default(),
-    }
-}
-
-/// Highest HTP arch number named by the Skel/Stub files in an `HTP` directory.
-fn scan_htp_arch(htp_dir: &Path) -> Option<u32> {
-    let entries = std::fs::read_dir(htp_dir).ok()?;
-    entries
-        .flatten()
-        .filter_map(|e| htp_arch_from_filename(&e.file_name().to_string_lossy()))
-        .max()
-}
-
-/// The `DriverVer` version from the package's `.inf` file (UTF-16 or ANSI/UTF-8).
-fn read_driver_version(package: &Path) -> Option<String> {
-    let entries = std::fs::read_dir(package).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|e| !e.eq_ignore_ascii_case("inf")) {
-            continue;
-        }
-        let Ok(bytes) = std::fs::read(&path) else { continue };
-        let text = decode_inf(&bytes);
-        for line in text.lines() {
-            if let Some(v) = driver_version_from_inf_line(line) {
-                return Some(v);
-            }
-        }
-    }
-    None
-}
-
-/// INF files ship as UTF-16LE (BOM FF FE) or ANSI/UTF-8; decode accordingly.
-fn decode_inf(bytes: &[u8]) -> String {
-    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let units: Vec<u16> = bytes[2..]
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes(*c))
-            .collect();
-        String::from_utf16_lossy(&units)
-    } else {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
 }
 
 #[cfg(test)]
@@ -214,19 +146,5 @@ mod tests {
         assert_eq!(npu.htp_arch, Some(HtpArch::V81));
         assert_eq!(npu.soc_model, Some(88));
         assert_eq!(npu.driver_version.as_deref(), Some("1.0.1.1"));
-    }
-
-    #[test]
-    fn utf16_inf_is_decoded() {
-        let text = "DriverVer = 01/01/2024,9.9.9.9\r\n";
-        let mut bytes = vec![0xFF, 0xFE];
-        for u in text.encode_utf16() {
-            bytes.extend_from_slice(&u.to_le_bytes());
-        }
-        let decoded = decode_inf(&bytes);
-        assert_eq!(
-            decoded.lines().find_map(driver_version_from_inf_line).as_deref(),
-            Some("9.9.9.9")
-        );
     }
 }

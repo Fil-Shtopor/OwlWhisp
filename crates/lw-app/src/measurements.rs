@@ -134,13 +134,14 @@ pub fn from_report(report: &crate::bench::BenchReport) -> Option<LocalMeasuremen
             && matches!(report.accelerator.as_deref(), Some("cuda" | "web_gpu"))
         {
             let model = Path::new(&report.model_dir);
-            Some(if model.join("encoder-model.onnx").exists()
-                && model.join("encoder-model.onnx.data").exists()
-            {
-                "gpu_fp32".to_string()
-            } else {
-                "cpu_int8".to_string()
-            })
+            Some(
+                if model.join("encoder-model.onnx").exists() && model.join("encoder-model.onnx.data").exists()
+                {
+                    "gpu_fp32".to_string()
+                } else {
+                    "cpu_int8".to_string()
+                },
+            )
         } else {
             None
         },
@@ -217,7 +218,10 @@ mod tests {
             "measured_at":"2026-09-18T00:00:00Z"}"#;
         let m: LocalMeasurement = serde_json::from_str(older).expect("older record must still load");
         assert_eq!(m.clips, 12);
-        assert_eq!(m.skipped_clips, 0, "absence means it ran everything, which it did");
+        assert_eq!(
+            m.skipped_clips, 0,
+            "absence means it ran everything, which it did"
+        );
         assert!(m.scored_languages.is_empty());
         assert!(
             m.by_unit.is_empty(),
@@ -286,7 +290,10 @@ mod tests {
         let mut later = LocalMeasurements::load(&path);
         later.record("parakeet", m("cpu", 0.08));
         later.save(&path).unwrap();
-        assert_eq!(LocalMeasurements::load(&path).for_model("parakeet")[0].wer, Some(0.08));
+        assert_eq!(
+            LocalMeasurements::load(&path).for_model("parakeet")[0].wer,
+            Some(0.08)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

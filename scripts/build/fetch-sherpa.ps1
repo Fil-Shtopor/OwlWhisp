@@ -59,6 +59,7 @@ if (-not (Test-Path $libDir)) {
     Invoke-WebRequest -Uri $url -OutFile $tmp
     if (-not $Quiet) { Write-Host "Extracting" }
     tar -xjf $tmp -C $dest
+    if ($LASTEXITCODE -ne 0) { throw 'sherpa archive extraction failed' }
     Remove-Item $tmp -Force
 }
 if (-not (Test-Path $libDir)) { throw "expected libraries at $libDir" }
@@ -82,14 +83,26 @@ try {
         "static int lw_sherpa_stub_unused;" | Out-File $stubSrc -Encoding ascii
     }
     if ($Platform -like "win-*") {
-        if (-not (Test-Path "lw_sherpa_stub.obj")) { & cl.exe /nologo /c $stubSrc | Out-Null }
+        if (-not (Test-Path "lw_sherpa_stub.obj")) {
+            & cl.exe /nologo /c $stubSrc | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'MSVC stub compilation failed; initialize the target MSVC environment' }
+        }
         foreach ($f in @("espeak-ng", "piper_phonemize", "ucd")) {
-            if (-not (Test-Path "$f.lib")) { & lib.exe /nologo "/OUT:$f.lib" lw_sherpa_stub.obj | Out-Null }
+            if (-not (Test-Path "$f.lib")) {
+                & lib.exe /nologo "/OUT:$f.lib" lw_sherpa_stub.obj | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "Failed to create $f.lib" }
+            }
         }
     } else {
-        if (-not (Test-Path "lw_sherpa_stub.o")) { & cc -c $stubSrc -o lw_sherpa_stub.o }
+        if (-not (Test-Path "lw_sherpa_stub.o")) {
+            & cc -c $stubSrc -o lw_sherpa_stub.o
+            if ($LASTEXITCODE -ne 0) { throw 'Stub compilation failed' }
+        }
         foreach ($f in @("espeak-ng", "piper_phonemize", "ucd")) {
-            if (-not (Test-Path "lib$f.a")) { & ar rcs "lib$f.a" lw_sherpa_stub.o }
+            if (-not (Test-Path "lib$f.a")) {
+                & ar rcs "lib$f.a" lw_sherpa_stub.o
+                if ($LASTEXITCODE -ne 0) { throw "Failed to create lib$f.a" }
+            }
         }
     }
 } finally {

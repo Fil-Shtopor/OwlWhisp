@@ -33,13 +33,22 @@ $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $name = "OwlWhisp-$version-$Platform"
 
+function Reset-Stage([string]$path) {
+    $resolved = [IO.Path]::GetFullPath($path)
+    $boundary = [IO.Path]::GetFullPath($dist) + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($boundary, [StringComparison]::Ordinal)) { throw 'Stage is outside dist' }
+    if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
+
 if ($Platform -like "osx-*") {
     $app = Join-Path $dist "$name.app"
-    Remove-Item -Recurse -Force $app -ErrorAction SilentlyContinue
+    Reset-Stage $app
     $macos = Join-Path $app "Contents/MacOS"
     $resources = Join-Path $app "Contents/Resources"
     New-Item -ItemType Directory -Force -Path $macos, $resources, "$macos/runtime/$Platform", "$macos/models/manifests" | Out-Null
     Copy-Item $binary (Join-Path $macos "OwlWhisp")
+    chmod +x (Join-Path $macos "OwlWhisp")
+    if ($LASTEXITCODE -ne 0) { throw 'Could not set executable permission' }
     Copy-Item -Recurse -Force "$runtime/*" "$macos/runtime/$Platform"
     # The weights remain in per-user application data; only their signed manifests ship in the
     # bundle, so the first-run Parakeet download can be verified and resumed.
@@ -47,6 +56,11 @@ if ($Platform -like "osx-*") {
     Copy-Item assets/icons/icon-256.png (Join-Path $resources "OwlWhisp.png")
     Copy-Item LICENSE (Join-Path $resources "LICENSE")
     Copy-Item docs/licenses.md (Join-Path $resources "LICENSES.md")
+    Copy-Item THIRD_PARTY_NOTICES.md (Join-Path $resources 'THIRD_PARTY_NOTICES.md')
+    @{
+        version = $version; target = $Target; platform = $Platform
+        commit = (git rev-parse HEAD); sherpa = ($Platform -ne 'linux-arm64')
+    } | ConvertTo-Json | Set-Content (Join-Path $resources 'BUILD_INFO.json')
     @"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,17 +71,30 @@ if ($Platform -like "osx-*") {
   <key>CFBundleName</key><string>OwlWhisp</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$version</string>
+  <key>LSMinimumSystemVersion</key><string>13.3</string>
 </dict></plist>
 "@ | Set-Content (Join-Path $app "Contents/Info.plist") -NoNewline
-    Compress-Archive -Path $app -DestinationPath (Join-Path $dist "$name-macos.zip") -Force
+    # ditto preserves Mach-O executable modes and macOS bundle metadata; Compress-Archive does not.
+    $zip = Join-Path $dist "$name-macos.zip"
+    if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip }
+    ditto -c -k --sequesterRsrc --keepParent $app $zip
+    if ($LASTEXITCODE -ne 0) { throw 'macOS archive creation failed' }
 } else {
     $stage = Join-Path $dist $name
-    Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+    Reset-Stage $stage
     New-Item -ItemType Directory -Force -Path "$stage/runtime", "$stage/models/manifests" | Out-Null
     Copy-Item $binary (Join-Path $stage "owlwhisp")
+    chmod +x (Join-Path $stage "owlwhisp")
+    if ($LASTEXITCODE -ne 0) { throw 'Could not set executable permission' }
     Copy-Item -Recurse -Force "$runtime/*" "$stage/runtime"
     Copy-Item -Recurse -Force "$manifests/*" "$stage/models/manifests"
     Copy-Item LICENSE "$stage/LICENSE"
     Copy-Item docs/licenses.md "$stage/LICENSES.md"
+    Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
+    @{
+        version = $version; target = $Target; platform = $Platform
+        commit = (git rev-parse HEAD); sherpa = ($Platform -ne 'linux-arm64')
+    } | ConvertTo-Json | Set-Content "$stage/BUILD_INFO.json"
     tar -C $dist -czf "$dist/$name.tar.gz" $name
+    if ($LASTEXITCODE -ne 0) { throw 'Linux archive creation failed' }
 }

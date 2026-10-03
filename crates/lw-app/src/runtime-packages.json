@@ -1,0 +1,267 @@
+[
+  {
+    "id": "cuda-core",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.gpu.windows/1.28.0/microsoft.ml.onnxruntime.gpu.windows.1.28.0.nupkg",
+    "sha512": "c266a5511160ddb68c7e9d242b274e2f67350f329558363be8f05aac87420a83e9b941b6e8641a2a9a4becf4e4f05443ef5b06fbfb13b7792d46ee2a1338e8d2",
+    "size": 234399144,
+    "files": {
+      "runtimes/win-x64/native/onnxruntime.dll": "onnxruntime.dll",
+      "runtimes/win-x64/native/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
+      "runtimes/win-x64/native/onnxruntime_providers_cuda.dll": "onnxruntime_providers_cuda.dll",
+      "runtimes/win-x64/native/onnxruntime_providers_tensorrt.dll": "onnxruntime_providers_tensorrt.dll",
+      "LICENSE": "onnxruntime-gpu-LICENSE.txt",
+      "ThirdPartyNotices.txt": "onnxruntime-gpu-ThirdPartyNotices.txt"
+    },
+    "bundled_sha256": {
+      "onnxruntime.dll": "2462fe2d64ce063babefda3d9b1998380ffa74e99acf5d24d520ee67daa9e0f1",
+      "onnxruntime_providers_shared.dll": "c09e22fafb16675521c91db7a50a1f7e4f8922acb905ad50f8e5c66798eb153d",
+      "onnxruntime_providers_cuda.dll": "ea191544c07fcb772d64737198004f259b7ac8a568150463c555cdb1b81ae91e",
+      "onnxruntime_providers_tensorrt.dll": "9cd964f4db4818e1195eda361293ca7b10f606d27c1f3fbfaa08b25efcf75f94",
+      "onnxruntime-gpu-LICENSE.txt": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
+      "onnxruntime-gpu-ThirdPartyNotices.txt": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866"
+    }
+  },
+  {
+    "id": "directml",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/2.5.77-rc/microsoft.windows.ai.machinelearning.2.5.77-rc.nupkg",
+    "sha512": "a22f10582113ea154655de4a7fb301504cdd3f929c510c2f3939514b2c4ecc544e7d751e15bf1f8a2766e503240aaaf40222614e7eb9744b43866f27cece4243",
+    "size": 52149880,
+    "files": {
+      "runtimes/win-x64/native/onnxruntime.dll": "onnxruntime.dll",
+      "runtimes/win-x64/native/DirectML.dll": "DirectML.dll",
+      "runtimes/win-x64/native/Microsoft.Windows.AI.MachineLearning.dll": "Microsoft.Windows.AI.MachineLearning.dll",
+      "license.txt": "windows-ml-license.txt"
+    },
+    "bundled_sha256": {
+      "onnxruntime.dll": "2dd0cc30b0d3540a5596e6060c3eb5c1c5bee739e2db816df8a6ca1d2b6a4bc2",
+      "DirectML.dll": "2d602de47b9f6a237727af88da7d9023b768b95cd5efe9d2404c00af62242b59",
+      "Microsoft.Windows.AI.MachineLearning.dll": "38aae5400cd6559c494b6f686fa5b405ff09af25664044b42c3add7c01881c2f",
+      "windows-ml-license.txt": "66395f8cb219087fae2bd025010bd9076b736c14f03b48f20295471c0c376814"
+    }
+  },
+  {
+    "id": "webgpu",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.ep.webgpu/0.3.0/microsoft.ml.onnxruntime.ep.webgpu.0.3.0.nupkg",
+    "sha512": "4906aaed7434a58a7caea62f588f93eae9a566972566f6e6da837dde09b9b1397becaf458394bb217d08a019d026bbc912cdee3358f0eee725e747863184e4d8",
+    "size": 39485572,
+    "files": {
+      "runtimes/win-x64/native/onnxruntime_providers_webgpu.dll": "onnxruntime_providers_webgpu.dll",
+      "runtimes/win-x64/native/dxcompiler.dll": "dxcompiler.dll",
+      "runtimes/win-x64/native/dxil.dll": "dxil.dll",
+      "LICENSE": "onnxruntime-webgpu-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "onnxruntime_providers_webgpu.dll": "b05a6d5187885be9133ac383d5271af20b76f281e72d8bfe933f35a23d05b94f",
+      "dxcompiler.dll": "a35b933a0b633983c0cc48205879fe7adb37fe8274a5c76e9f74b2fa967a060e",
+      "dxil.dll": "6768128fbac6b66088a7c466412ac4120ef9d7701e00b43fa6c1ff7063dfa042",
+      "onnxruntime-webgpu-LICENSE.txt": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674"
+    }
+  },
+  {
+    "id": "nvinfer_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "a8b16c931a1b56296c61a0d82f77b0c42c8ed26032be01e60375d708071d99347ba595896df7c05cd935776e4af5078a7536c82aecdb135e459288e668e0d5fa",
+    "size": 196381407,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_10.dll": "nvinfer_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "nvinfer_10.dll": "6bae5ce0e820b92bd0bea74795247b489f7d5dd5bb050e101b13c3c3555a3c81",
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_plugin_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_plugin_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_plugin_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "731c0d1cb7efdcae629cf9b535a5759f4ef359900cf903be370a79a1901247e670cc2da7f8a97a1c14c76ade82ebbed3d285278f38e81a32e02e7db064895bc8",
+    "size": 18463613,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_plugin_10.dll": "nvinfer_plugin_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "nvinfer_plugin_10.dll": "bc51e18ba910b93ce39795fafe3d87667c5720c52d8d023913dbfb2a5b899d07",
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvonnxparser_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvonnxparser_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvonnxparser_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "52a98a907b5c09400ac176882dcb83f65cfa8c9dfb9d11049a8dab35b34e14244437eb83c77319babf657f45bbc49dfc1b9e297965278c0d19d987a6566170a3",
+    "size": 1285091,
+    "files": {
+      "runtimes/win-x64/native/nvonnxparser_10.dll": "nvonnxparser_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "nvonnxparser_10.dll": "aa62882f7d6a4af450194e73b6a62837cbff6b6ef84a7be1dec9965fceb08aa4",
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm75_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm75_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm75_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "41110b50b2a8dfdc98e3ad4090e0c2130abee8f0e071e9ab6f90a1d066a55579a287bbdb3a061a7961c8a4dda36782cda55028a4cc433d991e244d835ed63ff9",
+    "size": 89335251,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm75_10.dll": "nvinfer_builder_resource_sm75_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm80_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm80_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm80_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "157458433d22af59ca97e43dc9a84eecb16fa5de386ba76c8cfc3441aced2327127a48ce33dd7a668584c389dfe261566b81672fe4c05da41dde83c827013aa6",
+    "size": 157871270,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm80_10.dll": "nvinfer_builder_resource_sm80_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm86_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm86_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm86_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "39a800dc83216e7544ea35d738149662256530d6839379d98613b5d2a8dcb9962b6900f02ca27b88e1aaf8e45e90f680d826bb2dfc41d303b8fd5b2c21ee9471",
+    "size": 147232962,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm86_10.dll": "nvinfer_builder_resource_sm86_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm89_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm89_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm89_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "97902fff795f96bdcadd6d697de5a4612baf75cff1d0cdfeaabb0fb38a63f2682c7ff23c2ace2db7255b435c0a14841bd27b246d09518f4562da72fa8efbd9ae",
+    "size": 156169629,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm89_10.dll": "nvinfer_builder_resource_sm89_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "nvinfer_builder_resource_sm89_10.dll": "918e70dd2e6ec97625a342bc7844012ae78da915dc20f4c81edb54e2f951c165",
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm90_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm90_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm90_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "84df869882109c24505476b773b2498f68dd83e047512cd4aae6854a5aeebc0be7edd429fa120f27d3e6b6961655dd04f2a9f8ff28b0ed887c479a0695f06fb3",
+    "size": 19882,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm90_10.dll": "nvinfer_builder_resource_sm90_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "nvinfer_builder_resource_sm120_10",
+    "url": "https://api.nuget.org/v3-flatcontainer/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm120_10.runtime.win-x64/10.14.1.48/ntvlibs.tensorrt.cuda13.nvinfer_builder_resource_sm120_10.runtime.win-x64.10.14.1.48.nupkg",
+    "sha512": "14c1cc3fb9bf620747f761310711514ed9e32a37a872fa7d1133c9fb7c9a8c086bfb05a40615dd98419a56f9153e639c04dc699b52dc1cba07c2648d4ecf3519",
+    "size": 231080225,
+    "files": {
+      "runtimes/win-x64/native/nvinfer_builder_resource_sm120_10.dll": "nvinfer_builder_resource_sm120_10.dll",
+      "LICENSE.txt": "ntvlibs-tensorrt-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "ntvlibs-tensorrt-LICENSE.txt": "c547b198300d6125b919a9915ff68ba138032742d21fb6820d9d4d79fc7f3f9a"
+    }
+  },
+  {
+    "id": "cudart",
+    "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-13.0.88-archive.zip",
+    "sha256": "48b1a445cbc2b2b468f872bc698a751d763ef5c06bc03ce559af1bc7e23f9345",
+    "size": 2873255,
+    "files": {
+      "cuda_cudart-windows-x86_64-13.0.88-archive/bin/x64/cudart64_13.dll": "cudart64_13.dll",
+      "cuda_cudart-windows-x86_64-13.0.88-archive/LICENSE": "nvidia-cuda_cudart-LICENSE"
+    },
+    "bundled_sha256": {
+      "cudart64_13.dll": "ad35592883ab6929dcf9e500d7b4cc3aa3f2e483078ab522f9e0fcffc5486161",
+      "nvidia-cuda_cudart-LICENSE": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
+    }
+  },
+  {
+    "id": "cublas",
+    "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-13.0.2.14-archive.zip",
+    "sha256": "b03fd06fb14fa33e27fc441433fe74ccee9738b62c62a08d39960cb0ce9f1d14",
+    "size": 401229263,
+    "files": {
+      "libcublas-windows-x86_64-13.0.2.14-archive/bin/x64/cublas64_13.dll": "cublas64_13.dll",
+      "libcublas-windows-x86_64-13.0.2.14-archive/bin/x64/cublasLt64_13.dll": "cublasLt64_13.dll",
+      "libcublas-windows-x86_64-13.0.2.14-archive/LICENSE": "nvidia-libcublas-LICENSE"
+    },
+    "bundled_sha256": {
+      "cublas64_13.dll": "b5846446f2a151ca24b74b8113d4ca32c52105ad89d4c2f1bc56a4ccffa9ea61",
+      "cublasLt64_13.dll": "680561bdc5d8a8c921e9ae974e6b60a6608c9d9fca8c0fd125e9da08c5c33ff1",
+      "nvidia-libcublas-LICENSE": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
+    }
+  },
+  {
+    "id": "cufft",
+    "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcufft/windows-x86_64/libcufft-windows-x86_64-12.0.0.61-archive.zip",
+    "sha256": "4f2695ea50f895618316ee32636f5d0e5e0bc330e74b3e0876bff002af9e1eb3",
+    "size": 212026245,
+    "files": {
+      "libcufft-windows-x86_64-12.0.0.61-archive/bin/x64/cufft64_12.dll": "cufft64_12.dll",
+      "libcufft-windows-x86_64-12.0.0.61-archive/LICENSE": "nvidia-libcufft-LICENSE"
+    },
+    "bundled_sha256": {
+      "cufft64_12.dll": "7b437a41a6e45803079aae38d794f5aa10012dcc2194884d9c29551bb369c768",
+      "nvidia-libcufft-LICENSE": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
+    }
+  },
+  {
+    "id": "curand",
+    "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcurand/windows-x86_64/libcurand-windows-x86_64-10.4.0.35-archive.zip",
+    "sha256": "c4db1ed0595fcdba3c4da0f5605ca4c3f4340b6be833d94765994e239c775a32",
+    "size": 54762976,
+    "files": {
+      "libcurand-windows-x86_64-10.4.0.35-archive/bin/x64/curand64_10.dll": "curand64_10.dll",
+      "libcurand-windows-x86_64-10.4.0.35-archive/LICENSE": "nvidia-libcurand-LICENSE"
+    },
+    "bundled_sha256": {
+      "curand64_10.dll": "da51792dc1b4768ea8207a21f5a2e05226263ae399b310cfd9bc7efb481b5530",
+      "nvidia-libcurand-LICENSE": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
+    }
+  },
+  {
+    "id": "cudnn",
+    "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.13.1.26_cuda13-archive.zip",
+    "sha256": "26ec076eb618bc8ffdad564c294ecfaaf8055dfcc275087a41d8c41fad22161b",
+    "size": 337938729,
+    "files": {
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn64_9.dll": "cudnn64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_graph64_9.dll": "cudnn_graph64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_ops64_9.dll": "cudnn_ops64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_heuristic64_9.dll": "cudnn_heuristic64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_adv64_9.dll": "cudnn_adv64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_cnn64_9.dll": "cudnn_cnn64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_engines_precompiled64_9.dll": "cudnn_engines_precompiled64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/bin/cudnn_engines_runtime_compiled64_9.dll": "cudnn_engines_runtime_compiled64_9.dll",
+      "cudnn-windows-x86_64-9.13.1.26_cuda13-archive/LICENSE": "nvidia-cudnn-LICENSE"
+    },
+    "bundled_sha256": {
+      "cudnn64_9.dll": "441062260ae4a52bca90f7ca29e89603137570f5ade4acf820231f5b93cecc18",
+      "cudnn_graph64_9.dll": "9ca299279578a2a63e648a4f1753d7b4952b17f250898be2c5d9d4d80e7fb88f",
+      "cudnn_ops64_9.dll": "eac725fc6f9090b77fa62c36523caabbe160fd058908a27336affd46feb1b8e6",
+      "cudnn_heuristic64_9.dll": "70ab62ff4d98f9cab7bf8bfc1738feb4e2bb8924cd3b047723c92dfc29a61387",
+      "cudnn_adv64_9.dll": "ad791a4e3f7f88c73b5f0cb9b61c58da3f770c0996c327073aac9f9cbd89fa1b",
+      "cudnn_cnn64_9.dll": "66d8e31feb2caf1c8f100e2a5b888bf40c28a6e208f9caf889e712a8579a8a21",
+      "cudnn_engines_precompiled64_9.dll": "0447c7d04fef1bc4f3d724d84333de45c79201aceb7020013b57b600dd73398a",
+      "cudnn_engines_runtime_compiled64_9.dll": "85b55793ed660a3c7e1bd24c53d6897ab568f551b64ce4f504e3888bb8ac9641",
+      "nvidia-cudnn-LICENSE": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf"
+    }
+  }
+]

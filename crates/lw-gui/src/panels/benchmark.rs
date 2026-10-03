@@ -10,7 +10,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use iced::widget::{button, column, container, pick_list, row, Space};
+use iced::widget::{Space, button, column, container, pick_list, row};
 use iced::{Element, Padding, Task};
 use lw_app::bench::{BenchReport, BenchSuite};
 use lw_core::engine::BackendPreference;
@@ -115,9 +115,7 @@ impl State {
             // rather than only listing it. A coarse choice ("any NPU") stays offered even when
             // nothing matches: measuring the failure of one is a legitimate thing to do.
             let note = match p.accelerator() {
-                Some(a) if !usable.get(a.id()).copied().unwrap_or(false) => {
-                    " - not usable on this machine"
-                }
+                Some(a) if !usable.get(a.id()).copied().unwrap_or(false) => " - not usable on this machine",
                 _ => "",
             };
             backends.push(BackendChoice {
@@ -189,14 +187,14 @@ impl State {
                 self.running = false;
                 self.started = None;
                 self.single = Some((*r).clone());
-                if let Some(Ok(report)) = &self.single {
-                    if let Some(measurement) = lw_app::measurements::from_report(report) {
-                        let path = lw_app::measurements::path_for(&lw_app::paths::settings_path());
-                        let mut measurements = lw_app::LocalMeasurements::load(&path);
-                        measurements.record(&report.model_id, measurement);
-                        if let Err(e) = measurements.save(&path) {
-                            tracing::warn!(%e, "could not save local accelerator measurement");
-                        }
+                if let Some(Ok(report)) = &self.single
+                    && let Some(measurement) = lw_app::measurements::from_report(report)
+                {
+                    let path = lw_app::measurements::path_for(&lw_app::paths::settings_path());
+                    let mut measurements = lw_app::LocalMeasurements::load(&path);
+                    measurements.record(&report.model_id, measurement);
+                    if let Err(e) = measurements.save(&path) {
+                        tracing::warn!(%e, "could not save local accelerator measurement");
                     }
                 }
                 return Task::none();
@@ -256,11 +254,7 @@ impl State {
 
     /// The model and backend to measure. Both default to what Settings says.
     fn controls(&self) -> Element<'_, Message> {
-        let model = self
-            .models
-            .iter()
-            .find(|m| m.value == self.model_choice)
-            .cloned();
+        let model = self.models.iter().find(|m| m.value == self.model_choice).cloned();
         let backend = self
             .backends
             .iter()
@@ -318,11 +312,13 @@ impl State {
         let secs = self.elapsed();
         column![
             row![
-                button(widgets::button_label(if self.running && self.single.is_none() && self.result.is_none() {
-                    format!("Running... {secs}s")
-                } else {
-                    "Run benchmark".to_string()
-                }))
+                button(widgets::button_label(
+                    if self.running && self.single.is_none() && self.result.is_none() {
+                        format!("Running... {secs}s")
+                    } else {
+                        "Run benchmark".to_string()
+                    }
+                ))
                 .padding(Padding::from([8, 18]))
                 .on_press_maybe((!self.running).then_some(Message::RunOne))
                 .style(theme::action(false)),
@@ -428,16 +424,10 @@ impl State {
         )
         .into();
 
-        let mut body = column![intro]
-            .spacing(12)
-            .padding(Padding::from([0, 8]));
+        let mut body = column![intro].spacing(12).padding(Padding::from([0, 8]));
 
         if self.running {
-            let lines = self
-                .progress
-                .lock()
-                .map(|p| p.lines.clone())
-                .unwrap_or_default();
+            let lines = self.progress.lock().map(|p| p.lines.clone()).unwrap_or_default();
             let mut list = column![widgets::heading("In progress")].spacing(4);
             for l in lines {
                 list = list.push(widgets::sub(l));
@@ -545,14 +535,16 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
         return widgets::card(c).into();
     }
 
-    let mut table = column![row![
-        cell(widgets::field_label("backend"), 240),
-        cell(widgets::field_label("cold RTF"), 110),
-        cell(widgets::field_label("warm RTF"), 110),
-        cell(widgets::field_label("error"), 110),
-        widgets::field_label("marks"),
+    let mut table = column![
+        row![
+            cell(widgets::field_label("backend"), 240),
+            cell(widgets::field_label("cold RTF"), 110),
+            cell(widgets::field_label("warm RTF"), 110),
+            cell(widgets::field_label("error"), 110),
+            widgets::field_label("marks"),
+        ]
+        .spacing(8)
     ]
-    .spacing(8)]
     .spacing(2);
 
     for run in &suite.runs {
@@ -584,11 +576,7 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
                 ),
                 cell(
                     match run.wer {
-                        Some(w) => widgets::mono(format!(
-                            "{} {:.1}%",
-                            run.unit.unwrap_or("WER"),
-                            w * 100.0
-                        )),
+                        Some(w) => widgets::mono(format!("{} {:.1}%", run.unit.unwrap_or("WER"), w * 100.0)),
                         None => widgets::sub("no reference"),
                     },
                     110,
@@ -637,10 +625,9 @@ fn run_card<'a>(run: &'a BenchReport, _suite: Option<&'a BenchSuite>) -> Element
         widgets::sub("First run, including one-time warm-up."),
         fact("Warm RTF", warm),
         widgets::sub(match run.warm_rtf {
-            None =>
-                "Only one clip, so nothing ran after the first - there is no warm figure to \
+            None => "Only one clip, so nothing ran after the first - there is no warm figure to \
                  average."
-                    .to_string(),
+                .to_string(),
             Some(_) => format!(
                 "Mean of {} run{} after the first.",
                 run.warm_count,

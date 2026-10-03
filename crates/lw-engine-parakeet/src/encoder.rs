@@ -107,6 +107,25 @@ impl CpuEncoder {
         threads: usize,
         device_label: impl Into<String>,
     ) -> Result<Self> {
+        Self::on_accelerator_with_tensorrt_config(
+            runtime,
+            accel,
+            path,
+            threads,
+            device_label,
+            &lw_ort::TensorRtSessionConfig::default(),
+        )
+    }
+
+    /// Load a GPU encoder with a model-specific TensorRT profile and precision.
+    pub fn on_accelerator_with_tensorrt_config(
+        runtime: &OrtRuntime,
+        accel: lw_core::capabilities::Accelerator,
+        path: &Path,
+        threads: usize,
+        device_label: impl Into<String>,
+        tensorrt: &lw_ort::TensorRtSessionConfig,
+    ) -> Result<Self> {
         if !path.exists() {
             return Err(Error::MissingFile(path.display().to_string()));
         }
@@ -114,7 +133,8 @@ impl CpuEncoder {
             intra_threads: threads,
             optimize: true,
         };
-        let session = lw_ort::build_accel_session(runtime, accel, path, cfg).map_err(|e| match e {
+        let session = lw_ort::build_accel_session_with_tensorrt_config(runtime, accel, path, cfg, tensorrt)
+            .map_err(|e| match e {
             lw_ort::RuntimeError::Unsupported(msg) => Error::Other(msg),
             other => Error::Ort(other.to_string()),
         })?;

@@ -35,31 +35,17 @@ pub enum RuntimeError {
 
 /// The library file name for the ONNX Runtime on this platform.
 pub fn onnxruntime_lib_name() -> &'static str {
-    #[cfg(target_os = "windows")]
-    {
-        "onnxruntime.dll"
-    }
-    #[cfg(target_os = "macos")]
-    {
-        "libonnxruntime.dylib"
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        "libonnxruntime.so"
-    }
+    lw_core::capabilities::Platform::current()
+        .runtime_library()
+        .unwrap_or("onnxruntime.unsupported")
 }
 
 /// The per-platform runtime subdirectory name used by the repo layout and the installers
 /// (e.g. `win-arm64`), so a single `runtime/` tree can carry several architectures.
 pub fn runtime_platform_dir() -> &'static str {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("windows", "aarch64") => "win-arm64",
-        ("windows", _) => "win-x64",
-        ("macos", "aarch64") => "osx-arm64",
-        ("macos", _) => "osx-x64",
-        (_, "aarch64") => "linux-arm64",
-        _ => "linux-x64",
-    }
+    lw_core::capabilities::Platform::current()
+        .runtime_dir()
+        .unwrap_or("unsupported")
 }
 
 /// Search for a directory containing `onnxruntime`. Order:
@@ -127,7 +113,6 @@ static INIT: OnceLock<Result<(), String>> = OnceLock::new();
 /// be refused -- and the caller would read that refusal as "this machine has no NPU" and quietly
 /// fall back to the CPU. One instance, one registration, one answer.
 static INSTANCE: OnceLock<Arc<OrtRuntime>> = OnceLock::new();
-
 
 /// One registered plugin execution provider. The handle is kept so the EP stays registered for
 /// the process lifetime; dropping it would unregister the library underneath live sessions.
@@ -230,15 +215,21 @@ impl OrtRuntime {
             #[cfg(windows)]
             Accelerator::DirectMl => ort::ep::directml::api().is_some(),
             #[cfg(windows)]
-            Accelerator::TensorRt => [
-                "onnxruntime_providers_tensorrt.dll",
-                "nvinfer_10.dll",
-                "nvinfer_plugin_10.dll",
-                "nvonnxparser_10.dll",
-                "nvinfer_builder_resource_sm89_10.dll",
-            ]
-            .iter()
-            .all(|file| self.runtime_dir.join(file).is_file()),
+            Accelerator::TensorRt => {
+                [
+                    "onnxruntime_providers_tensorrt.dll",
+                    "nvinfer_10.dll",
+                    "nvinfer_plugin_10.dll",
+                    "nvonnxparser_10.dll",
+                ]
+                .iter()
+                .all(|file| self.runtime_dir.join(file).is_file())
+                    && crate::nvidia::devices()
+                        .ok()
+                        .and_then(|devices| devices.into_iter().next())
+                        .and_then(|gpu| gpu.tensorrt_resource())
+                        .is_some_and(|resource| self.runtime_dir.join(format!("{resource}.dll")).is_file())
+            }
             _ => self.library_path(accel).is_some_and(|p| p.exists()),
         }
     }
@@ -474,7 +465,8 @@ pub struct AcceleratorStatus {
 impl AcceleratorStatus {
     /// Whether this accelerator can actually be used: a device of its class enumerated.
     pub fn usable(&self) -> bool {
-        self.accel == Accelerator::Cpu || self.devices > 0
+        self.accel == Accelerator::Cpu
+            || (self.present && self.registered && self.devices > 0 && self.error.is_none())
     }
 
     /// One line explaining the verdict, suitable for diagnostics and the settings UI.

@@ -445,9 +445,7 @@ mod live_tests {
     #[ignore = "takes the clipboard and types into the focused window"]
     fn inject_into_the_focused_window() {
         let mut injector = WindowsInjector::new();
-        injector
-            .inject_into("LW-INJECT-PROBE", true)
-            .expect("inject");
+        injector.inject_into("LW-INJECT-PROBE", true).expect("inject");
         println!("injected LW-INJECT-PROBE into the foreground window");
     }
 }

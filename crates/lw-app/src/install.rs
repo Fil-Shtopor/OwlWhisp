@@ -135,9 +135,7 @@ impl Handle {
                     // The last file's verification is the point where there is nothing left to
                     // count but the promotion out of staging, which can take a moment on a large
                     // model.
-                    Progress::Verified { .. }
-                        if s.file_count > 0 && s.file_index + 1 >= s.file_count =>
-                    {
+                    Progress::Verified { .. } if s.file_count > 0 && s.file_index + 1 >= s.file_count => {
                         s.finishing = true;
                     }
                     _ => {}
@@ -162,11 +160,13 @@ pub fn start(settings_path: &Path, id: &str) -> Handle {
 }
 
 /// Download the optional full-precision Parakeet encoder for this machine's GPU.
-pub fn start_gpu_encoder(
-    settings_path: &Path,
-    accel: lw_core::capabilities::Accelerator,
-) -> Handle {
-    start_with_target(settings_path, "parakeet-tdt-0.6b-v3", Some(ArtifactTarget::GpuFp32), Some(accel))
+pub fn start_gpu_encoder(settings_path: &Path, accel: lw_core::capabilities::Accelerator) -> Handle {
+    start_with_target(
+        settings_path,
+        "parakeet-tdt-0.6b-v3",
+        Some(ArtifactTarget::GpuFp32),
+        Some(accel),
+    )
 }
 
 fn start_with_target(
@@ -188,10 +188,7 @@ fn start_with_target(
     std::thread::Builder::new()
         .name("lw-install".into())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                 Ok(r) => r,
                 Err(e) => {
                     let _ = tx_thread.send(Progress::Failed {
@@ -201,13 +198,7 @@ fn start_with_target(
                 }
             };
             let cancelled = cancel_thread.clone();
-            let result = runtime.block_on(install_inner(
-                &id_owned,
-                &root,
-                addon,
-                cancel_thread,
-                &tx_thread,
-            ));
+            let result = runtime.block_on(install_inner(&id_owned, &root, addon, cancel_thread, &tx_thread));
             let result = result.and_then(|dir| {
                 if let Some(accel) = verify_backend {
                     crate::bench::run_benchmark_job(
@@ -215,7 +206,13 @@ fn start_with_target(
                         Some(id_owned.clone()),
                         Some(lw_core::engine::BackendPreference::for_accelerator(accel)),
                         None,
-                    ).map_err(|e| format!("GPU files installed but {} could not run the model: {e}", accel.label()))?;
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "GPU files installed but {} could not run the model: {e}",
+                            accel.label()
+                        )
+                    })?;
                 }
                 Ok(dir)
             });
@@ -251,11 +248,15 @@ async fn install_inner(
 ) -> Result<String, String> {
     let manifest = manifest_for(id)?;
     let (target, files) = if let Some(addon) = addon {
-        let set = manifest.artifacts.iter().find(|a| a.target == addon)
+        let set = manifest
+            .artifacts
+            .iter()
+            .find(|a| a.target == addon)
             .ok_or_else(|| format!("no {addon:?} files in the manifest for '{id}'"))?;
         (addon, set.files.clone())
     } else {
-        manifest.select_files(&preferred_targets(probe_capabilities()))
+        manifest
+            .select_files(&preferred_targets(probe_capabilities()))
             .ok_or_else(|| format!("no artifact in the manifest for '{id}' matches this machine"))?
     };
     tracing::info!("installing {id} ({} files, target {target:?})", files.len());
@@ -283,9 +284,7 @@ async fn install_inner(
                 file_count: p.file_count,
             },
             DownloadEvent::FileVerified { path } => Progress::Verified { path },
-            DownloadEvent::Completed => Progress::Done {
-                dir: String::new(),
-            },
+            DownloadEvent::Completed => Progress::Done { dir: String::new() },
         };
         // The completion event is sent by the caller, with the directory filled in.
         if !matches!(mapped, Progress::Done { .. }) {
@@ -293,11 +292,15 @@ async fn install_inner(
         }
     };
     if addon.is_some() {
-        downloader.install_addon(&files, &final_dir, cancel, report)
-            .await.map_err(|e| e.to_string())?;
+        downloader
+            .install_addon(&files, &final_dir, cancel, report)
+            .await
+            .map_err(|e| e.to_string())?;
     } else {
-        downloader.install(&files, &staging, &final_dir, cancel, report)
-            .await.map_err(|e| e.to_string())?;
+        downloader
+            .install(&files, &staging, &final_dir, cancel, report)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(final_dir.display().to_string())
@@ -351,9 +354,10 @@ fn manifest_for(id: &str) -> Result<ModelManifest, String> {
     let entry = catalog
         .get(id)
         .ok_or_else(|| format!("unknown model id '{id}'"))?;
-    let name = entry.manifest.as_ref().ok_or_else(|| {
-        format!("'{id}' has no pinned manifest, so it cannot be downloaded safely")
-    })?;
+    let name = entry
+        .manifest
+        .as_ref()
+        .ok_or_else(|| format!("'{id}' has no pinned manifest, so it cannot be downloaded safely"))?;
     let dir = manifests_dir(None).ok_or_else(|| "manifest directory not found".to_string())?;
     let path = dir.join(name);
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;

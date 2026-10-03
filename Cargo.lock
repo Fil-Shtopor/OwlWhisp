@@ -3063,18 +3063,23 @@ name = "lw-app"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "hex",
  "lw-core",
  "lw-engine-parakeet",
  "lw-engine-sherpa",
  "lw-ort",
  "lw-platform",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "zip 8.6.0",
 ]
 
 [[package]]
@@ -3199,6 +3204,7 @@ version = "0.1.0"
 dependencies = [
  "half",
  "hex",
+ "libloading 0.8.9",
  "lw-core",
  "ndarray",
  "ort",

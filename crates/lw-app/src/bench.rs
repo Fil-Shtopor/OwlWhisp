@@ -10,9 +10,7 @@ use std::path::PathBuf;
 use lw_core::dictionary::Dictionary;
 use lw_core::engine::{BackendPreference, EngineInitContext, SpeechEngine};
 use lw_core::settings::Settings;
-use lw_core::text::{
-    CleanupProcessor, DictionaryProcessor, NormalizeOptions, TextPipeline, TextProcessor,
-};
+use lw_core::text::{CleanupProcessor, DictionaryProcessor, NormalizeOptions, TextPipeline, TextProcessor};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 
 pub fn app_data_dir(settings_path: &std::path::Path) -> PathBuf {
@@ -71,10 +69,11 @@ pub fn build_engine_for(
     // accelerators. Always use that engine for this model: the same installed download then
     // works with Automatic/CPU and a later explicit CUDA selection, even without sherpa.
     let built_in_parakeet = settings.model_id == "parakeet-tdt-0.6b-v3";
-    if !built_in_parakeet
-        && let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None)
-    {
-        if !matches!(settings.backend, BackendPreference::Automatic | BackendPreference::ForceCpu) {
+    if !built_in_parakeet && let Ok(files) = lw_engine_sherpa::detect_in_dir(model_dir, true, None) {
+        if !matches!(
+            settings.backend,
+            BackendPreference::Automatic | BackendPreference::ForceCpu
+        ) {
             return Err(format!(
                 "model '{}' uses the CPU-only sherpa engine; choose Parakeet TDT 0.6B v3 for CUDA or select CPU",
                 settings.model_id
@@ -100,11 +99,48 @@ pub fn build_engine_for(
     }
 
     let rt_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found (set LW_RUNTIME_DIR)".to_string())?;
-    #[cfg(windows)]
-    if settings.backend == BackendPreference::DirectMl {
-        return Ok(Box::new(crate::provider_worker::DirectMlEngine::new(
-            crate::provider_worker::directml_runtime_dir(&rt_dir),
-        )));
+    if let Some(accel) = settings.backend.accelerator() {
+        if let Some(installed) = crate::runtime_install::installed_runtime(accel) {
+            return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                installed, accel,
+            )));
+        }
+        #[cfg(windows)]
+        if accel == lw_core::capabilities::Accelerator::DirectMl {
+            return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                crate::provider_worker::directml_runtime_dir(&rt_dir),
+                accel,
+            )));
+        }
+    }
+    if settings.backend == BackendPreference::ForceGpu {
+        let bundled = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
+        for accel in [
+            lw_core::capabilities::Accelerator::Cuda,
+            lw_core::capabilities::Accelerator::DirectMl,
+            lw_core::capabilities::Accelerator::WebGpu,
+        ] {
+            if let Some(installed) = crate::runtime_install::installed_runtime(accel)
+                && crate::provider_worker::probe_runtime(&installed, accel).is_ok()
+            {
+                return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                    installed, accel,
+                )));
+            }
+            #[cfg(windows)]
+            if accel == lw_core::capabilities::Accelerator::DirectMl
+                && crate::provider_worker::directml_runtime_present(&rt_dir)
+                && crate::provider_worker::probe_directml(&rt_dir).is_ok()
+            {
+                return Ok(Box::new(crate::provider_worker::ProviderEngine::new(
+                    crate::provider_worker::directml_runtime_dir(&rt_dir),
+                    accel,
+                )));
+            }
+            if bundled.device_count(accel) > 0 {
+                break;
+            }
+        }
     }
     let runtime = lw_ort::OrtRuntime::init(&rt_dir).map_err(|e| e.to_string())?;
     let backend = BackendKind::from(settings.backend);

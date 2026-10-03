@@ -24,20 +24,18 @@ use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 // Aliased: this crate has its own `MOD_*` family bits, and the two sets mean different things.
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    MOD_ALT as WIN_MOD_ALT, MOD_CONTROL as WIN_MOD_CONTROL,
-    MOD_NOREPEAT as WIN_MOD_NOREPEAT, MOD_SHIFT as WIN_MOD_SHIFT, MOD_WIN as WIN_MOD_WIN,
-    RegisterHotKey, UnregisterHotKey,
+    MOD_ALT as WIN_MOD_ALT, MOD_CONTROL as WIN_MOD_CONTROL, MOD_NOREPEAT as WIN_MOD_NOREPEAT,
+    MOD_SHIFT as WIN_MOD_SHIFT, MOD_WIN as WIN_MOD_WIN, RegisterHotKey, UnregisterHotKey,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW,
-    PeekMessageW, PM_NOREMOVE, SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WM_APP,
-    WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW,
+    PostThreadMessageW, SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL,
+    WM_APP, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
 use crate::hotkey::{
-    CaptureTracker, Captured, ComboTracker, GlobalHotkey, HotkeyCapture, HotkeyEvent, HotkeySpec,
-    MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_WIN, ParsedCombo, SwallowLedger, parse_spec, swallow_trigger,
+    CaptureTracker, Captured, ComboTracker, GlobalHotkey, HotkeyCapture, HotkeyEvent, HotkeySpec, MOD_ALT,
+    MOD_CTRL, MOD_SHIFT, MOD_WIN, ParsedCombo, SwallowLedger, parse_spec, swallow_trigger,
 };
 use crate::{Error, Result};
 
@@ -149,19 +147,15 @@ fn post_to_hook_thread(message: u32) {
 /// The event channel outlives everything (the hook callback holds no owned sender).
 static EVENTS: OnceLock<(Sender<HotkeyEvent>, Receiver<HotkeyEvent>)> = OnceLock::new();
 static REBIND_REQUEST: AtomicU32 = AtomicU32::new(0);
-static REBIND_ACK: OnceLock<(
-    Sender<(u32, std::result::Result<(), String>)>,
-    Receiver<(u32, std::result::Result<(), String>)>,
-)> = OnceLock::new();
+type RebindResult = (u32, std::result::Result<(), String>);
+type RebindChannel = (Sender<RebindResult>, Receiver<RebindResult>);
+static REBIND_ACK: OnceLock<RebindChannel> = OnceLock::new();
 
 fn events_channel() -> &'static (Sender<HotkeyEvent>, Receiver<HotkeyEvent>) {
     EVENTS.get_or_init(|| bounded(128))
 }
 
-fn rebind_ack() -> &'static (
-    Sender<(u32, std::result::Result<(), String>)>,
-    Receiver<(u32, std::result::Result<(), String>)>,
-) {
+fn rebind_ack() -> &'static RebindChannel {
     REBIND_ACK.get_or_init(unbounded)
 }
 
@@ -222,8 +216,7 @@ unsafe extern "system" fn ll_kbd_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                     // Once per process, so the log can answer "did the hook ever fire at all",
                     // which is the first question whenever a shortcut does nothing.
                     // SAFETY: no preconditions; the id of the thread the callback runs on.
-                    let thread =
-                        unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+                    let thread = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
                     tracing::info!(callback_thread = thread, "keyboard hook is receiving keys");
                 }
                 // The shortcut editor's grab comes first and is exclusive: while it is on, the
@@ -607,9 +600,7 @@ static WATCHING_RELEASE: AtomicBool = AtomicBool::new(false);
 fn combo_is_held(combo: &ParsedCombo) -> bool {
     fn down(vk: i32) -> bool {
         // SAFETY: no preconditions; reads the asynchronous state of one virtual key.
-        (unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk) } as u16
-            & 0x8000)
-            != 0
+        (unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk) } as u16 & 0x8000) != 0
     }
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
     if combo.trigger != 0 && !down(i32::from(combo.trigger)) {
@@ -759,7 +750,10 @@ fn watchdog(current: HHOOK) -> HHOOK {
         return current;
     }
     let (seen, _) = key_counts();
-    tracing::info!(keys_seen_so_far = seen, "no key through the hook for {quiet} ms; re-installing");
+    tracing::info!(
+        keys_seen_so_far = seen,
+        "no key through the hook for {quiet} ms; re-installing"
+    );
     reinstall(current)
 }
 
@@ -1287,7 +1281,11 @@ mod live_tests {
             println!(
                 "{:<24} {}",
                 format!("{}+{trigger}", mods.join("+")),
-                if ok { "delivered" } else { "TAKEN BY SOMETHING ELSE" }
+                if ok {
+                    "delivered"
+                } else {
+                    "TAKEN BY SOMETHING ELSE"
+                }
             );
         }
     }

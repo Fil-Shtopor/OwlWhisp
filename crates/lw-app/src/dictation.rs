@@ -376,9 +376,7 @@ fn worker_loop(
                                 let _ = ctx.events.send(Event::MicTest(Ok(true)));
                             }
                             Err(e) => {
-                                let _ = ctx
-                                    .events
-                                    .send(Event::MicTest(Err(format!("microphone: {e}"))));
+                                let _ = ctx.events.send(Event::MicTest(Err(format!("microphone: {e}"))));
                             }
                         }
                     } else {
@@ -553,8 +551,7 @@ fn spawn_silence_watcher(
     let ring = capture.ring();
     let native_rate = capture.native_sample_rate().max(1);
     // The ring holds native-rate samples; size the analysis hop so it is ~32 ms of real time.
-    let hop =
-        ((VAD_FRAME_SIZE as u64 * native_rate as u64) / TARGET_SAMPLE_RATE as u64).max(1) as usize;
+    let hop = ((VAD_FRAME_SIZE as u64 * native_rate as u64) / TARGET_SAMPLE_RATE as u64).max(1) as usize;
     let settings_path = settings_path.to_path_buf();
 
     std::thread::Builder::new()
@@ -616,11 +613,7 @@ mod tests {
         // same failure.
         assert_eq!(cue_for(RecordingState::Listening), Some(Cue::Start));
         assert_eq!(cue_for(RecordingState::Processing), Some(Cue::Stop));
-        for quiet in [
-            RecordingState::Idle,
-            RecordingState::Done,
-            RecordingState::Error,
-        ] {
+        for quiet in [RecordingState::Idle, RecordingState::Done, RecordingState::Error] {
             assert_eq!(cue_for(quiet), None, "{quiet:?} made a sound");
         }
     }
