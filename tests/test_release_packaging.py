@@ -1,15 +1,33 @@
 """Release gates must reject corrupt, incomplete and incorrectly labelled artifacts."""
 import struct
+import json
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "build"))
-from package_checks import TARGETS, archive_name, binary_architecture, expected_assets, sha256, verify_checksums
+from package_checks import TARGETS, archive_name, binary_architecture, expected_assets, sha256, verify_checksums, verify_benchmark_audio
 
 
 class ReleasePackaging(unittest.TestCase):
+    def test_benchmark_requires_bundled_audio_and_transcripts(self):
+        source = Path(__file__).resolve().parent / 'fixtures' / 'audio'
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / 'audio'
+            shutil.copytree(source, audio)
+            verify_benchmark_audio(audio)
+            manifest = audio / 'fixtures.json'
+            clips = json.loads(manifest.read_text(encoding='utf-8'))
+            (audio / clips[0]['file']).unlink()
+            with self.assertRaisesRegex(ValueError, 'missing benchmark audio'):
+                verify_benchmark_audio(audio)
+            shutil.copyfile(source / clips[0]['file'], audio / clips[0]['file'])
+            clips[0]['transcript'] = ''
+            manifest.write_text(json.dumps(clips), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'empty benchmark reference'):
+                verify_benchmark_audio(audio)
     def test_native_headers_distinguish_x64_arm64_and_hexagon(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "binary"

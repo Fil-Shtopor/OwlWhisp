@@ -1,6 +1,8 @@
 """Shared, dependency-free release package checks."""
 import hashlib
+import json
 import struct
+from collections import Counter
 from pathlib import Path
 
 TARGETS = {
@@ -11,6 +13,25 @@ TARGETS = {
     "linux-x64": ("x86_64-unknown-linux-gnu", "linux-x64", "x64"),
     "linux-arm64": ("aarch64-unknown-linux-gnu", "linux-arm64", "arm64"),
 }
+
+
+def verify_benchmark_audio(directory):
+    """Installed benchmarks need real, licensed audio and nonempty reference transcripts."""
+    manifest = directory / 'fixtures.json'
+    require(manifest.is_file(), 'benchmark references are missing')
+    clips = json.loads(manifest.read_text(encoding='utf-8'))
+    require(Counter(c['language'] for c in clips) == Counter(dict.fromkeys(['en', 'es', 'ru', 'uk', 'zh'], 3)),
+            'benchmark must contain three clips for each of five languages')
+    require(len({c['file'] for c in clips}) == 15, 'duplicate benchmark audio')
+    for clip in clips:
+        require(bool(clip['transcript'].strip()), 'empty benchmark reference')
+        require(clip['license'] == 'CC-BY-4.0' and bool(clip['attribution']), 'missing benchmark attribution')
+        audio = directory / clip['file']
+        require(audio.resolve().is_relative_to(directory.resolve()), 'benchmark path escapes bundle')
+        require(audio.is_file(), f'missing benchmark audio: {clip["file"]}')
+        original = Path(__file__).resolve().parents[2] / 'tests' / 'fixtures' / 'audio' / clip['file']
+        require(original.is_file() and sha256(audio) == sha256(original),
+                f'benchmark audio differs from the committed reference: {clip["file"]}')
 
 
 def archive_name(platform, version):

@@ -17,7 +17,7 @@ with it. Verified against source `LICENSE`/`METADATA` files and model cards on 2
 | `istupakov/parakeet-tdt-0.6b-v3-onnx` (ONNX export used for CPU + NPU) | **CC-BY-4.0** (+ export author credit, MIT tooling) | Attribution as above. |
 | `k2-fsa` sherpa-onnx Parakeet int8 export (alt CPU engine) | **CC-BY-4.0** (weights) / Apache-2.0 (tooling) | Attribution as above. |
 | **Silero VAD** (`silero_vad.onnx`) | **MIT** | Include the MIT notice. |
-| FLEURS test clips (test fixtures only, not shipped in installers) | **CC-BY-4.0** | Attribution in `tests/fixtures/audio/fixtures.json`. |
+| FLEURS benchmark clips (shipped with reference transcripts in `benchmark/audio`) | **CC-BY-4.0** | Per-clip attribution in `benchmark/audio/fixtures.json`; dataset and licence links in `THIRD_PARTY_NOTICES.md`. |
 
 ### Models the user may choose to download
 

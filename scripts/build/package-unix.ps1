@@ -53,6 +53,8 @@ if ($Platform -like "osx-*") {
     # The weights remain in per-user application data; only their signed manifests ship in the
     # bundle, so the first-run Parakeet download can be verified and resumed.
     Copy-Item -Recurse -Force "$manifests/*" "$macos/models/manifests"
+    New-Item -ItemType Directory -Force -Path "$macos/benchmark/audio" | Out-Null
+    Copy-Item -Recurse -Force "$root/tests/fixtures/audio/*" "$macos/benchmark/audio"
     Copy-Item assets/icons/icon-256.png (Join-Path $resources "OwlWhisp.png")
     Copy-Item LICENSE (Join-Path $resources "LICENSE")
     Copy-Item docs/licenses.md (Join-Path $resources "LICENSES.md")
@@ -88,6 +90,8 @@ if ($Platform -like "osx-*") {
     if ($LASTEXITCODE -ne 0) { throw 'Could not set executable permission' }
     Copy-Item -Recurse -Force "$runtime/*" "$stage/runtime"
     Copy-Item -Recurse -Force "$manifests/*" "$stage/models/manifests"
+    New-Item -ItemType Directory -Force -Path "$stage/benchmark/audio" | Out-Null
+    Copy-Item -Recurse -Force "$root/tests/fixtures/audio/*" "$stage/benchmark/audio"
     Copy-Item LICENSE "$stage/LICENSE"
     Copy-Item docs/licenses.md "$stage/LICENSES.md"
     Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"

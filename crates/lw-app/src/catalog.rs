@@ -21,6 +21,7 @@ use serde::Serialize;
 
 /// The sentence a front end must show beside any estimated number.
 pub const ESTIMATE_DISCLAIMER: &str = "The Fast recommendation uses an estimate from the model's speed tier and your hardware. \
+     Any favors language coverage among fast models; choose a language to rank by estimated speed. \
      RTF and Accuracy use Zenbook A16 measurements; run Benchmark to fill On your machine.";
 
 /// One of the jobs an entry can be tagged with, as shown.
@@ -250,8 +251,10 @@ fn coarse(value: f32) -> i32 {
 ///   Russian clips and Whisper turbo's 0.042 from twelve across four languages, and a
 ///   one-language specialist sits an easier exam. Those are compared only as coarsely as that
 ///   allows, and the tie goes to language coverage -- the question was "any language", so a model
-///   that speaks one cannot be the answer to it. `Fast` is always in this case, because its input
-///   is an estimate rather than a measurement.
+///   that speaks one cannot be the answer to it.
+/// - **Fast with Any.** Prefer broad language coverage among models carrying the Fast role.
+///   A specialist's CPU speed estimate cannot answer a general multilingual recommendation.
+///   With a language selected, estimated speed leads and coverage breaks coarse ties.
 ///
 /// Returns `None` when the criterion cannot rank an entry at all; such entries sort last.
 fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, i32)> {
@@ -266,7 +269,12 @@ fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, 
         }
         ModelRole::Fast => {
             let rtf = entry.estimated_rtf?;
-            Some((coarse(rtf), -(entry.languages.len() as i32)))
+            let coverage = -(entry.languages.len() as i32);
+            Some(if language.is_empty() {
+                (coverage, coarse(rtf))
+            } else {
+                (coarse(rtf), coverage)
+            })
         }
         // Exact and never a tie; an entry with no pinned file set has no size to rank on.
         ModelRole::Compact => entry.download_bytes.map(|b| (b.min(i32::MAX as u64) as i32, 0)),
@@ -281,10 +289,10 @@ fn role_key(entry: &EntryView, role: ModelRole, language: &str) -> Option<(i32, 
 pub fn pick_for_role<'a>(entries: &'a [EntryView], role: ModelRole, language: &str) -> Option<&'a EntryView> {
     entries
         .iter()
+        .filter(|e| e.runnable)
         .filter(|e| e.roles.iter().any(|r| r.id == role.id()))
         .filter(|e| language.is_empty() || e.languages.iter().any(|l| l == language))
-        // `min_by_key` keeps the first of equals, and `entries` arrives in the catalog's own
-        // best-first order, so anything the criterion cannot separate keeps that order.
+        // Equal keys retain the stable catalog order.
         .min_by_key(|e| role_key(e, role, language).unwrap_or((i32::MAX, i32::MAX)))
 }
 
@@ -514,7 +522,10 @@ mod tests {
         // The bug this logic exists for. Whisper turbo has the best blended figure in the catalog
         // and the worst Chinese of the four entries that claim it, so any ranking that answers a
         // per-language question with a whole-model number picks the worst option there is.
-        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let mut view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        for e in &mut view.entries {
+            e.runnable = true;
+        }
         let pick = pick_for_role(&view.entries, ModelRole::Accurate, "zh")
             .expect("something accurate claims Chinese");
         assert_eq!(pick.id, "sense-voice-small", "picked {} instead", pick.id);
@@ -525,7 +536,10 @@ mod tests {
         // The regression the language-aware version caused: ranking blended rates directly
         // rewards narrowness, because a specialist is scored on an easier set of clips. Both
         // suggestions went to a Russian-only model.
-        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        let mut view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        for e in &mut view.entries {
+            e.runnable = true;
+        }
         for role in [ModelRole::Fast, ModelRole::Accurate] {
             let pick = pick_for_role(&view.entries, role, "").expect("something fills the role");
             assert!(
@@ -539,12 +553,37 @@ mod tests {
     }
 
     #[test]
-    fn a_real_speed_difference_still_beats_language_coverage() {
-        // The coverage tiebreak must stay a tiebreak. Whisper turbo claims a hundred languages and
-        // is a whole tier slower, so it must not take the Fast pick from Parakeet.
-        let view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
-        let fast = pick_for_role(&view.entries, ModelRole::Fast, "").expect("a fast pick");
-        assert_ne!(fast.id, "whisper-turbo");
+    fn any_fast_prefers_parakeet_on_cpu_and_npu_but_respects_a_chosen_language() {
+        let mut view = build(std::path::Path::new("nonexistent-models-root")).expect("builds");
+        // Exercise both hardware cases independently of the test host and compiled features.
+        for npu in [false, true] {
+            for e in &mut view.entries {
+                e.runnable = true;
+                let target = if npu && e.id == "parakeet-tdt-0.6b-v3" {
+                    HardwareTarget::QnnNpu
+                } else {
+                    HardwareTarget::Cpu
+                };
+                e.estimated_rtf = Some(lw_core::model::estimate_rtf(e.speed, target, 8));
+            }
+            assert_eq!(
+                pick_for_role(&view.entries, ModelRole::Fast, "").unwrap().id,
+                "parakeet-tdt-0.6b-v3"
+            );
+            assert_eq!(
+                pick_for_role(&view.entries, ModelRole::Fast, "zh").unwrap().id,
+                "sense-voice-small"
+            );
+        }
+        view.entries
+            .iter_mut()
+            .find(|e| e.id == "parakeet-tdt-0.6b-v3")
+            .unwrap()
+            .runnable = false;
+        assert_ne!(
+            pick_for_role(&view.entries, ModelRole::Fast, "").unwrap().id,
+            "parakeet-tdt-0.6b-v3"
+        );
     }
 
     #[test]

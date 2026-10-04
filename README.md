@@ -81,7 +81,9 @@ DGX Spark uses the separate Linux ARM64 path above.
 
 Open **Benchmark**, choose a model and run **Run benchmark** for one accelerator, or
 **Compare all accelerators** to measure every usable accelerator for that model side by side.
-The comparison reuses one audio set, so the speed and accuracy results are comparable.
+Every package includes 15 real speech clips with reference transcripts. The comparison reuses
+one audio set, including separately installed accelerator runtimes, so speed and accuracy
+results are comparable. Providers that cannot run are listed with their reasons.
 
 - **Cold RTF** measures the first clip, including warm-up; **warm RTF** measures subsequent clips.
   RTF is processing time divided by audio duration: lower is faster, and below 1 means faster
@@ -158,16 +160,16 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The current **0.1.5** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.6** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.6/OwlWhisp-0.1.6-linux-arm64.tar.gz) | — |
 
 Starting with 0.1.2, **Settings > Application updates** checks GitHub at startup and once a day,
 with controls for automatic checks and preview releases. Windows x64/ARM64 packages can download

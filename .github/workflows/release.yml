@@ -12,7 +12,7 @@ on:
       tag:
         description: Release tag (must match the workspace version)
         type: string
-        default: v0.1.5
+        default: v0.1.6
 
 permissions:
   contents: read
@@ -236,7 +236,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          body_path: docs/release-notes-v0.1.5.md
+          body_path: docs/release-notes-v0.1.6.md
           fail_on_unmatched_files: true
           files: release-assets/*
       - name: Verify all published assets download publicly

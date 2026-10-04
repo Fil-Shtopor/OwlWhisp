@@ -11,7 +11,7 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-from package_checks import TARGETS, archive_name, binary_architecture, require
+from package_checks import TARGETS, archive_name, binary_architecture, require, verify_benchmark_audio
 from windows_resources import verify_branding
 
 
@@ -101,11 +101,21 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
             require(not any(runtime.glob("*pybind*")), "Python binding unexpectedly included in native package")
         manifests = executable.parent / "models" / "manifests"
         require(any(manifests.glob("*.json")), "model manifests are missing")
+        audio = executable.parent / 'benchmark' / 'audio'
+        verify_benchmark_audio(audio)
         if info["sherpa"]:
             data = executable.read_bytes().lower()
             require(b"espeak-ng" not in data and b"piper_phonemize" not in data, "TTS component in application binary")
         if smoke:
             env = os.environ.copy()
+            env.pop('LW_FIXTURES', None)
+            env['LW_APP_DATA_DIR'] = str(directory / 'app-data')
+            result = subprocess.run([str(executable), '--benchmark-fixtures'], cwd=directory,
+                                    env=env, capture_output=True, text=True, timeout=30)
+            require(result.returncode == 0, f'packaged benchmark audio failed: {result.stderr[-2000:]}')
+            fixture_report = json.loads(result.stdout)
+            require(Path(fixture_report['dir']).samefile(audio) and fixture_report['clips'] == 15,
+                    'benchmark loaded reference audio outside the package')
             env["LW_RUNTIME_DIR"] = str(runtime)
             # Keep downloads, cache and settings isolated from any real user profile.
             env["APPDATA"] = str(directory / "app-data")

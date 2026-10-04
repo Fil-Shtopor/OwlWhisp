@@ -11,7 +11,11 @@ also carries `LICENSES.md`. See `docs/licenses.md` for the complete matrix and o
   A Qualcomm QNN context binary for Snapdragon X2 (HTP V81) is derived from these weights by
   OwlWhisp and remains under CC-BY-4.0.
 - **Silero VAD** — © Silero Team. Licence: **MIT**. https://github.com/snakers4/silero-vad
-- Test fixtures: **FLEURS** (Conneau et al., 2022), **CC-BY-4.0**.
+- Benchmark audio and reference transcripts: **FLEURS** (Conneau et al., 2022), **CC-BY-4.0**.
+  Dataset: https://huggingface.co/datasets/google/fleurs
+  Licence: https://creativecommons.org/licenses/by/4.0/
+  Fifteen excerpts are redistributed in `benchmark/audio`; per-clip sources and attribution
+  are in `fixtures.json`. Audio is converted to mono 16 kHz and excerpted for benchmarking.
 
 ## Inference runtime
 - **ONNX Runtime** — © Microsoft. Licence: **MIT**.

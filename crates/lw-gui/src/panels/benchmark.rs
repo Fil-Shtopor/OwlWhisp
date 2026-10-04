@@ -544,7 +544,7 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
             cell(widgets::field_label("backend"), 240),
             cell(widgets::field_label("cold RTF"), 110),
             cell(widgets::field_label("warm RTF"), 110),
-            cell(widgets::field_label("error"), 110),
+            cell(widgets::field_label("WER / CER"), 140),
             widgets::field_label("marks"),
         ]
         .spacing(8)
@@ -552,6 +552,17 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
     .spacing(2);
 
     for run in &suite.runs {
+        let accuracy: Element<'_, Message> = if run.by_unit.is_empty() {
+            widgets::sub("no reference").into()
+        } else {
+            column(
+                run.by_unit
+                    .iter()
+                    .map(|u| widgets::mono(format!("{} {:.1}%", u.unit.label(), u.rate * 100.0)).into()),
+            )
+            .spacing(2)
+            .into()
+        };
         let id = run.accelerator.as_deref();
         let fastest = id.is_some() && id == suite.fastest.as_deref();
         let accurate = id.is_some() && id == suite.most_accurate.as_deref();
@@ -578,13 +589,7 @@ fn suite_card(suite: &BenchSuite) -> Element<'_, Message> {
                     },
                     110,
                 ),
-                cell(
-                    match run.wer {
-                        Some(w) => widgets::mono(format!("{} {:.1}%", run.unit.unwrap_or("WER"), w * 100.0)),
-                        None => widgets::sub("no reference"),
-                    },
-                    110,
-                ),
+                cell(accuracy, 140),
                 marks,
             ]
             .spacing(8)

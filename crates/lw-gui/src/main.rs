@@ -25,6 +25,22 @@ mod widgets;
 fn main() -> iced::Result {
     if std::env::args_os()
         .nth(1)
+        .is_some_and(|arg| arg == "--benchmark-fixtures")
+    {
+        let (clips, source) = lw_core::bench::quick_clips(None, 15).expect("benchmark audio must load");
+        assert!(
+            clips.len() == 15 && clips.iter().all(|c| c.reference.is_some()),
+            "benchmark references are missing"
+        );
+        let dir = match source {
+            lw_core::bench::ClipSource::Fixtures { dir } => dir,
+            _ => panic!("benchmark audio is synthetic"),
+        };
+        println!("{}", serde_json::json!({ "dir": dir, "clips": clips.len() }));
+        return Ok(());
+    }
+    if std::env::args_os()
+        .nth(1)
         .is_some_and(|arg| arg == "--diagnose-accelerators")
     {
         let report = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));

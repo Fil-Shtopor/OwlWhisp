@@ -350,17 +350,28 @@ pub fn run_benchmark_suite(
     let model = model_id.unwrap_or(settings.model_id);
     let caps = crate::machine::probe_capabilities();
 
-    let runtime_dir = runtime_dir().ok_or_else(|| "ONNX Runtime not found".to_string())?;
-    let runtime = lw_ort::OrtRuntime::init(&runtime_dir).map_err(|e| e.to_string())?;
-    let mut usable = runtime.usable_accelerators();
-    #[cfg(windows)]
-    if crate::provider_worker::probe_directml(&runtime_dir).is_ok_and(|count| count > 0) {
-        let insert_at = usable
-            .iter()
-            .position(|accel| *accel == lw_core::capabilities::Accelerator::WebGpu)
-            .unwrap_or(usable.len());
-        usable.insert(insert_at, lw_core::capabilities::Accelerator::DirectMl);
+    // Use the same isolated probes as Settings/Diagnostics, including per-user runtime add-ons.
+    // Probing the base runtime alone omitted installed CUDA/TensorRT and loaded GPU libraries
+    // into the desktop process even though inference runs in isolated workers.
+    let diagnostics = crate::diagnostics::collect(lw_core::VERSION);
+    if let Some(error) = diagnostics
+        .accelerators_error
+        .as_ref()
+        .or(diagnostics.runtime_error.as_ref())
+    {
+        return Err(error.clone());
     }
+    let usable: Vec<_> = diagnostics
+        .accelerators
+        .iter()
+        .filter(|s| s.usable)
+        .filter_map(|s| {
+            lw_core::capabilities::ALL_ACCELERATORS
+                .iter()
+                .copied()
+                .find(|a| a.id() == s.id)
+        })
+        .collect();
     if usable.is_empty() {
         return Err("no usable accelerator on this machine".into());
     }
@@ -379,7 +390,16 @@ pub fn run_benchmark_suite(
         .and_then(|c| c.get(&model).cloned());
 
     let mut runs = Vec::new();
-    let mut skipped = Vec::new();
+    let mut skipped: Vec<_> = diagnostics
+        .accelerators
+        .iter()
+        .filter(|s| !s.usable && (s.hardware_present || s.present))
+        .map(|s| BenchSkipped {
+            accelerator: s.id.into(),
+            label: s.label.into(),
+            reason: s.detail.clone(),
+        })
+        .collect();
     for (i, accel) in usable.iter().enumerate() {
         if let Some(reason) = entry.as_ref().and_then(|e| e.unsupported_on(*accel)) {
             on_progress(serde_json::json!({
@@ -436,7 +456,12 @@ pub fn run_benchmark_suite(
         .and_then(|(r, _)| r.accelerator.clone());
     let most_accurate = runs
         .iter()
-        .filter_map(|r| r.wer.map(|w| (r, w)))
+        .filter_map(|r| {
+            r.by_unit
+                .iter()
+                .find(|u| u.unit == lw_core::bench::ErrorUnit::Word)
+                .map(|u| (r, u.rate))
+        })
         .filter(|(_, w)| w.is_finite())
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .and_then(|(r, _)| r.accelerator.clone());

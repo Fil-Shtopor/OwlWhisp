@@ -141,6 +141,11 @@ $manifestsDest = Join-Path $stage "models\manifests"
 New-Item -ItemType Directory -Force -Path $manifestsDest | Out-Null
 Copy-Item -Recurse -Force (Join-Path $manifests "*") $manifestsDest
 
+# Real speech plus reference transcripts are required for benchmark WER/CER in installed copies.
+$audioDest = Join-Path $stage 'benchmark/audio'
+New-Item -ItemType Directory -Force -Path $audioDest | Out-Null
+Copy-Item -Recurse -Force (Join-Path $root 'tests/fixtures/audio/*') $audioDest
+
 # Licences travel with the binaries they cover. This is not decoration: the ONNX Runtime and
 # Qualcomm files are redistributed under terms that require their notices, and `option-ext` is
 # MPL-2.0 (see docs\licenses.md).

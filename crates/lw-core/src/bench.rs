@@ -610,7 +610,7 @@ struct FixtureItem {
     language: Option<String>,
 }
 
-/// Find a fixtures directory: `$LW_FIXTURES` first, then `tests/fixtures/audio` up the tree.
+/// Find reference audio: `$LW_FIXTURES`, the installed bundle, then the development checkout.
 pub fn locate_fixtures() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("LW_FIXTURES") {
         let p = PathBuf::from(p);
@@ -618,7 +618,18 @@ pub fn locate_fixtures() -> Option<PathBuf> {
             return Some(p);
         }
     }
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| packaged_fixtures(&exe))
+    {
+        return Some(dir);
+    }
     crate::model::locate_repo_path("tests/fixtures/audio").filter(|p| p.join("fixtures.json").exists())
+}
+
+fn packaged_fixtures(executable: &Path) -> Option<PathBuf> {
+    let dir = executable.parent()?.join("benchmark/audio");
+    dir.join("fixtures.json").is_file().then_some(dir)
 }
 
 /// Read up to `max_clips` clips from a fixtures directory holding a `fixtures.json`.
@@ -706,6 +717,31 @@ pub fn synth_clip(index: usize, seconds: f32) -> AudioBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installed_benchmark_finds_and_decodes_bundled_reference_audio() {
+        let bundle = tempfile::tempdir().unwrap();
+        let executable = bundle.path().join("OwlWhisp.app/Contents/MacOS/OwlWhisp");
+        let audio = executable.parent().unwrap().join("benchmark/audio");
+        std::fs::create_dir_all(&audio).unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/audio");
+        for file in std::fs::read_dir(source).unwrap() {
+            let file = file.unwrap();
+            std::fs::copy(file.path(), audio.join(file.file_name())).unwrap();
+        }
+        let located = packaged_fixtures(&executable).expect("installed reference audio");
+        assert_eq!(located, audio);
+        let clips = fixture_clips(&located, 15).unwrap();
+        assert_eq!(clips.len(), 15);
+        assert!(
+            clips
+                .iter()
+                .all(|c| c.reference.as_ref().is_some_and(|r| !r.trim().is_empty())
+                    && c.audio.duration_secs() > 0.0)
+        );
+        assert!(clips.iter().any(|c| c.language.as_deref() == Some("zh")));
+        assert!(packaged_fixtures(&bundle.path().join("elsewhere/owlwhisp")).is_none());
+    }
 
     /// The reason `ErrorUnit` exists, demonstrated on one sentence.
     ///
