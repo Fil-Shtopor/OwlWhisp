@@ -15,12 +15,73 @@ speech model is unloaded.
 - **Private by design:** microphone audio and models stay on the device.
 - **Local inference:** Parakeet runs on CPU, supported GPUs and the Qualcomm Hexagon NPU on
   compatible Snapdragon Windows machines. Other CPU models use the optional sherpa engine.
+- **Choose your accelerator:** select CPU, NVIDIA CUDA/TensorRT, DirectML, WebGPU or Qualcomm
+  Hexagon NPU where supported. Settings shows hardware, runtime and model readiness, with setup
+  actions for available downloads. See the [accelerator table](#accelerators).
+- **Benchmark on your hardware:** compare accelerators on the same audio and benchmark different
+  models to choose your own balance of speed and accuracy. Results include the accelerator that
+  actually ran, cold/warm speed and word error rate. See [benchmarking](#benchmark-models-and-accelerators).
 - **Desktop-native:** a Rust application with tray controls, global hotkeys, diagnostics, and no
   webview process.
 - **Lightweight by design:** a CPU-rendered native interface without Electron or a browser engine.
   Version 0.1.1 lets you release the speech model after an idle timeout or keep it ready
   for faster responses.
 - **Open source:** Apache-2.0 application code with third-party notices included in every package.
+
+## Accelerators
+
+In **Settings > Accelerator**, choose an explicit accelerator or use **Automatic**, **Any GPU**
+or **Any NPU**. An explicit choice reports an error when it cannot run. Settings explains missing
+hardware, drivers, runtime libraries or model files before selection.
+
+| Accelerator | Platforms in the release | Requirements and status |
+|---|---|---|
+| **CPU** | Windows, macOS and Linux, x64/ARM64 | All packaged models where the engine is included; Linux ARM64 has Parakeet only |
+| **NVIDIA GPU (CUDA)** | Windows x64; Linux ARM64, including DGX Spark | Windows installs the runtime in Settings. Linux ARM64 bundles the CUDA 13 provider and needs system CUDA 13/cuDNN 9 libraries; Spark hardware validation is pending |
+| **NVIDIA GPU (TensorRT)** | Windows x64 | Optional runtime download selected by GPU compute capability; the first run builds an engine cache. Not bundled for DGX Spark |
+| **GPU (DirectML)** | Windows x64 | Compatible DirectX 12 GPU, including NVIDIA, AMD and Intel; bundled runtime |
+| **GPU (WebGPU)** | Windows x64/ARM64, macOS Apple Silicon, Linux x64 | Bundled provider using Direct3D 12, Metal or Vulkan, respectively; compatible GPU/driver required |
+| **Qualcomm NPU (Hexagon/QNN)** | Windows ARM64 on compatible Snapdragon | Matching QNN driver and model artifact; verified on Snapdragon X2 |
+
+GPU/NPU acceleration currently applies to **Parakeet TDT 0.6B v3**. The other catalog models use
+CPU through sherpa. CoreML/Apple Neural Engine, Intel OpenVINO NPU and AMD Ryzen AI/Vitis AI are
+not included in the standard release. A supported provider still needs a compatible device and
+model; [hardware documentation](docs/hardware.md) distinguishes implemented paths from measured
+hardware results.
+
+### NVIDIA DGX Spark
+
+Starting with **0.1.4**, the Linux ARM64 archive includes a matched ONNX Runtime **1.30.0** core
+and **CUDA 13** provider, including kernels for GB10's **compute capability 12.1**. Spark combines
+an Arm CPU with a Blackwell GPU; use the **Linux ARM64** package and select **NVIDIA GPU (CUDA)**.
+Install compatible system CUDA 13 and cuDNN 9 libraries, then check Diagnostics and run a Parakeet
+benchmark. See the [Spark setup guide](docs/build.md#nvidia-dgx-spark-linux-arm64).
+
+This path is implemented with native ARM64 package checks and simulated GB10 detection tests;
+GPU inference and performance have **not yet been measured on a physical Spark**. TensorRT is
+not included in the ARM64 runtime. Linux desktop integration retains the preview limitations below.
+Hardware details: [NVIDIA Spark specifications](https://docs.nvidia.com/dgx/dgx-spark/hardware.html)
+and [CUDA compute capabilities](https://developer.nvidia.com/cuda/gpus).
+
+## Benchmark models and accelerators
+
+Open **Benchmark**, choose a model and run **Run benchmark** for one accelerator, or
+**Compare all accelerators** to measure every usable accelerator for that model side by side.
+The comparison reuses one audio set, so the speed and accuracy results are comparable.
+
+- **Cold RTF** measures the first clip, including warm-up; **warm RTF** measures subsequent clips.
+  RTF is processing time divided by audio duration: lower is faster, and below 1 means faster
+  than real time.
+- **WER (word error rate)** measures transcription errors: lower is more accurate. Only languages
+  advertised by the model are scored; the 15-clip fixture set covers English, Russian, Spanish, Ukrainian and Chinese. Chinese uses
+  **CER (character error rate)**, reported separately from WER.
+- Reports name the **actual accelerator**, explain fallback/failure and mark the fastest and
+  most accurate results. Those can be different choices.
+
+To compare models, select each model and benchmark it on the same accelerator and fixture set.
+Measured results appear in the model catalog; compare models that support the language you need.
+The accelerator sweep compares one selected model at a time. First runs may take longer while
+model files or GPU/NPU caches are prepared. [Benchmark method and usage](docs/using.md#6-benchmarking-your-own-machine).
 
 ## Startup
 
@@ -65,9 +126,9 @@ All packages are native **64-bit** builds. Choose the architecture of your compu
 | **Windows x64**, Intel/AMD, Windows 10/11 | NSIS installer or portable ZIP | CPU, DirectML, WebGPU; CUDA/TensorRT can be installed in Settings | Primary; verified on RTX 4080 Laptop |
 | **Windows ARM64**, Windows 11, including Snapdragon X/X2 | NSIS installer or portable ZIP | CPU, WebGPU; QNN NPU on compatible Snapdragon hardware with the matching model artifact | Primary; verified on Snapdragon X2 |
 | **macOS Apple Silicon**, ARM64, macOS 13.3+ | `.app` in a ZIP | CPU and bundled WebGPU/Metal provider | Preview |
-| **macOS Intel**, x64, macOS 13.3+ | `.app` in a ZIP | CPU; the pinned ONNX Runtime is built from source for Intel | Preview |
+| **macOS Intel**, x64, macOS 13.3+ | `.app` in a ZIP | CPU; pinned ONNX Runtime built from source for Intel, reused with hash verification | Preview |
 | **Linux x64**, built on Ubuntu 22.04 | Portable `.tar.gz` | CPU and bundled WebGPU/Vulkan provider | Preview |
-| **Linux ARM64**, built on Ubuntu 24.04 | Portable `.tar.gz` | Parakeet on CPU; sherpa models are unavailable in this package | Preview |
+| **Linux ARM64**, built on Ubuntu 24.04 | Portable `.tar.gz` | Parakeet on CPU or CUDA 13 (system GPU libraries required); sherpa models unavailable | Preview |
 
 macOS and Linux currently support the native interface, model management, benchmarking, audio
 capture and clipboard access. **Global hotkeys, typing into other applications and foreground-app
@@ -83,18 +144,18 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The current **0.1.3** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.4** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-linux-arm64.tar.gz) | — |
 
-Starting with 0.1.2, **Settings ? Application updates** checks GitHub at startup and once a day,
+Starting with 0.1.2, **Settings > Application updates** checks GitHub at startup and once a day,
 with controls for automatic checks and preview releases. Windows x64/ARM64 packages can download
 and verify the matching installer, then open it from the app. Install 0.1.2 manually once to get
 this mechanism. [Windows signing setup](docs/windows-signing.md) is ready for an existing trusted
@@ -107,7 +168,7 @@ without authentication and checks its SHA-256. Models are downloaded separately 
 
 ## Hardware tests
 
-42 simulated configurations cover Windows/macOS/Linux, x64/ARM64, CPU/GPU/NPU hardware,
+45 simulated configurations cover Windows/macOS/Linux, x64/ARM64, CPU/GPU/NPU hardware,
 missing drivers, library selection and model readiness. They run on every native CI target:
 
 ```sh

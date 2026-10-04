@@ -11,13 +11,15 @@ registry, actual drivers or the user's settings.
 
 ## Coverage
 
-`tests/fixtures/hardware/configurations.json` contains 42 named configurations with explicit
+`tests/fixtures/hardware/configurations.json` contains 45 named configurations with explicit
 expected hardware and installation actions:
 
 - Windows, macOS and Linux, each with x64 and ARM64 process architectures.
 - Intel, AMD, Qualcomm, Apple Silicon and generic ARM CPUs; headless and unidentified machines.
 - NVIDIA SM 75/80/86/89/90/120, older unsupported CUDA hardware, unknown future TensorRT
   partitions, missing/old drivers, integrated plus discrete graphics, multiple NVIDIA GPUs and headless driver-API enumeration.
+- NVIDIA GB10 / DGX Spark on Linux ARM64, including headless driver detection and an older driver.
+  These observations do not claim successful CUDA inference on a real Spark.
 - AMD Radeon, Intel integrated/Arc, Qualcomm Adreno and Apple GPUs.
 - Qualcomm NPU V73/V81, absent NPU drivers and stale Qualcomm driver packages on unrelated
   hardware or in an x64 process. Intel/AMD NPU relevance is distinguished from model support.

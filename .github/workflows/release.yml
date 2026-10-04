@@ -12,7 +12,7 @@ on:
       tag:
         description: Release tag (must match the workspace version)
         type: string
-        default: v0.1.3
+        default: v0.1.4
 
 permissions:
   contents: read
@@ -136,7 +136,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: runtime/osx-x64
-          key: ort-1.28.1-osx-x64-${{ hashFiles('scripts/runtime/build-ort-macos-intel.ps1') }}
+          key: ort-1.28.1-osx-x64-${{ hashFiles('scripts/runtime/build-ort-macos-intel.ps1', 'scripts/runtime/stage-macos-intel-cache.py') }}
       - name: Stage ONNX Runtime
         shell: pwsh
         run: pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform ${{ matrix.platform }}
@@ -229,7 +229,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          body_path: docs/release-notes-v0.1.3.md
+          body_path: docs/release-notes-v0.1.4.md
           fail_on_unmatched_files: true
           files: release-assets/*
       - name: Verify all published assets download publicly

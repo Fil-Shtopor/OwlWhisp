@@ -76,7 +76,7 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
         library = "onnxruntime.dll" if platform.startswith("win-") else "libonnxruntime.dylib" if platform.startswith("osx-") else "libonnxruntime.so"
         require((runtime / library).is_file(), "runtime core is missing")
         for binary in runtime.rglob("*"):
-            if binary.suffix in [".dll", ".so", ".dylib"]:
+            if binary.is_file() and (binary.suffix in [".dll", ".so", ".dylib"] or ".so." in binary.name):
                 expected = "hexagon" if re.fullmatch(r"libQnnHtpV\d+Skel\.so", binary.name) else TARGETS[platform][2]
                 require(binary_architecture(binary) == expected, f"wrong native architecture: {binary.name}")
         if platform != "win-arm64":
@@ -92,6 +92,11 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
                 require((directml / name).is_file(), f"missing DirectML component: {name}")
                 require(binary_architecture(directml / name) == "x64", f"wrong DirectML architecture: {name}")
             require(not any(runtime.glob("nvinfer*")) and not any(runtime.glob("cublas*")), "base package unexpectedly contains NVIDIA add-ons")
+        if platform == "linux-arm64":
+            for name in ["libonnxruntime_providers_cuda.so", "libonnxruntime_providers_shared.so",
+                         "onnxruntime-gpu-LICENSE.txt", "onnxruntime-gpu-ThirdPartyNotices.txt"]:
+                require((runtime / name).is_file(), f"missing ARM64 CUDA component: {name}")
+            require(not any(runtime.glob("*pybind*")), "Python binding unexpectedly included in native package")
         manifests = executable.parent / "models" / "manifests"
         require(any(manifests.glob("*.json")), "model manifests are missing")
         if info["sherpa"]:

@@ -1,7 +1,7 @@
 # OwlWhisp — Platforms and accelerators
 
 _What runs where, what is verified on real hardware, and exactly what each remaining path would
-take. Updated 2026-09-16._
+take. Updated 2026-10-04._
 
 The rule this project follows: **a backend is only claimed once it has been observed executing.**
 Everything below is labelled accordingly.
@@ -17,11 +17,11 @@ Everything below is labelled accordingly.
 
 ## 1. How acceleration works here
 
-Every accelerator except the CPU reaches ONNX Runtime through its **plugin execution-provider**
-mechanism: a vendor ships a provider library, OwlWhisp registers it by name at runtime
-(`RegisterExecutionProviderLibrary`), asks it for devices, and pins the session to those devices.
-That is the same mechanism the verified Qualcomm NPU path uses — so adding a vendor is *adding a
-library to the runtime directory*, not rebuilding ONNX Runtime.
+CPU execution is built into ONNX Runtime. WebGPU and QNN use **plugin execution providers**:
+OwlWhisp registers a provider library, enumerates devices and pins the session to them. The
+matched official CUDA and TensorRT builds use ONNX Runtime's **session execution providers**;
+DirectML uses a separate Windows ML runtime in a worker. A CUDA provider must travel with its
+matching GPU core; dropping it beside an unrelated CPU core does not enable acceleration.
 
 One distinction governs everything below:
 
@@ -56,8 +56,8 @@ used.
 
 The ordering is specific to this machine: an 18-core Oryon CPU is genuinely faster than its
 integrated mobile GPU for this model. On a desktop with a discrete GPU the GPU row is expected to
-move well above the CPU — but that is an expectation, not a measurement, and no such machine was
-available.
+run faster than CPU; the RTX 4080 Laptop has since been used to validate NVIDIA inference.
+The X2 measurements above remain specific to that machine.
 
 ---
 
@@ -70,7 +70,7 @@ available.
 | macOS 13.3+ Apple Silicon | `.app` ZIP | CPU, bundled WebGPU/Metal | Preview |
 | macOS 13.3+ Intel | `.app` ZIP | CPU; ONNX Runtime built from pinned 1.28.1 source | Preview |
 | Linux x64 (Ubuntu 22.04 build) | Portable tarball | CPU, bundled WebGPU/Vulkan | Preview |
-| Linux ARM64 (Ubuntu 24.04 build) | Portable tarball | Parakeet CPU only; sherpa omitted | Preview |
+| Linux ARM64 (Ubuntu 24.04 build) | Portable tarball | Parakeet CPU and CUDA 13 (system GPU dependencies required); sherpa omitted | Preview |
 
 macOS/Linux global hotkeys, automatic text injection and foreground-app detection are still
 unimplemented. CoreML/ANE and Intel/AMD NPU model packages are not shipped. Linux ARM64 lacks a
@@ -98,7 +98,7 @@ and no probe error.** A model must also support that provider before it can be s
 | CPU | All six platforms | Model download; Linux ARM64 supports Parakeet only |
 | Qualcomm NPU / QNN | Windows ARM64 | Compatible Snapdragon hardware, driver and matching HTP model artifact |
 | WebGPU | Windows x64/ARM64, macOS ARM64, Linux x64 | Compatible GPU/driver; Linux needs a Vulkan loader |
-| NVIDIA CUDA | Optional Windows x64 download in Settings | Compatible NVIDIA driver; supported Parakeet model |
+| NVIDIA CUDA | Optional Windows x64 download in Settings; bundled provider on Linux ARM64 since 0.1.4 | Compatible NVIDIA driver and Parakeet GPU model; Linux needs ARM64 CUDA 13/cuDNN 9 libraries; Spark inference untested |
 | NVIDIA TensorRT | Optional Windows x64 download in Settings | Driver and supported compute capability; first run builds an engine cache |
 | DirectML | Windows x64, in a separate bundled runtime | D3D12 GPU/driver; supported Parakeet model |
 | Apple CoreML / ANE | Not included | Provider and a validated model export are still needed |
@@ -127,7 +127,9 @@ ORT version cannot conflict with the main runtime.
 
 See [hardware-selected runtime add-ons](build.md#hardware-selected-runtime-add-ons-windows-x64)
 for the package catalogue and supported NVIDIA architectures. Automatic NVIDIA package installation
-is currently Windows x64 only; Linux NVIDIA support requires a separately staged compatible runtime.
+is currently Windows x64 only. Linux ARM64 bundles the matched CUDA provider but uses system NVIDIA
+libraries; see the [DGX Spark setup guide](build.md#nvidia-dgx-spark-linux-arm64). Linux x64 NVIDIA
+providers still require a separately staged compatible runtime.
 
 OpenVINO, Vitis AI and CoreML are developer integrations without automatic package installation.
 Their libraries and model artifacts must be supplied and tested on the corresponding hardware.
@@ -153,8 +155,11 @@ foreground-app detection and a native non-activating overlay still need platform
 
 Linux x64 and ARM64 builds are portable `.tar.gz` archives, with GTK 3 and ALSA system libraries
 required. The GUI supports X11 and Wayland. x64 includes CPU and WebGPU (which needs a compatible
-Vulkan loader/driver); ARM64 currently includes Parakeet CPU only because the pinned sherpa release
-has no no-TTS ARM64 Linux archive.
+Vulkan loader/driver). ARM64 includes Parakeet CPU and, since 0.1.4, the CUDA 13 provider from
+Microsoft's official ONNX Runtime 1.30.0 ARM64 wheel. Native GB10 / SM 12.1 kernels enable an
+implemented DGX Spark path, with a compatible system driver, CUDA 13 and cuDNN 9. This has not
+been measured on a physical Spark. TensorRT is absent from that wheel. ARM64 still omits sherpa
+because the pinned release has no no-TTS ARM64 Linux archive.
 
 Native CI checks both architectures and the packaged CPU runtime. Global hotkeys, text injection
 and foreground-app detection are unimplemented. Wayland integration will require suitable desktop
@@ -164,13 +169,12 @@ portals or another supported input mechanism. Tray behavior depends on the deskt
 
 ## 8. Choosing and seeing the backend
 
-- **Settings → Backend** lists Automatic, Any NPU, Any GPU, CPU, and one entry per provider.
+- **Settings > Accelerator** lists Automatic, Any NPU, Any GPU, CPU, and one entry per provider.
   Providers this machine cannot use are shown with the reason.
 - **Automatic** tries every usable accelerator best-first — **NPU → CPU → GPU** — and falls back.
-  The CPU sitting ahead of the GPU is deliberate: the only GPU measurement this project has shows
+  The CPU sitting ahead of the GPU is deliberate: the integrated-GPU measurement shows
   an integrated GPU losing to a strong CPU (0.0862 vs 0.0324 on the X2). A discrete GPU would very
-  likely win, but that is an expectation, and defaulting to a path 2.7× slower on the one machine
-  we can check is not worth shipping. Pick **Any GPU** (or a specific provider) to use it, and use
+  likely win; use a measured comparison on your own machine to decide. Pick **Any GPU** (or a specific provider) to use it, and use
   the benchmark to find out which is faster on your machine.
   Every other choice is strict: it fails rather than silently running elsewhere.
 - The engine reports the provider that **actually executed**, not the one requested, and its

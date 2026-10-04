@@ -15,8 +15,10 @@ also carries `LICENSES.md`. See `docs/licenses.md` for the complete matrix and o
 
 ## Inference runtime
 - **ONNX Runtime** — © Microsoft. Licence: **MIT**.
-- **ONNX Runtime CUDA execution provider** (`onnxruntime_providers_cuda.dll`, Windows x64)
-  — © Microsoft. Licence: **MIT**. The matching GPU build of `onnxruntime.dll` ships with it.
+- **ONNX Runtime CUDA execution provider** (Windows x64 `.dll` and Linux ARM64 `.so`)
+  - Copyright Microsoft. Licence: **MIT**. The matching GPU core ships with it. Linux ARM64 uses
+  the pinned 1.30.0 official GPU wheel's native C libraries and carries its matching MIT licence
+  and third-party notices. System NVIDIA driver/CUDA/cuDNN libraries are not bundled on Linux.
 - **ONNX Runtime TensorRT execution provider** (`onnxruntime_providers_tensorrt.dll`, Windows x64)
   — © Microsoft. Licence: **MIT**.
 - **NVIDIA TensorRT 10 runtime DLLs** (Windows x64) — © NVIDIA. Subject to the

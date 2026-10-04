@@ -204,8 +204,8 @@ pub struct ActiveBackend {
 ///
 /// The whole committed set is fifteen (three each in en/ru/es/uk/zh). Taking all of them costs a few
 /// seconds per backend -- engine load dominates a run, not transcription -- and in exchange the
-/// WER covers four languages rather than only English. `measure` scores only the languages the
-/// model claims, so an English-only model is still judged on English alone.
+/// error-rate coverage includes five languages rather than only English. `measure` scores only
+/// the languages the model claims, so an English-only model is still judged on English alone.
 pub const BENCH_CLIPS: usize = 15;
 
 /// A benchmark report: every number in it was measured on this machine by this run.

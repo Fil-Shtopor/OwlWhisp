@@ -260,13 +260,12 @@ The **Benchmark** tab measures the selected model here and now. It reports:
   so a run that asked for the NPU and fell back to the CPU says CPU;
 - **notes** explaining the choice, including the reason for any fallback;
 - per-clip wall time, RTF and (when the clips have reference transcripts) WER, over the whole
-  twelve-clip fixture set — three each in English, Russian, Spanish and Ukrainian;
+  fifteen-clip fixture set — three each in English, Russian, Spanish, Ukrainian and Chinese;
 - a **cold** RTF for the first run and a **warm** mean for the rest.
 
-**WER is scored only on languages the model claims.** An English-only model is judged on the
-English clips and the rest are transcribed, timed, and marked *not scored* — a word error rate
-against a language a model never advertised measures the question, not the model. (Moonshine tiny
-en: 0.092 on English, 0.850 if you score it on all four.)
+**Only languages the model claims are transcribed, timed and scored.** An English-only model
+uses the English clips; the rest are skipped. Chinese uses **character error rate (CER)**,
+reported separately from word-scored languages. WER and CER are not averaged into one number.
 
 It takes tens of seconds. The **first NPU run takes minutes**: the encoder's Hexagon context binary
 is prepared on-device and cached (~1.2 GB), after which it reloads in about two seconds.
@@ -283,9 +282,9 @@ Benchmarks run on the dictation worker, so dictation pauses while one is in flig
 deliberate: two engines would mean two QNN sessions competing for one Hexagon context, and the
 failure would look like a benchmark result.
 
-### Comparing every backend at once
+### Comparing every accelerator at once
 
-**Compare all backends** measures every accelerator this machine can use, one after another, and
+**Compare all accelerators** measures every accelerator this machine can use, one after another, and
 puts them side by side — instead of running each one and writing the numbers down yourself.
 
 All runs use **one clip set, loaded once**. That is the point: numbers measured on different audio

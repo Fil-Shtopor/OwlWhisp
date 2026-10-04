@@ -43,18 +43,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 if ($BundleProfile -eq "Base") { $SkipCudaDeps = $true; $SkipTensorRt = $true }
-if ($BundleProfile -eq "Full" -and -not $SkipTensorRt -and -not $TensorRtSm) {
+
+if (-not $Platform) {
+    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") { "arm64" } else { "x64" }
+    $Platform = if ($IsMacOS) { "osx-$arch" } elseif ($IsLinux) { "linux-$arch" } else { "win-$arch" }
+}
+
+if ($Platform -eq "win-x64" -and $BundleProfile -eq "Full" -and -not $SkipTensorRt -and -not $TensorRtSm) {
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
     if ($smi) {
         $capability = @(& $smi.Source --query-gpu=compute_cap --format=csv,noheader)[0].Trim().Replace('.', '')
         if ($capability -in @('75','80','86','89','90','120')) { $TensorRtSm = $capability }
     }
     if (-not $TensorRtSm) { throw "Specify -TensorRtSm for a Full bundle, or use the Base bundle and in-app installation." }
-}
-
-if (-not $Platform) {
-    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") { "arm64" } else { "x64" }
-    $Platform = if ($IsMacOS) { "osx-$arch" } elseif ($IsLinux) { "linux-$arch" } else { "win-$arch" }
 }
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -64,7 +65,8 @@ New-Item -ItemType Directory -Force -Path $dest, $tmp | Out-Null
 Write-Host "Staging into $dest (platform $Platform)" -ForegroundColor Cyan
 
 # --- ONNX Runtime core ------------------------------------------------------------------------
-Write-Host "== ONNX Runtime $OrtVersion ($Platform) =="
+$coreVersion = if ($Platform -eq "linux-arm64" -and -not $SkipCuda) { "1.30.0 (CUDA 13)" } else { $OrtVersion }
+Write-Host "== ONNX Runtime $coreVersion ($Platform) =="
 $ortName = switch ($Platform) {
     "win-arm64"  { "onnxruntime-win-arm64-$OrtVersion" }
     "win-x64"    { "onnxruntime-win-x64-$OrtVersion" }
@@ -73,7 +75,13 @@ $ortName = switch ($Platform) {
     "linux-x64"  { "onnxruntime-linux-x64-$OrtVersion" }
     "linux-arm64" { "onnxruntime-linux-aarch64-$OrtVersion" }
 }
-if ($Platform -eq "osx-x64") {
+if ($Platform -eq "linux-arm64" -and -not $SkipCuda) {
+    # The official GPU ARM64 wheel contains the native C API core and CUDA provider,
+    # including GB10 / SM 12.1 kernels. Extract only those libraries and their notices;
+    # the installed application has no Python dependency. CUDA/cuDNN remain system libraries.
+    python (Join-Path $PSScriptRoot 'stage-linux-arm64-cuda.py') --destination $dest --cache $tmp
+    if ($LASTEXITCODE -ne 0) { throw 'Linux ARM64 CUDA runtime staging failed' }
+} elseif ($Platform -eq "osx-x64") {
     & (Join-Path $PSScriptRoot 'build-ort-macos-intel.ps1') -Version $OrtVersion
 } else {
 $ortExt = if ($Platform -like "win-*") { "zip" } else { "tgz" }
@@ -96,7 +104,8 @@ Get-ChildItem -Recurse $ortDir -File | Where-Object { $_.Name -match '^(LICENSE|
 
 # The ordinary ORT release is CPU-only. The GPU NuGet contains a matched core DLL and the
 # legacy CUDA provider; both must come from the same package. A driver or CUDA Toolkit alone
-# cannot supply either file. Keep ARM64 on the QNN build: NVIDIA's GPU package is x64 only.
+# cannot supply either file. Windows ARM64 stays on QNN; the separate Linux ARM64 path above
+# uses Microsoft's pinned ARM64 GPU wheel.
 if ($Platform -eq "win-x64" -and -not $SkipCuda) {
     Write-Host "== Microsoft.ML.OnnxRuntime.Gpu.Windows $GpuVersion (CUDA 13 / cuDNN 9) =="
     $gpuPackage = Join-Path $tmp "ort-gpu-$GpuVersion.zip"

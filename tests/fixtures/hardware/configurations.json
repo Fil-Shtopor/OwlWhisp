@@ -751,5 +751,79 @@
       "direct_ml",
       "web_gpu"
     ]
+  },
+  {
+    "name": "linux_arm_dgx_spark",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "NVIDIA GB10 Grace Blackwell",
+    "cores": 20,
+    "ram_bytes": 137438953472,
+    "gpus": [
+      "Linux display: NVIDIA GPU (card0)"
+    ],
+    "nvidia": [
+      [
+        "NVIDIA GB10",
+        12,
+        1,
+        13000
+      ]
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "linux_arm_dgx_spark_headless",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "NVIDIA GB10 Grace Blackwell",
+    "cores": 20,
+    "ram_bytes": 137438953472,
+    "gpus": [],
+    "nvidia": [
+      [
+        "NVIDIA GB10",
+        12,
+        1,
+        13000
+      ]
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "linux_arm_dgx_spark_old_driver",
+    "os": "linux",
+    "arch": "arm64",
+    "cpu": "NVIDIA GB10 Grace Blackwell",
+    "cores": 20,
+    "ram_bytes": 137438953472,
+    "gpus": [],
+    "nvidia": [
+      [
+        "NVIDIA GB10",
+        12,
+        1,
+        12080
+      ]
+    ],
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
   }
 ]

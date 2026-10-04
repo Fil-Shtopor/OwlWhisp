@@ -288,7 +288,7 @@ impl State {
             ]
             .spacing(4),
             column![
-                widgets::field_label("Backend"),
+                widgets::field_label("Accelerator"),
                 pick_list(self.backends.clone(), backend, |b: BackendChoice| {
                     Message::BackendSelected(b.value)
                 })
@@ -373,9 +373,10 @@ impl State {
 
         let body = column![
             widgets::prose(
-                "A run transcribes the fixture clips committed with this repository - twelve \
-                 clips, three each in English, Russian, Spanish and Ukrainian - and times every \
-                 one. They are real speech with reference transcripts, not a synthesised tone.",
+                "A run uses the fixture clips committed with this repository - fifteen clips, \
+                 three each in English, Russian, Spanish, Ukrainian and Chinese. It transcribes \
+                 and times the languages the model supports. These are real speech recordings \
+                 with reference transcripts.",
             ),
             method_item(
                 "RTF",
@@ -385,23 +386,22 @@ impl State {
                  the rest, and warm is what steady-state dictation feels like.",
             ),
             method_item(
-                "WER",
+                "WER / CER",
                 "The share of words that came out wrong - substituted, dropped or invented - \
                  against the reference. Lower is better: 5% is about one word in twenty. \
                  Levenshtein distance over words, lowercased and with punctuation stripped, so \
                  casing and commas never count as errors. Word-weighted across the clips, so long \
-                 clips carry more of the total; not a mean of per-clip rates.",
+                 clips carry more of the total; not a mean of per-clip rates. Chinese is scored \
+                 in characters (CER), shown separately from word error rate.",
             ),
             method_item(
                 "Which clips count",
-                "Accuracy is scored only on the languages a model claims. An English-only model \
-                 is judged on the English clips; the rest are not run at all, because a rate \
-                 against a language a model never advertised measures the question rather than \
-                 the model. Moonshine tiny en scores 0.092 on English and 0.850 if you score it \
-                 on all four.",
+                "Only languages a model claims are transcribed, timed and scored. An English-only \
+                 model is judged on English; other clips are skipped. A rate against an \
+                 unsupported language would not measure the model's advertised accuracy.",
             ),
             method_item(
-                "Comparing backends",
+                "Comparing accelerators",
                 "Compare all accelerators runs every usable one over a single clip set, loaded \
                  once before the sweep starts. That shared set is what makes the rows comparable \
                  rather than three unrelated benchmarks.",

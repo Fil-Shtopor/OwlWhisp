@@ -7,9 +7,9 @@
 | Windows ARM64 (`aarch64-pc-windows-msvc`) | NSIS + ZIP; CPU, WebGPU, QNN on compatible Snapdragon | Primary; NPU/CPU verified on X2 |
 | Windows x64 (`x86_64-pc-windows-msvc`) | NSIS + ZIP; CPU, DirectML, WebGPU; optional CUDA/TensorRT | Primary; verified on RTX 4080 Laptop |
 | macOS ARM64 (`aarch64-apple-darwin`) | `.app` ZIP; CPU + WebGPU, macOS 13.3+ | Preview; desktop integration is partial |
-| macOS x64 (`x86_64-apple-darwin`) | `.app` ZIP; CPU, macOS 13.3+ | Preview; ORT 1.28.1 is built from pinned upstream source |
+| macOS x64 (`x86_64-apple-darwin`) | `.app` ZIP; CPU, macOS 13.3+ | Preview; source-built ORT 1.28.1, reused from a hash-pinned verified release |
 | Linux x64 (`x86_64-unknown-linux-gnu`) | Tarball; CPU + WebGPU, built on Ubuntu 22.04 | Preview; desktop integration is partial |
-| Linux ARM64 (`aarch64-unknown-linux-gnu`) | Tarball; Parakeet CPU only, built on Ubuntu 24.04 | Preview; no pinned no-TTS sherpa package available |
+| Linux ARM64 (`aarch64-unknown-linux-gnu`) | Tarball; Parakeet CPU + CUDA 13 provider, built on Ubuntu 24.04 | Preview; no pinned no-TTS sherpa package available |
 
 CI checks and tests all six native targets. Release builds unpack each archive on its native
 runner and load the packaged runtime before publishing. macOS/Linux hotkeys, text injection and
@@ -244,3 +244,54 @@ and performance have been measured only on the RTX 4080 Laptop; other cards need
 
 See [Simulated hardware tests](hardware-tests.md) for the OS/architecture/GPU detection and
 installation-policy matrix, which runs without native providers or downloaded models.
+
+## NVIDIA DGX Spark (Linux ARM64)
+
+Use the **Linux ARM64** release archive on Spark's native DGX OS desktop. From 0.1.4 it contains
+ONNX Runtime 1.30.0's matched ARM64 C library and CUDA 13 provider. Only the native libraries and
+MIT/third-party notices are extracted from Microsoft's pinned official GPU wheel; Python is a
+build-time tool and is not needed to run the app. The archive is size/SHA-256 verified before
+staging. The CUDA library includes SM 12.1 kernels for GB10.
+
+The GPU path requires the system NVIDIA driver and **ARM64 CUDA 13** libraries (cuBLAS, cuRAND,
+CUDA runtime, NVRTC and cuFFT), plus **cuDNN 9 for CUDA 13** and zlib. Keep the compatible NVIDIA
+stack supplied with DGX OS. `nvidia-smi` must report the GB10 GPU; its CUDA version is the driver's
+maximum supported API, so that field alone does not prove the runtime libraries are installed.
+See [NVIDIA's Spark software versions](https://docs.nvidia.com/dgx/dgx-spark/release-notes.html),
+[ONNX Runtime's CUDA requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
+and [NVIDIA's cuDNN installation guide](https://docs.nvidia.com/deeplearning/cudnn/installation/latest/linux.html).
+
+If cuDNN is missing, with the matching NVIDIA Ubuntu ARM64/SBSA repository already configured:
+
+```sh
+sudo apt-get update
+sudo apt-get install cudnn9-cuda-13 zlib1g
+```
+
+CUDA/cuDNN libraries must be discoverable by the system loader. A standard DGX OS installation
+should register its library directories; for a custom CUDA installation, add its actual library
+directory to `LD_LIBRARY_PATH` **before launching** OwlWhisp, for example:
+
+```sh
+LD_LIBRARY_PATH="/usr/local/cuda-13.0/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ./owlwhisp
+```
+
+In **Settings > Accelerator**, select **NVIDIA GPU (CUDA)** for Parakeet, download its GPU model
+when prompted and run **Benchmark > Compare all accelerators**. Automatic selection can prefer
+CPU; explicitly select CUDA to evaluate the GPU. **Diagnostics** reports hardware and provider
+usability separately. A missing dependency or failed model check does not qualify as GPU support.
+
+For a source build, staging chooses the same pinned runtime automatically:
+
+```sh
+pwsh -File scripts/runtime/fetch-runtime.ps1 -Platform linux-arm64
+cargo build --locked --release -p lw-gui
+```
+
+`-SkipCuda` stages the CPU-only runtime for a local development build instead. Runtime library
+architecture and packaged CPU startup are verified on native ARM64 CI; GB10 detection is also
+covered with and without a display adapter. **Physical Spark CUDA inference is still untested.**
+The official ARM64 GPU wheel does not include TensorRT, so that accelerator is not bundled or
+claimed for Spark. Other Linux ARM devices need their own compatible CUDA 13 stack; this is not a
+promise of compatibility with older JetPack installations. Linux global hotkeys, text injection
+and foreground-app detection remain unimplemented.
