@@ -28,6 +28,8 @@ pub fn runtime_dir() -> Option<PathBuf> {
 pub struct Loaded {
     pub engine: Box<dyn SpeechEngine>,
     pub settings: Settings,
+    /// Dictation recovery is visible in the active backend; benchmarks never use this fallback.
+    pub recovery_notes: Vec<String>,
 }
 
 pub fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
@@ -50,9 +52,50 @@ pub fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
 
     // Pick the engine from what is actually in the model directory, so switching models in
     // Settings is enough to switch engines — no per-model wiring in the UI.
-    let mut engine = build_engine_for(&model_dir, &settings, &ctx)?;
-    engine.initialize(&ctx).map_err(|e| e.to_string())?;
-    Ok(Loaded { engine, settings })
+    let (engine, recovery_notes) = initialize_dictation(&settings, |choice| {
+        let mut engine = build_engine_for(&model_dir, choice, &ctx)?;
+        engine.initialize(&ctx).map_err(|e| e.to_string())?;
+        Ok(engine)
+    })?;
+    Ok(Loaded {
+        engine,
+        settings,
+        recovery_notes,
+    })
+}
+
+/// Keep an utterance usable when an update or driver change leaves a saved GPU choice unavailable.
+/// Preserve the preference for the next setup/reload; always report the actual CPU backend.
+fn initialize_dictation<T>(
+    settings: &Settings,
+    mut initialize: impl FnMut(&Settings) -> Result<T, String>,
+) -> Result<(T, Vec<String>), String> {
+    match initialize(settings) {
+        Ok(engine) => Ok((engine, Vec::new())),
+        Err(error)
+            if settings.backend == BackendPreference::ForceGpu
+                || settings
+                    .backend
+                    .accelerator()
+                    .is_some_and(|a| a.kind() == lw_core::capabilities::AcceleratorKind::Gpu) =>
+        {
+            let mut cpu = settings.clone();
+            cpu.backend = BackendPreference::ForceCpu;
+            let engine = initialize(&cpu).map_err(|cpu_error| {
+                format!(
+                    "{} failed: {error}; CPU recovery also failed: {cpu_error}",
+                    settings.backend.label()
+                )
+            })?;
+            let note = format!(
+                "{} is unavailable ({error}). Dictation is using CPU. Your accelerator preference is kept; open Settings > Accelerator to install or check its runtime.",
+                settings.backend.label()
+            );
+            tracing::warn!("{note}");
+            Ok((engine, vec![note]))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Choose an engine for the model directory's contents.
@@ -524,4 +567,62 @@ pub fn meter_level(rms: f32) -> f32 {
     }
     let db = 20.0 * rms.clamp(1e-6, 1.0).log10();
     ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod dictation_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn missing_saved_tensorrt_recovers_on_cpu_without_rewriting_preference() {
+        let settings = Settings {
+            backend: BackendPreference::for_accelerator(lw_core::capabilities::Accelerator::TensorRt),
+            ..Default::default()
+        };
+        let mut attempts = Vec::new();
+        let (provider, notes) = initialize_dictation(&settings, |choice| {
+            attempts.push(choice.backend);
+            if choice.backend == BackendPreference::ForceCpu {
+                Ok("CPU")
+            } else {
+                Err("onnxruntime_providers_tensorrt.dll is missing".into())
+            }
+        })
+        .unwrap();
+        assert_eq!(attempts, vec![settings.backend, BackendPreference::ForceCpu]);
+        assert_eq!(provider, "CPU");
+        assert!(notes[0].contains("Dictation is using CPU"));
+        assert!(notes[0].contains("onnxruntime_providers_tensorrt.dll"));
+        assert_ne!(settings.backend, BackendPreference::ForceCpu);
+    }
+
+    #[test]
+    fn working_gpu_is_kept_and_cpu_failures_are_not_hidden() {
+        let settings = Settings {
+            backend: BackendPreference::ForceGpu,
+            ..Default::default()
+        };
+        let (provider, notes) = initialize_dictation(&settings, |_| Ok("GPU")).unwrap();
+        assert_eq!(provider, "GPU");
+        assert!(notes.is_empty());
+        let failure = initialize_dictation::<()>(&settings, |s| {
+            Err(if s.backend == BackendPreference::ForceCpu {
+                "CPU model corrupt"
+            } else {
+                "GPU missing"
+            }
+            .into())
+        })
+        .unwrap_err();
+        assert!(failure.contains("GPU missing") && failure.contains("CPU model corrupt"));
+        let mut calls = 0;
+        assert!(
+            initialize_dictation::<()>(&Settings::default(), |_| {
+                calls += 1;
+                Err("model corrupt".into())
+            })
+            .is_err()
+        );
+        assert_eq!(calls, 1);
+    }
 }

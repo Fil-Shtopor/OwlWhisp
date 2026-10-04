@@ -21,7 +21,11 @@ const SHUTDOWN: u8 = 3;
 
 /// The self-contained Windows ML runtime staged beside the ordinary CUDA runtime.
 pub fn directml_runtime_dir(primary: &Path) -> PathBuf {
-    primary.with_file_name("win-x64-directml")
+    let platform = lw_core::capabilities::Platform::current();
+    primary.with_file_name(format!(
+        "{}-directml",
+        platform.runtime_dir().unwrap_or("unsupported")
+    ))
 }
 
 /// Whether the second process has the three binaries it needs to start.
@@ -49,6 +53,7 @@ pub fn probe_runtime(runtime_dir: &Path, accel: Accelerator) -> Result<usize, St
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut command = Command::new(exe);
     command.arg("--provider-probe").arg(runtime_dir).arg(accel.id());
+    command.env("LW_RUNTIME_DIR", runtime_dir);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -194,6 +199,7 @@ impl SpeechEngine for ProviderEngine {
             .arg(&ctx.cache_dir)
             .arg(ctx.cpu_threads.to_string())
             .arg(self.accel.id())
+            .env("LW_RUNTIME_DIR", &self.runtime_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

@@ -65,7 +65,7 @@ The X2 measurements above remain specific to that machine.
 
 | Platform | Package | Included inference | Desktop status |
 |---|---|---|---|
-| Windows 11 ARM64 | NSIS installer, portable ZIP | CPU, WebGPU, QNN on compatible Snapdragon with a matching model | Primary; X2 verified |
+| Windows 11 ARM64 | NSIS installer, portable ZIP | CPU, DirectML, WebGPU; QNN on compatible Snapdragon with a matching model | Primary; X2 verified |
 | Windows 10/11 x64 | NSIS installer, portable ZIP | CPU, DirectML, WebGPU; CUDA/TensorRT installed in Settings | Primary; RTX 4080 Laptop verified |
 | macOS 13.3+ Apple Silicon | `.app` ZIP | CPU, bundled WebGPU/Metal | Preview |
 | macOS 13.3+ Intel | `.app` ZIP | CPU; ONNX Runtime built from pinned 1.28.1 source | Preview |
@@ -100,7 +100,7 @@ and no probe error.** A model must also support that provider before it can be s
 | WebGPU | Windows x64/ARM64, macOS ARM64, Linux x64 | Compatible GPU/driver; Linux needs a Vulkan loader |
 | NVIDIA CUDA | Optional Windows x64 download in Settings; bundled provider on Linux ARM64 since 0.1.4 | Compatible NVIDIA driver and Parakeet GPU model; Linux needs ARM64 CUDA 13/cuDNN 9 libraries; Spark inference untested |
 | NVIDIA TensorRT | Optional Windows x64 download in Settings | Driver and supported compute capability; first run builds an engine cache |
-| DirectML | Windows x64, in a separate bundled runtime | D3D12 GPU/driver; supported Parakeet model |
+| DirectML | Windows x64/ARM64, in a separate bundled runtime | D3D12 GPU/driver; supported Parakeet model |
 | Apple CoreML / ANE | Not included | Provider and a validated model export are still needed |
 | Intel OpenVINO | Not included | Compatible provider SDK; a dedicated artifact for an NPU |
 | AMD Vitis AI | Not included | Compatible Ryzen AI SDK and a dedicated NPU artifact |
@@ -112,14 +112,28 @@ real hardware measurements.
 
 ---
 
-## 5. Runtime installation
+## 5. NVIDIA RTX Spark on Windows ARM64
+
+**Implemented, untested on a physical RTX Spark.** Version 0.1.5 bundles native Windows ARM64
+DirectML in an isolated worker runtime alongside the existing WebGPU provider. With an NVIDIA
+Windows ARM64 driver, use Parakeet TDT 0.6B v3 and select DirectML or WebGPU, prepare the GPU
+encoder in Settings, then run Benchmark. Settings shows the experimental hardware status.
+Simulated tests cover RTX Spark/N1X and a generic ARM CPU with an NVIDIA PCI device; package
+verification checks every DirectML binary is ARM64 and requires its licence.
+
+CUDA and classic TensorRT add-ons still target Windows x64 only. The ARM64 application does not
+load x64 NVIDIA DLLs or mistake Spark for a Snapdragon/QNN device. See [NVIDIA's Windows porting
+guide](https://docs.nvidia.com/rtx-spark/rtx-spark-porting-guide/latest/overview.html). DGX Spark
+remains a separate Linux ARM64 CUDA preview.
+
+## 6. Runtime installation
 
 The runtime directory is `runtime/<platform>/` in the repo and in the portable Windows/macOS
 layout. Linux places `runtime/` beside the executable. `LW_RUNTIME_DIR` overrides discovery.
 `scripts/runtime/fetch-runtime.ps1` stages the platform's base runtime and bundled providers.
 The Intel macOS runtime is built from pinned ONNX Runtime 1.28.1 source.
 
-Windows x64 standard packages omit the large NVIDIA dependencies. **Settings > Models > Download
+Windows x64 standard packages omit the large NVIDIA dependencies. **Settings > Accelerator > Download
 runtime** installs pinned CUDA/TensorRT packages selected for the detected compute capability,
 then probes them in a separate worker. No full CUDA Toolkit is needed. A required driver update
 is offered separately. The bundled DirectML runtime is probed in its own worker as well, so its
@@ -194,3 +208,8 @@ portals or another supported input mechanism. Tray behavior depends on the deskt
 4. Measure it with `lw bench` and record the numbers with the machine they came from.
 
 Steps 1–2 are an afternoon. Step 3 is the work that actually gates a new NPU.
+
+If a saved GPU preference becomes unavailable after an update, dictation retries on CPU and
+shows the failure in its active-backend notes. The saved preference is preserved. Installing
+the missing runtime in Settings and reloading/saving settings retries the accelerator. Explicit
+benchmarks remain strict and never report a CPU recovery as a GPU measurement.

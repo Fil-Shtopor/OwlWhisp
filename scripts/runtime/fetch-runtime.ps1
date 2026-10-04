@@ -180,24 +180,27 @@ if ($Platform -eq "win-x64" -and -not $SkipCuda) {
         Write-Host "TensorRT 10 staged for SM $TensorRtSm. Base bundles install the matching resource from the app."
     }
 
-    if (-not $SkipDirectMl) {
-        $id = "microsoft.windows.ai.machinelearning"
-        $archive = Join-Path $tmp "$id.$WindowsMlVersion.zip"
-        if (-not (Test-Path $archive)) {
-            Invoke-WebRequest -UseBasicParsing -Uri "https://api.nuget.org/v3-flatcontainer/$id/$WindowsMlVersion/$id.$WindowsMlVersion.nupkg" -OutFile "$archive.partial"
-            Move-Item "$archive.partial" $archive
-        }
-        $extract = Join-Path $tmp "windows-ml"
-        Expand-Archive -Force $archive $extract
-        $directMlDest = Join-Path $root "runtime\win-x64-directml"
-        New-Item -ItemType Directory -Force -Path $directMlDest | Out-Null
-        foreach ($file in @("onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll")) {
-            $source = Join-Path $extract "runtimes\win-x64\native\$file"
-            if (-not (Test-Path $source)) { throw "Windows ML $WindowsMlVersion is missing $file" }
-            Copy-Item $source $directMlDest -Force
-        }
-        Copy-Item (Join-Path $extract "license.txt") (Join-Path $directMlDest "windows-ml-license.txt") -Force
+}
+
+# Windows ML supplies native DirectML cores for both Windows architectures. Keep them isolated
+# from the CPU/QNN/CUDA core so the process-global ORT API cannot bind to the wrong DLL.
+if ($Platform -like "win-*" -and -not $SkipDirectMl) {
+    $id = "microsoft.windows.ai.machinelearning"
+    $archive = Join-Path $tmp "$id.$WindowsMlVersion.zip"
+    if (-not (Test-Path $archive)) {
+        Invoke-WebRequest -UseBasicParsing -Uri "https://api.nuget.org/v3-flatcontainer/$id/$WindowsMlVersion/$id.$WindowsMlVersion.nupkg" -OutFile "$archive.partial"
+        Move-Item "$archive.partial" $archive
     }
+    $extract = Join-Path $tmp "windows-ml"
+    Expand-Archive -Force $archive $extract
+    $directMlDest = Join-Path $root "runtime\$Platform-directml"
+    New-Item -ItemType Directory -Force -Path $directMlDest | Out-Null
+    foreach ($file in @("onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll")) {
+        $source = Join-Path $extract "runtimes\$Platform\native\$file"
+        if (-not (Test-Path $source)) { throw "Windows ML $WindowsMlVersion is missing $file" }
+        Copy-Item $source $directMlDest -Force
+    }
+    Copy-Item (Join-Path $extract "license.txt") (Join-Path $directMlDest "windows-ml-license.txt") -Force
 }
 
 # --- WebGPU plugin EP (only the RIDs actually published by this pinned version) -----------------

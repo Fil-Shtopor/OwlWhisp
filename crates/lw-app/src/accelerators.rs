@@ -1,6 +1,18 @@
 //! Model/provider readiness policy, shared by the GUI and simulated machine tests.
 use lw_core::capabilities::{OperatingSystem, Platform};
 
+/// Hardware-specific preview status, independent of whether a provider currently loads.
+pub fn experimental_gpu_note_on(platform: Platform, cpu: &str, devices: &[String]) -> Option<&'static str> {
+    (platform.os == OperatingSystem::Windows
+        && platform.arch == lw_core::capabilities::Architecture::Arm64
+        && (cpu.to_ascii_lowercase().contains("nvidia")
+            || devices.iter().any(|d| {
+                let d = d.to_ascii_lowercase();
+                d.contains("nvidia") || d.contains("ven_10de")
+            })))
+    .then_some("RTX Spark / NVIDIA Windows ARM64: experimental, not tested on a physical RTX Spark. Use DirectML or WebGPU with Parakeet TDT 0.6B v3; CUDA and TensorRT runtimes are not included for Windows ARM64.")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Whether the selected model can run with this provider on the target machine.
 pub enum ModelAvailability {

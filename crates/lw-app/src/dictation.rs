@@ -373,7 +373,13 @@ fn worker_loop(
                             .accelerator()
                             .map(|a| a.kind().label().to_ascii_lowercase()),
                         device: Some(l.engine.device().name.clone()),
-                        notes: l.engine.notes().to_vec(),
+                        notes: l
+                            .engine
+                            .notes()
+                            .iter()
+                            .chain(&l.recovery_notes)
+                            .cloned()
+                            .collect(),
                         model_id: l.settings.model_id.clone(),
                         error: None,
                     },
@@ -475,7 +481,8 @@ fn worker_loop(
 }
 
 fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<Result<Loaded, String>>, audio: &AudioBuffer) {
-    if loaded.is_none() {
+    // An installation can be repaired while the app is open. Do not cache a failed load forever.
+    if loaded.as_ref().is_none_or(Result::is_err) {
         *loaded = Some(load_engine(&ctx.settings_path));
     }
     let Some(Ok(engine_state)) = loaded.as_mut() else {

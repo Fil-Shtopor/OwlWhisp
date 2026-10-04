@@ -825,5 +825,57 @@
       "direct_ml",
       "web_gpu"
     ]
+  },
+  {
+    "name": "rtx-spark-n1x-windows-arm64",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "NVIDIA N1X",
+    "gpus": [
+      "NVIDIA RTX Spark Blackwell GPU"
+    ],
+    "nvidia": [
+      [
+        "NVIDIA RTX Spark",
+        12,
+        1,
+        13400
+      ]
+    ],
+    "cores": 20,
+    "ram_bytes": 137438953472,
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
+  },
+  {
+    "name": "rtx-spark-generic-arm64-windows",
+    "os": "windows",
+    "arch": "arm64",
+    "cpu": "ARM Processor",
+    "gpus": [
+      "NVIDIA Graphics Device VEN_10DE"
+    ],
+    "nvidia": [
+      [
+        "NVIDIA RTX Spark",
+        12,
+        1,
+        13400
+      ]
+    ],
+    "cores": 20,
+    "ram_bytes": 137438953472,
+    "expect_hardware": [
+      "cpu",
+      "cuda",
+      "tensor_rt",
+      "direct_ml",
+      "web_gpu"
+    ]
   }
 ]

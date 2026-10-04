@@ -154,7 +154,7 @@ pub fn build(root: &Path) -> Result<CatalogView, String> {
     // `recommend_with` sorts best-first, so the first runnable entry is the recommendation.
     let recommended = recs.iter().find(|r| r.runnable).map(|r| r.entry.id.clone());
 
-    let entries = recs
+    let mut entries: Vec<EntryView> = recs
         .iter()
         .map(|r| {
             let e = r.entry;
@@ -207,6 +207,13 @@ pub fn build(root: &Path) -> Result<CatalogView, String> {
             }
         })
         .collect();
+    // Recommendations depend on hardware; the comparison table must keep its editorial order.
+    let order: std::collections::HashMap<_, _> = catalog
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.id.as_str(), index))
+        .collect();
+    entries.sort_by_key(|entry| order.get(entry.id.as_str()).copied().unwrap_or(usize::MAX));
 
     Ok(CatalogView {
         machine: caps.summary(),
@@ -343,14 +350,11 @@ pub fn family_label(engine: &str) -> String {
 /// space is the whole of the grouping. Vendor tabs would hide most of the catalog behind a click,
 /// which is the opposite of what a comparison table is for.
 ///
-/// Order: the recommended model's maker leads, so the recommendation stays near the top; then the
+/// Order: the first catalog model's maker leads; then the
 /// makers offering the most models, alphabetically within a tie; then `Other`. It depends only on
 /// the catalog, so it does not shuffle when a model is installed or selected. Within a group the
 /// catalog's own order is kept untouched.
-pub fn group_by_vendor<'a>(
-    entries: &'a [EntryView],
-    recommended: Option<&str>,
-) -> Vec<(String, Vec<&'a EntryView>)> {
+pub fn group_by_vendor(entries: &[EntryView]) -> Vec<(String, Vec<&EntryView>)> {
     let name_of = |e: &EntryView| -> String {
         match e.vendor.as_deref().map(str::trim) {
             Some(v) if !v.is_empty() => v.to_string(),
@@ -368,10 +372,7 @@ pub fn group_by_vendor<'a>(
         buckets.entry(n).or_default().push(e);
     }
 
-    let lead = recommended
-        .and_then(|id| entries.iter().find(|e| e.id == id))
-        .map(name_of)
-        .filter(|v| v != OTHER_VENDOR);
+    let lead = entries.first().map(name_of).filter(|v| v != OTHER_VENDOR);
 
     let mut groups: Vec<(String, Vec<&EntryView>)> = order
         .into_iter()
@@ -415,6 +416,22 @@ pub fn models_root_for(settings_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparison_table_keeps_catalog_and_vendor_order() {
+        let view = build(Path::new("nonexistent-models-root")).unwrap();
+        let catalog = Catalog::builtin().unwrap();
+        assert_eq!(
+            view.entries.iter().map(|e| &e.id).collect::<Vec<_>>(),
+            catalog.iter().map(|e| &e.id).collect::<Vec<_>>()
+        );
+        let groups = group_by_vendor(&view.entries);
+        assert_eq!(groups[0].0, "NVIDIA");
+        assert_eq!(
+            groups[0].1.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            vec!["parakeet-tdt-0.6b-v3", "parakeet-tdt-ctc-110m-en"]
+        );
+    }
 
     /// The exact keys `app/frontend/src/ipc.ts` reads. While the web front end still exists, a
     /// rename here breaks it at runtime and nowhere else -- there is no compiler spanning the two.

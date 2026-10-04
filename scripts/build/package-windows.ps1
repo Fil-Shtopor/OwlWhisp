@@ -87,14 +87,14 @@ if ($Platform -eq "win-x64" -and $WithNvidiaRuntime) {
         }
     }
 }
-if ($Platform -eq "win-x64") {
+if ($Platform -like "win-*") {
     foreach ($file in @("onnxruntime_providers_webgpu.dll", "dxcompiler.dll", "dxil.dll")) {
         if (-not (Test-Path -LiteralPath (Join-Path $runtime $file))) { throw "Portable GPU runtime is missing $file" }
     }
-    $directMlRuntime = Join-Path $root "runtime\win-x64-directml"
+    $directMlRuntime = Join-Path $root "runtime\$Platform-directml"
     foreach ($file in @("onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll")) {
         if (-not (Test-Path (Join-Path $directMlRuntime $file))) {
-            throw "DirectML package is incomplete: runtime\win-x64-directml\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform win-x64."
+            throw "DirectML package is incomplete: runtime\$Platform-directml\$file is missing. Run scripts\runtime\fetch-runtime.ps1 -Platform $Platform."
         }
     }
 }
@@ -124,8 +124,8 @@ if ($Platform -eq "win-x64" -and -not $WithNvidiaRuntime) {
 } else {
     Copy-Item -Recurse -Force (Join-Path $runtime "*") $runtimeDest
 }
-if ($Platform -eq "win-x64") {
-    $directMlDest = Join-Path $stage "runtime\win-x64-directml"
+if ($Platform -like "win-*") {
+    $directMlDest = Join-Path $stage "runtime\$Platform-directml"
     New-Item -ItemType Directory -Force -Path $directMlDest | Out-Null
     Copy-Item -Recurse -Force (Join-Path $directMlRuntime "*") $directMlDest
 }

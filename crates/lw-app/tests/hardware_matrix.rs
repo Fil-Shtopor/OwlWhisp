@@ -3,7 +3,7 @@ use lw_app::accelerators::{
     AcceleratorAction as Action, AcceleratorReadiness, ModelAvailability as Status, model_availability_on,
 };
 use lw_app::runtime_install::{SetupAction, package_ids_on, setup_action_on};
-use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator as A, Architecture, OperatingSystem, Platform};
+use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator as A, OperatingSystem, Platform};
 use lw_ort::nvidia::NvidiaDevice;
 use lw_platform::caps::{
     CapabilityObservations, capabilities_from_observations, detect_npu_in, linux_gpu_descriptions,
@@ -73,9 +73,7 @@ impl Machine {
         let value = match accel {
             A::Cuda => self.expect_cuda_action.as_deref(),
             A::TensorRt => self.expect_trt_action.as_deref(),
-            A::DirectMl | A::WebGpu
-                if self.os == "windows" && self.arch == "x64" && self.expect_hardware.contains(&accel) =>
-            {
+            A::DirectMl | A::WebGpu if self.os == "windows" && self.expect_hardware.contains(&accel) => {
                 Some("download_runtime")
             }
             _ => None,
@@ -343,8 +341,22 @@ fn setup_actions_and_exact_package_sets_match_the_device_and_driver() {
                 let ids = package_ids_on(m.platform(), accel, &devices).unwrap();
                 let mut expected: Vec<String> = match accel {
                     A::Cuda | A::TensorRt => common.iter().map(|s| (*s).into()).collect(),
-                    A::DirectMl => vec!["directml".into()],
-                    A::WebGpu => vec!["webgpu".into()],
+                    A::DirectMl => vec![
+                        if m.arch == "arm64" {
+                            "directml-arm64"
+                        } else {
+                            "directml"
+                        }
+                        .into(),
+                    ],
+                    A::WebGpu => vec![
+                        if m.arch == "arm64" {
+                            "webgpu-arm64"
+                        } else {
+                            "webgpu"
+                        }
+                        .into(),
+                    ],
                     _ => panic!("unexpected downloadable {accel:?}"),
                 };
                 if accel == A::TensorRt {
@@ -367,7 +379,7 @@ fn setup_actions_and_exact_package_sets_match_the_device_and_driver() {
                 );
             }
         }
-        if m.platform().os != OperatingSystem::Windows || m.platform().arch != Architecture::X64 {
+        if m.platform().os != OperatingSystem::Windows {
             for accel in ALL_ACCELERATORS {
                 assert!(
                     package_ids_on(m.platform(), accel, &devices).is_err(),
@@ -377,6 +389,45 @@ fn setup_actions_and_exact_package_sets_match_the_device_and_driver() {
             }
         }
     }
+}
+
+#[test]
+fn rtx_spark_preview_uses_arm64_gpu_packages_and_never_snapdragon_qnn_or_x64_cuda() {
+    let platform = Platform::from_names("windows", "arm64");
+    let devices = vec!["NVIDIA RTX Spark Blackwell GPU VEN_10DE".into()];
+    let note = lw_app::accelerators::experimental_gpu_note_on(platform, "NVIDIA N1X", &devices).unwrap();
+    assert!(note.contains("not tested on a physical RTX Spark"));
+    assert!(!A::QnnNpu.relevant_to_hardware_on(platform, "NVIDIA N1X", &devices));
+    for accel in [A::DirectMl, A::WebGpu] {
+        assert!(accel.relevant_to_hardware_on(platform, "NVIDIA N1X", &devices));
+        let plan = package_ids_on(platform, accel, &[]).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert!(plan[0].ends_with("-arm64"));
+        assert_eq!(
+            model_availability_on(platform, accel, &ready()),
+            (Status::Available, None)
+        );
+    }
+    for accel in [A::Cuda, A::TensorRt] {
+        assert!(!accel.supported_on(platform));
+        assert!(package_ids_on(platform, accel, &[]).is_err());
+    }
+    assert!(
+        lw_app::accelerators::experimental_gpu_note_on(
+            platform,
+            "Snapdragon X2 Elite",
+            &["Qualcomm Adreno GPU".into()]
+        )
+        .is_none()
+    );
+    assert!(
+        lw_app::accelerators::experimental_gpu_note_on(
+            Platform::from_names("windows", "x64"),
+            "Intel Core i9",
+            &devices
+        )
+        .is_none()
+    );
 }
 
 #[test]

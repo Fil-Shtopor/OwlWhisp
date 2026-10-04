@@ -84,13 +84,15 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
         else:
             for name in ["onnxruntime_providers_qnn.dll", "QnnHtp.dll", "QnnSystem.dll", "QnnHtpV81Stub.dll", "libQnnHtpV81Skel.so"]:
                 require((runtime / name).is_file(), f"missing Qualcomm runtime: {name}")
-        if platform == "win-x64":
+        if platform.startswith("win-"):
             for name in ["onnxruntime_providers_webgpu.dll", "dxcompiler.dll", "dxil.dll"]:
                 require((runtime / name).is_file(), f"missing portable GPU component: {name}")
-            directml = runtime.parent / "win-x64-directml"
+            directml = runtime.parent / f"{platform}-directml"
             for name in ["onnxruntime.dll", "DirectML.dll", "Microsoft.Windows.AI.MachineLearning.dll"]:
                 require((directml / name).is_file(), f"missing DirectML component: {name}")
-                require(binary_architecture(directml / name) == "x64", f"wrong DirectML architecture: {name}")
+                require(binary_architecture(directml / name) == TARGETS[platform][2], f"wrong DirectML architecture: {name}")
+            require((directml / "windows-ml-license.txt").is_file(), "missing DirectML licence")
+        if platform == "win-x64":
             require(not any(runtime.glob("nvinfer*")) and not any(runtime.glob("cublas*")), "base package unexpectedly contains NVIDIA add-ons")
         if platform == "linux-arm64":
             for name in ["libonnxruntime_providers_cuda.so", "libonnxruntime_providers_shared.so",

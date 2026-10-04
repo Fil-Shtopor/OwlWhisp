@@ -263,5 +263,41 @@
       "cudnn_engines_runtime_compiled64_9.dll": "85b55793ed660a3c7e1bd24c53d6897ab568f551b64ce4f504e3888bb8ac9641",
       "nvidia-cudnn-LICENSE": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf"
     }
+  },
+  {
+    "id": "directml-arm64",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.ai.machinelearning/2.5.77-rc/microsoft.windows.ai.machinelearning.2.5.77-rc.nupkg",
+    "sha512": "a22f10582113ea154655de4a7fb301504cdd3f929c510c2f3939514b2c4ecc544e7d751e15bf1f8a2766e503240aaaf40222614e7eb9744b43866f27cece4243",
+    "size": 52149880,
+    "files": {
+      "runtimes/win-arm64/native/onnxruntime.dll": "onnxruntime.dll",
+      "runtimes/win-arm64/native/DirectML.dll": "DirectML.dll",
+      "runtimes/win-arm64/native/Microsoft.Windows.AI.MachineLearning.dll": "Microsoft.Windows.AI.MachineLearning.dll",
+      "license.txt": "windows-ml-license.txt"
+    },
+    "bundled_sha256": {
+      "onnxruntime.dll": "6d6ba3fa92f4dfd59af09722f391c1475b5e3b5e0f14f8252f1df1e0fecd2cb4",
+      "DirectML.dll": "2490d8726b50da5cb3ab1b0e8f4a1a7fec140c21edf7056ff50d480b1b67c6c1",
+      "Microsoft.Windows.AI.MachineLearning.dll": "21d743219805e76ac747f466e6a45bf6b9b92e50de7c72128d5a57be1d1fb945",
+      "windows-ml-license.txt": "66395f8cb219087fae2bd025010bd9076b736c14f03b48f20295471c0c376814"
+    }
+  },
+  {
+    "id": "webgpu-arm64",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.ep.webgpu/0.3.0/microsoft.ml.onnxruntime.ep.webgpu.0.3.0.nupkg",
+    "sha512": "4906aaed7434a58a7caea62f588f93eae9a566972566f6e6da837dde09b9b1397becaf458394bb217d08a019d026bbc912cdee3358f0eee725e747863184e4d8",
+    "size": 39485572,
+    "files": {
+      "runtimes/win-arm64/native/onnxruntime_providers_webgpu.dll": "onnxruntime_providers_webgpu.dll",
+      "runtimes/win-arm64/native/dxcompiler.dll": "dxcompiler.dll",
+      "runtimes/win-arm64/native/dxil.dll": "dxil.dll",
+      "LICENSE": "onnxruntime-webgpu-LICENSE.txt"
+    },
+    "bundled_sha256": {
+      "onnxruntime_providers_webgpu.dll": "b8a479baa514cb0a36457adc8a8a840959da7c448a5832f201752fadb620250d",
+      "dxcompiler.dll": "059009377e0a5b92265aadd183d73eb42bdb4f306e685844baa81549d6c0f78b",
+      "dxil.dll": "c00f02ee85303c3e5b69c1ed91461df8e7e7fa5cb4fe76a82eeb3ddbdccf927f",
+      "onnxruntime-webgpu-LICENSE.txt": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674"
+    }
   }
 ]

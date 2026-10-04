@@ -140,6 +140,10 @@ impl OrtRuntime {
     ///
     /// `ort::init_from` is global and idempotent here: it runs once per process.
     pub fn init(runtime_dir: &Path) -> Result<Arc<Self>, RuntimeError> {
+        // Initializing another candidate must never replace the DLL search directory of the
+        // process-global runtime: CUDA/cuDNN resolve dependencies later, on the first model run.
+        static INIT_LOCK: Mutex<()> = Mutex::new(());
+        let _init_guard = INIT_LOCK.lock();
         // ORT and its providers may change the process working directory while loading native
         // dependencies. Keep every later provider lookup anchored to the original directory.
         let dir = runtime_dir
@@ -148,6 +152,16 @@ impl OrtRuntime {
         let lib = dir.join(onnxruntime_lib_name());
         if !lib.exists() {
             return Err(RuntimeError::NotFound(runtime_dir.display().to_string()));
+        }
+        if let Some(instance) = INSTANCE.get() {
+            if instance.runtime_dir != dir {
+                tracing::warn!(
+                    "ONNX Runtime already initialized from {}; ignoring {}",
+                    instance.runtime_dir.display(),
+                    dir.display()
+                );
+            }
+            return Ok(Arc::clone(instance));
         }
         #[cfg(windows)]
         {
@@ -189,13 +203,6 @@ impl OrtRuntime {
                 registration_errors: Mutex::new(HashMap::new()),
             })
         });
-        if instance.runtime_dir != dir {
-            tracing::warn!(
-                "ONNX Runtime already initialized from {}; ignoring {}",
-                instance.runtime_dir.display(),
-                dir.display()
-            );
-        }
         Ok(Arc::clone(instance))
     }
 
@@ -576,6 +583,29 @@ mod tests {
     }
 
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires a staged native ONNX Runtime; checks the Windows loader state"]
+    fn another_runtime_candidate_cannot_change_the_active_dll_search_directory() {
+        use windows_sys::Win32::System::LibraryLoader::GetDllDirectoryW;
+        let loaded = OrtRuntime::auto().unwrap();
+        let dll_directory = || {
+            let mut buffer = vec![0u16; 32768];
+            let count = unsafe { GetDllDirectoryW(buffer.len() as u32, buffer.as_mut_ptr()) };
+            assert!(count > 0 && (count as usize) < buffer.len());
+            buffer.truncate(count as usize);
+            buffer
+        };
+        let before = dll_directory();
+        let other = tempfile::tempdir().unwrap();
+        // A candidate is deliberately not a second usable core: the existing process-global
+        // runtime wins, and its dependency search directory must remain intact.
+        std::fs::write(other.path().join(onnxruntime_lib_name()), b"another candidate").unwrap();
+        let reused = OrtRuntime::init(other.path()).unwrap();
+        assert!(Arc::ptr_eq(&loaded, &reused));
+        assert_eq!(dll_directory(), before);
+    }
 
     #[test]
     fn platform_dir_matches_host() {

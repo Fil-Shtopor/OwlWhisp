@@ -31,15 +31,16 @@ speech model is unloaded.
 ## Accelerators
 
 In **Settings > Accelerator**, choose an explicit accelerator or use **Automatic**, **Any GPU**
-or **Any NPU**. An explicit choice reports an error when it cannot run. Settings explains missing
-hardware, drivers, runtime libraries or model files before selection.
+or **Any NPU**. An explicit benchmark choice reports an error when it cannot run. If a saved GPU
+choice becomes unavailable, dictation recovers on CPU and displays the reason without changing
+your preference. Settings explains missing hardware, drivers, runtime libraries or model files.
 
 | Accelerator | Platforms in the release | Requirements and status |
 |---|---|---|
 | **CPU** | Windows, macOS and Linux, x64/ARM64 | All packaged models where the engine is included; Linux ARM64 has Parakeet only |
 | **NVIDIA GPU (CUDA)** | Windows x64; Linux ARM64, including DGX Spark | Windows installs the runtime in Settings. Linux ARM64 bundles the CUDA 13 provider and needs system CUDA 13/cuDNN 9 libraries; Spark hardware validation is pending |
 | **NVIDIA GPU (TensorRT)** | Windows x64 | Optional runtime download selected by GPU compute capability; the first run builds an engine cache. Not bundled for DGX Spark |
-| **GPU (DirectML)** | Windows x64 | Compatible DirectX 12 GPU, including NVIDIA, AMD and Intel; bundled runtime |
+| **GPU (DirectML)** | Windows x64/ARM64 | Compatible DirectX 12 GPU, including NVIDIA, AMD and Intel; bundled runtime; RTX Spark untested |
 | **GPU (WebGPU)** | Windows x64/ARM64, macOS Apple Silicon, Linux x64 | Bundled provider using Direct3D 12, Metal or Vulkan, respectively; compatible GPU/driver required |
 | **Qualcomm NPU (Hexagon/QNN)** | Windows ARM64 on compatible Snapdragon | Matching QNN driver and model artifact; verified on Snapdragon X2 |
 
@@ -62,6 +63,19 @@ GPU inference and performance have **not yet been measured on a physical Spark**
 not included in the ARM64 runtime. Linux desktop integration retains the preview limitations below.
 Hardware details: [NVIDIA Spark specifications](https://docs.nvidia.com/dgx/dgx-spark/hardware.html)
 and [CUDA compute capabilities](https://developer.nvidia.com/cuda/gpus).
+
+### NVIDIA RTX Spark (Windows ARM64)
+
+Starting with **0.1.5**, the Windows ARM64 package includes **DirectML** as well as **WebGPU**.
+Use the ARM64 installer, a compatible NVIDIA Windows driver, **Parakeet TDT 0.6B v3**, and select
+**GPU (DirectML)** or **GPU (WebGPU)** in Settings. The app checks the provider and GPU model
+before offering it as available. Run Benchmark to compare the two accelerators on your device.
+
+**Experimental, not tested on a physical RTX Spark.** Native ARM64 library checks and simulated
+RTX Spark/N1X detection tests are included. CUDA and classic TensorRT runtime downloads remain
+Windows x64 only; they are not claimed for Windows ARM64. RTX Spark's Windows platform is
+documented in [NVIDIA's porting guide](https://docs.nvidia.com/rtx-spark/rtx-spark-porting-guide/latest/overview.html).
+DGX Spark uses the separate Linux ARM64 path above.
 
 ## Benchmark models and accelerators
 
@@ -144,16 +158,16 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The current **0.1.4** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.5** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.4/OwlWhisp-0.1.4-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.5/OwlWhisp-0.1.5-linux-arm64.tar.gz) | — |
 
 Starting with 0.1.2, **Settings > Application updates** checks GitHub at startup and once a day,
 with controls for automatic checks and preview releases. Windows x64/ARM64 packages can download

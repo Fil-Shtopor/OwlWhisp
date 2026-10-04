@@ -51,7 +51,8 @@ pub fn setup_action(accel: Accelerator, hardware: bool, usable: bool) -> Option<
 }
 
 fn downloadable_platform(platform: Platform) -> bool {
-    platform.os == OperatingSystem::Windows && platform.arch == Architecture::X64
+    platform.os == OperatingSystem::Windows
+        && matches!(platform.arch, Architecture::X64 | Architecture::Arm64)
 }
 
 /// Select an actual installation action from explicit platform and driver observations.
@@ -63,6 +64,9 @@ pub fn setup_action_on(
     devices: &[lw_ort::nvidia::NvidiaDevice],
 ) -> Option<SetupAction> {
     if !hardware || usable || !downloadable_platform(platform) {
+        return None;
+    }
+    if platform.arch == Architecture::Arm64 && !matches!(accel, Accelerator::DirectMl | Accelerator::WebGpu) {
         return None;
     }
     match accel {
@@ -112,7 +116,7 @@ fn selected_packages(accel: Accelerator, resource: Option<&str>) -> Result<Vec<P
 fn plan(accel: Accelerator) -> Result<Vec<Package>, String> {
     let platform = Platform::current();
     if !downloadable_platform(platform) {
-        return Err("runtime add-on downloads currently support Windows x64".into());
+        return Err("runtime add-on downloads currently support Windows x64/ARM64".into());
     }
     let devices = if matches!(accel, Accelerator::Cuda | Accelerator::TensorRt) {
         lw_ort::nvidia::devices()?
@@ -137,7 +141,22 @@ fn plan_on(
     devices: &[lw_ort::nvidia::NvidiaDevice],
 ) -> Result<Vec<Package>, String> {
     if !downloadable_platform(platform) {
-        return Err("runtime add-on downloads currently support Windows x64".into());
+        return Err("runtime add-on downloads currently support Windows x64/ARM64".into());
+    }
+    if platform.arch == Architecture::Arm64 {
+        let key = match accel {
+            Accelerator::DirectMl => "directml-arm64",
+            Accelerator::WebGpu => "webgpu-arm64",
+            _ => return Err(
+                "this accelerator has no pinned Windows ARM64 runtime; use DirectML or WebGPU on RTX Spark"
+                    .into(),
+            ),
+        };
+        return packages()
+            .into_iter()
+            .find(|p| p.id == key)
+            .map(|package| vec![package])
+            .ok_or_else(|| format!("missing pinned package {key}"));
     }
     let gpu = if matches!(accel, Accelerator::Cuda | Accelerator::TensorRt) {
         let gpu = devices.first().ok_or("no NVIDIA GPU detected")?;
@@ -167,7 +186,7 @@ fn directory(accel: Accelerator, selected: &[Package]) -> PathBuf {
     }
     crate::paths::app_data_dir()
         .join("runtimes")
-        .join("win-x64")
+        .join(Platform::current().runtime_dir().unwrap_or("unsupported"))
         .join(format!("{}-{}", accel.id(), &hex::encode(hash.finalize())[..16]))
 }
 

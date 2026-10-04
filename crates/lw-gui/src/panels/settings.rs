@@ -179,6 +179,7 @@ pub struct State {
     /// Present when ONNX Runtime could not be loaded at all. In that case a missing accelerator
     /// row means "not checked", never "your hardware is absent".
     accelerator_probe_error: Option<String>,
+    experimental_gpu_note: Option<&'static str>,
     runtime_actions: std::collections::BTreeMap<String, lw_app::runtime_install::SetupAction>,
     runtime_install: Option<lw_app::runtime_install::Handle>,
     runtime_target: Option<&'static str>,
@@ -283,6 +284,7 @@ impl State {
             accelerator_provider_registered,
             accelerator_details,
             accelerator_probe_error,
+            experimental_gpu_note: experimental_gpu_note(),
             runtime_actions,
             runtime_install: None,
             runtime_target: None,
@@ -366,6 +368,7 @@ impl State {
             .map(|a| (a.id.to_string(), a.detail.clone()))
             .collect();
         self.accelerator_probe_error = diag.accelerators_error.or(diag.runtime_error);
+        self.experimental_gpu_note = experimental_gpu_note();
         self.refresh_model_readiness();
     }
 
@@ -1108,6 +1111,10 @@ impl State {
         .spacing(8)
         .width(Length::Fill);
 
+        if let Some(note) = self.experimental_gpu_note {
+            body = body.push(widgets::prose(note));
+        }
+
         if !saved_choice_visible {
             body = body.push(widgets::prose(format!(
                 "The saved accelerator preference '{}' does not match hardware detected on this machine. Choose another option to continue.",
@@ -1590,6 +1597,18 @@ impl State {
 /// `pick_list` has no group headings, so the grouping survives as order alone. Everything here is
 /// accepted by `lw-core`, which is what makes the list safe to offer -- there is a test below that
 /// keeps the two in step.
+fn experimental_gpu_note() -> Option<&'static str> {
+    let platform = lw_core::capabilities::Platform::current();
+    if platform != lw_core::capabilities::Platform::from_names("windows", "arm64") {
+        return None;
+    }
+    lw_app::accelerators::experimental_gpu_note_on(
+        platform,
+        &lw_app::machine::probe_capabilities().cpu_brand,
+        &lw_platform::caps::physical_gpu_descriptions(),
+    )
+}
+
 fn provider_guide(id: &str) -> Option<(&'static str, &'static str)> {
     Some(match id {
         "cpu" => (

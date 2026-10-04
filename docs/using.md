@@ -92,8 +92,9 @@ where one exists, a measured WER. The arrow at the left of a row expands it for 
 The entry recommended for your hardware is marked.
 
 Rows are grouped by who made the model — a heading, a count, and a gap, in one continuous list.
-The recommended model's maker leads, then makers by how many models they have, with anything
-whose maker is unknown under *Other*. Sorting by a column drops the grouping, and says so.
+NVIDIA leads, then makers by how many models they have, with anything whose maker is unknown
+under *Other*. Rows retain the catalog's fixed order within each group; hardware recommendations,
+downloads and model selection do not reorder the table.
 
 **Which one should you use?** sits above the table: choose a language, and each role — *fast*,
 *accurate*, *universal*, *compact* — names the entry that fills it. It is a suggestion and not a

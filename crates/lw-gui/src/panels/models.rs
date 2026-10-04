@@ -488,7 +488,7 @@ impl State {
         let mut body = column![header(&cols)].spacing(0);
         body = body.push(iced::widget::rule::horizontal(1).style(theme::rule));
 
-        for (vendor, rows) in lw_app::catalog::group_by_vendor(&view.entries, view.recommended.as_deref()) {
+        for (vendor, rows) in lw_app::catalog::group_by_vendor(&view.entries) {
             body = body.push(Space::new().height(8));
             body = body.push(
                 row![
@@ -511,7 +511,7 @@ impl State {
 
         body = body.push(Space::new().height(8));
         body = body.push(widgets::prose(
-            "Models are grouped by who made them: the maker of the recommended model first, then \
+            "Models keep a fixed catalog order, grouped by who made them: NVIDIA first, then \
              the makers offering the most, with anything uncredited under Other. Speed is an \
              estimate computed from the model's speed tier and this machine, never a measurement, \
              and the tilde marks it. Under Accuracy the tier is an editorial ranking of the model \

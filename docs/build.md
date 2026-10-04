@@ -245,6 +245,19 @@ and performance have been measured only on the RTX 4080 Laptop; other cards need
 See [Simulated hardware tests](hardware-tests.md) for the OS/architecture/GPU detection and
 installation-policy matrix, which runs without native providers or downloaded models.
 
+## NVIDIA RTX Spark (Windows ARM64)
+
+Use the **Windows ARM64** installer/ZIP. From 0.1.5, it bundles a native DirectML runtime in
+`runtime/win-arm64-directml/` as well as the WebGPU provider in `runtime/win-arm64/`. Each provider
+runs in a separate worker, so its ONNX Runtime core cannot conflict with QNN or the main process.
+Install the NVIDIA Windows ARM64 driver, choose Parakeet TDT 0.6B v3, and use **GPU (DirectML)**
+or **GPU (WebGPU)**. Complete the GPU encoder setup in Settings and run Benchmark to compare
+performance. **Experimental: not tested on a physical RTX Spark.** Native package checks and
+simulated NVIDIA ARM64 hardware tests do not replace that validation.
+
+CUDA/classic TensorRT runtime downloads are Windows x64 only; x64 DLLs cannot be loaded by the
+ARM64 application. RTX Spark and DGX Spark are separate platform targets.
+
 ## NVIDIA DGX Spark (Linux ARM64)
 
 Use the **Linux ARM64** release archive on Spark's native DGX OS desktop. From 0.1.4 it contains
