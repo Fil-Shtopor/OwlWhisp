@@ -32,15 +32,7 @@ if ($FromSource -or -not (Test-Path (Join-Path $dest 'libonnxruntime.dylib'))) {
     $libraries = @(Get-ChildItem "$source/build/Release" -File -Filter 'libonnxruntime*.dylib')
     if (-not $libraries) { throw 'ORT build produced no dylib' }
     $libraries | ForEach-Object { Copy-Item $_.FullName $dest -Force }
-    # The native CPU runtime is unchanged since 0.1.2. Reuse its hash-pinned, source-built
-# library on a cache miss; archive verification still loads it on this native runner.
-# Maintainers can pass -FromSource to reproduce the upstream build below.
-if (-not $FromSource -and $Version -eq '1.28.1') {
-    python3 (Join-Path $PSScriptRoot 'stage-macos-intel-cache.py') --destination $dest
-    if ($LASTEXITCODE -eq 0) { return }
-    Write-Warning 'Pinned Intel runtime download failed; building from upstream source instead.'
-}
-if ($FromSource -or -not (Test-Path (Join-Path $dest 'libonnxruntime.dylib'))) { throw 'ORT build produced no loader library' }
+    if (-not (Test-Path (Join-Path $dest 'libonnxruntime.dylib'))) { throw 'ORT build produced no loader library' }
 }
 Copy-Item "$source/LICENSE" "$dest/onnxruntime-LICENSE" -Force
 Copy-Item "$source/ThirdPartyNotices.txt" "$dest/onnxruntime-ThirdPartyNotices.txt" -Force
