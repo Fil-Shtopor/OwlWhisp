@@ -6,6 +6,12 @@ _What the desktop app does, and how to drive it. For the CLI see [`models.md`](m
 The window has five tabs: **Dictate**, **Settings**, **Models**, **Diagnostics** and **Benchmark**.
 Closing the window hides it to the tray; "Quit" in the tray menu exits.
 
+Starting with 0.1.3, **Settings > Startup > Start minimized to tray** starts the app
+without opening its main window, including at login. Enable it and click **Save**;
+it takes effect on the next launch. Open the window from the tray menu, or on
+Windows launch the app again. The option is off by default. If the system tray
+is unavailable, the main window opens normally.
+
 Version 0.1.1 includes **Settings → Background memory**: unload the speech model after
 1, 5 (default), 15 or 30 idle minutes, or keep it loaded for faster responses. A recording keeps
 the model alive; the timeout starts after transcription ends. Reloading after a pause takes longer,

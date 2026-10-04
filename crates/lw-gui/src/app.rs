@@ -108,26 +108,18 @@ impl Default for App {
 }
 
 impl App {
-    /// Build the state and open the main window.
+    /// Build the state and create the main window, hidden if the saved preference allows it.
     ///
     /// A daemon has no window until one is asked for, which is what makes the overlay possible;
     /// the cost is that the first window has to be opened by hand, here.
     pub fn boot(tray: Option<tray::Tray>) -> (Self, Task<Message>) {
-        let size = iced::Size::new(1000.0, 720.0);
-        let (_id, open) = window::open(window::Settings {
-            size,
-            min_size: Some(iced::Size::new(560.0, 420.0)),
-            // The close button is answered by us: with a tray, it hides; without one, it quits.
-            exit_on_close_request: false,
-            // The same icon as the tray and the Tauri build. Without it the window wears the
-            // default winit icon, which is not this application.
-            icon: crate::tray::window_icon(),
-            ..Default::default()
-        });
         let mut app = Self {
             tray,
             ..Self::default()
         };
+        let settings = main_window_settings(app.settings.start_minimized(), app.tray.is_some());
+        let size = settings.size;
+        let (_id, open) = window::open(settings);
         app.models
             .update(panels::models::Message::Resized(size.width - 48.0));
         app.settings
@@ -312,11 +304,16 @@ impl App {
                     })
                     .discard(),
                 );
-                // Opening it took the focus, once. Hand it straight back: this only ever happens
-                // at startup or when the user switches the indicator on, and in both cases the
-                // window they were looking at is ours.
+                // Give focus back only to a visible main window. Starting in the tray must not
+                // reveal or focus it when the floating indicator is created.
                 return match self.main {
-                    Some(main) => styles.chain(window::gain_focus(main)),
+                    Some(main) => styles.chain(window::mode(main).then(move |mode| {
+                        if mode == window::Mode::Hidden {
+                            Task::none()
+                        } else {
+                            window::gain_focus(main)
+                        }
+                    })),
                     None => styles,
                 };
             }
@@ -560,6 +557,20 @@ impl App {
     }
 }
 
+fn main_window_settings(start_minimized: bool, tray_available: bool) -> window::Settings {
+    window::Settings {
+        size: iced::Size::new(1000.0, 720.0),
+        min_size: Some(iced::Size::new(560.0, 420.0)),
+        // Create it hidden from the outset, so login never flashes a window or steals focus.
+        // Keep the window alive for tray actions and the existing single-instance handoff.
+        // Without a tray the window must stay accessible.
+        visible: !(start_minimized && tray_available),
+        exit_on_close_request: false,
+        icon: crate::tray::window_icon(),
+        ..Default::default()
+    }
+}
+
 fn tab_style(selected: bool, status: button::Status) -> button::Style {
     let bg = if selected {
         theme::BG_RAISED
@@ -576,5 +587,18 @@ fn tab_style(selected: bool, status: button::Status) -> button::Style {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn minimized_start_creates_a_hidden_window_only_when_the_tray_is_available() {
+        assert!(!main_window_settings(true, true).visible);
+        assert!(main_window_settings(true, false).visible);
+        assert!(main_window_settings(false, true).visible);
+        assert!(main_window_settings(false, false).visible);
     }
 }

@@ -22,6 +22,13 @@ speech model is unloaded.
   for faster responses.
 - **Open source:** Apache-2.0 application code with third-party notices included in every package.
 
+## Startup
+
+In **Settings > Startup**, enable **Launch OwlWhisp when I log in** to start with
+the system. Starting with 0.1.3, **Start minimized to tray** keeps the main window
+hidden on launch. Click **Save** and restart to apply it. Open the window from the
+tray menu; if no system tray is available, the window opens normally.
+
 ## Background memory
 
 The client and the speech model have different memory costs. OwlWhisp loads the model on demand;
@@ -76,16 +83,16 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The current **0.1.2** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.3** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.2/OwlWhisp-0.1.2-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.3/OwlWhisp-0.1.3-linux-arm64.tar.gz) | — |
 
 Starting with 0.1.2, **Settings ? Application updates** checks GitHub at startup and once a day,
 with controls for automatic checks and preview releases. Windows x64/ARM64 packages can download

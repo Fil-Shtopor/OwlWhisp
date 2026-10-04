@@ -127,6 +127,7 @@ pub enum Message {
     /// Play one of the two cues, so both can be heard before either is bound to anything.
     PreviewSound(Cue),
     AutostartToggled(bool),
+    StartMinimizedToggled(bool),
     Save,
 }
 
@@ -294,6 +295,11 @@ impl State {
             notice: None,
             error: None,
         }
+    }
+
+    /// The saved startup preference, used before the main window is created.
+    pub fn start_minimized(&self) -> bool {
+        self.saved.start_minimized
     }
 
     /// The shell hands this over after every poll; the panel only displays it.
@@ -685,6 +691,7 @@ impl State {
             Message::PreviewSound(cue) => {
                 lw_platform::play_cue(self.settings.sound_theme, cue, self.settings.sound_volume);
             }
+            Message::StartMinimizedToggled(v) => self.settings.start_minimized = v,
             Message::AutostartToggled(v) => {
                 // Written through the platform and then read back, so the checkbox can never claim
                 // a registration the OS refused.
@@ -1537,13 +1544,17 @@ impl State {
     fn autostart_card(&self) -> Element<'_, Message> {
         widgets::card(
             column![
-                widgets::heading("Start with the computer"),
+                widgets::heading("Startup"),
                 checkbox(self.settings.autostart)
                     .label("Launch OwlWhisp when I log in")
                     .on_toggle(Message::AutostartToggled),
+                checkbox(self.settings.start_minimized)
+                    .label("Start minimized to tray")
+                    .on_toggle(Message::StartMinimizedToggled),
                 widgets::sub(
-                    "Read back from the operating system after being set, so this checkbox cannot \
-                     claim a registration that a managed machine refused.",
+                    "Start without opening the main window, including at login. Open it from the \
+                     tray menu. Takes effect after saving and restarting. If no tray is available, \
+                     the window opens normally.",
                 ),
             ]
             .spacing(8),

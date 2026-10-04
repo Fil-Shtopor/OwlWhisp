@@ -254,6 +254,9 @@ pub struct Settings {
     /// the UI has something to render before that probe returns.
     #[serde(default)]
     pub autostart: bool,
+    /// Start with the main window hidden in the system tray, when a tray is available.
+    #[serde(default)]
+    pub start_minimized: bool,
     /// LLM cleanup config.
     pub llm: LlmConfig,
     /// Replacement dictionary.
@@ -296,6 +299,7 @@ impl Default for Settings {
             sound_theme: crate::sound::SoundTheme::default(),
             sound_volume: default_sound_volume(),
             autostart: false,
+            start_minimized: false,
             llm: LlmConfig::default(),
             dictionary: Dictionary::new(),
             profiles: ProfileSet::default(),
@@ -428,6 +432,7 @@ mod tests {
         assert_eq!(s.sound_theme, crate::sound::SoundTheme::Chime);
         assert!((0.0..=1.0).contains(&s.sound_volume));
         assert!(!s.autostart);
+        assert!(!s.start_minimized, "upgrades keep opening the window by default");
         assert_eq!(s.model_idle_timeout_secs, 300);
     }
 
@@ -562,10 +567,12 @@ mod tests {
         let path = dir.path().join("settings.json");
         let mut s = Settings::default();
         s.dictionary.add_exact("open wiser", "OpenWritr");
+        s.start_minimized = true;
         s.save(&path).unwrap();
         let back = Settings::load(&path).unwrap();
         assert_eq!(back.dictionary.rules.len(), 1);
         assert_eq!(back.model_id, s.model_id);
+        assert!(back.start_minimized);
     }
 
     #[test]
