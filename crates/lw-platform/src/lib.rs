@@ -34,6 +34,7 @@ pub mod screen;
 pub mod secrets;
 pub mod single_instance;
 pub mod sound;
+pub mod updates;
 
 #[cfg(windows)]
 pub mod windows;

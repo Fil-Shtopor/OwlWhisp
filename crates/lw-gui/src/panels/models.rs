@@ -149,6 +149,10 @@ impl State {
     }
 
     /// Redraw while a download is running, so the bar moves.
+    pub fn busy(&self) -> bool {
+        self.install.is_some()
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
         if self.install.is_some() {
             iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::InstallTick)

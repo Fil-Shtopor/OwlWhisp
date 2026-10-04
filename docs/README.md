@@ -13,6 +13,7 @@
 | [hardware-tests.md](hardware-tests.md) | 42 simulated machine configurations, native CI and the limits of emulation |
 | [licenses.md](licenses.md) | Every redistributed component with its licence and obligations |
 | [build.md](build.md) | Build matrix and step-by-step build/run instructions per platform |
+| [windows-signing.md](windows-signing.md) | Connect an existing trusted certificate/HSM or cloud signing profile to Windows packaging and CI |
 | [FINAL_REPORT.md](FINAL_REPORT.md) | Honest status: what works, what was tested, what remains |
 
 Experiment logs from the target machine live in [experiments/](experiments/).

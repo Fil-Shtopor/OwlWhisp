@@ -144,6 +144,10 @@ impl State {
     }
 
     /// Redraw while a sweep is in flight, so the progress lines appear as they are written.
+    pub fn busy(&self) -> bool {
+        self.running
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
         if self.running {
             iced::time::every(std::time::Duration::from_millis(250)).map(|_| Message::Tick)

@@ -320,6 +320,13 @@ impl State {
         self.mic.open
     }
 
+    pub fn busy(&self) -> bool {
+        self.runtime_install.is_some()
+            || self.gpu_install.is_some()
+            || self.installing_driver.is_some()
+            || self.capturing
+    }
+
     fn refresh_accelerators(&mut self) {
         let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
         self.runtime_actions = diag

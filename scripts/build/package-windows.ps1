@@ -25,12 +25,21 @@ param(
     [string]$Platform = "",
     [switch]$WithNvidiaRuntime,
     [switch]$RequireInstaller,
+    [ValidateSet('None', 'Certificate', 'Azure')]
+    [string]$SigningMode = 'None',
+    [switch]$RequireSigning,
     [switch]$NoInstaller
 )
 
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $root
+if (-not $PSBoundParameters.ContainsKey('SigningMode') -and $env:OWLWHISP_SIGNING_MODE) {
+    $SigningMode = $env:OWLWHISP_SIGNING_MODE
+}
+if ($SigningMode -notin @('None', 'Certificate', 'Azure')) { throw 'Unknown signing mode' }
+if ($RequireSigning -and $SigningMode -eq 'None') { throw 'Signing is required but no signing identity is configured' }
+$signScript = Join-Path $PSScriptRoot 'sign-windows.ps1'
 
 # The version is read from the workspace manifest rather than typed here, so a release cannot ship
 # a folder named after the wrong one.
@@ -100,6 +109,7 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 Write-Host "== Staging $name ==" -ForegroundColor Cyan
 Copy-Item $exe (Join-Path $stage "OwlWhisp.exe")
+& $signScript -FilePath (Join-Path $stage 'OwlWhisp.exe') -Mode $SigningMode
 
 # The runtime keeps its own folder, because that is where the application looks for it: the loader
 # resolves `runtime\<platform>` relative to the executable.
@@ -137,9 +147,12 @@ Copy-Item -Recurse -Force (Join-Path $manifests "*") $manifestsDest
 Copy-Item (Join-Path $root "LICENSE") $stage -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root "docs\licenses.md") (Join-Path $stage "LICENSES.md")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $stage
+python (Join-Path $PSScriptRoot 'installer-license.py') --output (Join-Path $stage 'LICENSES.rtf')
+if ($LASTEXITCODE -ne 0) { throw 'Could not render installer licence text' }
 @{
     version = $version; target = $Target; platform = $Platform
     commit = (git rev-parse HEAD); sherpa = [bool]$env:SHERPA_ONNX_LIB_DIR
+    windows_signing = $SigningMode
 } | ConvertTo-Json | Set-Content (Join-Path $stage 'BUILD_INFO.json')
 
 $files = (Get-ChildItem -Recurse -File $stage).Count
@@ -172,6 +185,7 @@ if (-not $makensis) {
 
 Write-Host "== Building the installer ==" -ForegroundColor Cyan
 $nsi = Join-Path $PSScriptRoot "owlwhisp.nsi"
-& $makensis.Source "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$root\dist\$name-setup.exe" $nsi
+& $makensis.Source /INPUTCHARSET UTF8 "/DVERSION=$version" "/DSTAGE=$stage" "/DOUTFILE=$root\dist\$name-setup.exe" "/DSIGN_MODE=$SigningMode" "/DSIGN_SCRIPT=$signScript" $nsi
 if ($LASTEXITCODE -ne 0) { throw "makensis exited with $LASTEXITCODE" }
+& $signScript -FilePath "$root\dist\$name-setup.exe" -Mode $SigningMode
 Write-Host "wrote dist\$name-setup.exe"

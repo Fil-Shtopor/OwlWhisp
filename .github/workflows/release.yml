@@ -12,7 +12,7 @@ on:
       tag:
         description: Release tag (must match the workspace version)
         type: string
-        default: v0.1.1
+        default: v0.1.2
 
 permissions:
   contents: read
@@ -22,6 +22,9 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +70,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 3
       MACOSX_DEPLOYMENT_TARGET: "13.3"
+      OWLWHISP_SIGNING_MODE: ${{ vars.OWLWHISP_SIGNING_MODE || 'None' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -92,6 +96,33 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: choco install nsis --no-progress -y
+      - name: Authenticate cloud signing with GitHub OIDC
+        if: runner.os == 'Windows' && env.OWLWHISP_SIGNING_MODE == 'Azure'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.OWLWHISP_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.OWLWHISP_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.OWLWHISP_AZURE_SUBSCRIPTION_ID }}
+      - name: Prepare cloud signing tools
+        if: runner.os == 'Windows' && env.OWLWHISP_SIGNING_MODE == 'Azure'
+        shell: pwsh
+        run: |
+          $script = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $script
+          $directory = Join-Path $env:RUNNER_TEMP 'owlwhisp-dotnet-x64'
+          & $script -Runtime dotnet -Channel 8.0 -Architecture x64 -InstallDir $directory
+          if ($LASTEXITCODE -ne 0) { throw '.NET x64 signing runtime installation failed' }
+          "DOTNET_ROOT_X64=$directory" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DOTNET_ROOT=$directory" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Configure Windows signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          OWLWHISP_SIGNING_ENDPOINT: ${{ vars.OWLWHISP_SIGNING_ENDPOINT }}
+          OWLWHISP_SIGNING_ACCOUNT: ${{ vars.OWLWHISP_SIGNING_ACCOUNT }}
+          OWLWHISP_SIGNING_PROFILE: ${{ vars.OWLWHISP_SIGNING_PROFILE }}
+          OWLWHISP_SIGNING_CERTIFICATE: ${{ vars.OWLWHISP_SIGNING_CERTIFICATE }}
+        run: pwsh -File scripts/build/configure-signing-ci.ps1
       - name: Install LLVM for Windows ARM64 dependencies
         if: runner.os == 'Windows'
         shell: pwsh
@@ -124,6 +155,8 @@ jobs:
           "SHERPA_ONNX_LIB_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Test simulated hardware configurations
         run: cargo test --locked -p lw-app --test hardware_matrix --target ${{ matrix.target }}
+      - name: Test package verification and installer licence rendering
+        run: python -m unittest discover -s tests -p "test_*.py"
       - name: Build OwlWhisp
         shell: pwsh
         run: |
@@ -134,7 +167,10 @@ jobs:
       - name: Package Windows application
         if: matrix.package == 'windows'
         shell: pwsh
-        run: pwsh -File scripts/build/package-windows.ps1 -Target ${{ matrix.target }} -Platform ${{ matrix.platform }} -RequireInstaller
+        run: |
+          $requireSignature = $env:OWLWHISP_SIGNING_MODE -ne 'None'
+          pwsh -File scripts/build/package-windows.ps1 -Target ${{ matrix.target }} -Platform ${{ matrix.platform }} -RequireInstaller -RequireSigning:$requireSignature
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging/signing failed' }
       - name: Package macOS or Linux application
         if: matrix.package == 'unix'
         shell: pwsh
@@ -193,7 +229,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          body_path: docs/release-notes-v0.1.1.md
+          body_path: docs/release-notes-v0.1.2.md
           fail_on_unmatched_files: true
           files: release-assets/*
       - name: Verify all published assets download publicly

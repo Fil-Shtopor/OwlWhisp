@@ -49,6 +49,7 @@ pub enum Message {
     Settings(panels::settings::Message),
     Benchmark(panels::benchmark::Message),
     Dictate(panels::dictate::Message),
+    Updates(panels::updates::Message),
     /// The main window finished opening.
     MainOpened(window::Id),
     /// The overlay finished opening, and can now be made click-through.
@@ -85,6 +86,7 @@ pub struct App {
     settings: panels::settings::State,
     benchmark: panels::benchmark::State,
     dictate: panels::dictate::State,
+    updates: panels::updates::State,
 }
 
 impl Default for App {
@@ -100,6 +102,7 @@ impl Default for App {
             settings: panels::settings::State::new(),
             benchmark: panels::benchmark::State::new(),
             dictate: panels::dictate::State::new(),
+            updates: panels::updates::State::new(),
         }
     }
 }
@@ -196,6 +199,7 @@ impl App {
             self.dictate.subscription().map(Message::Dictate),
             self.settings.subscription().map(Message::Settings),
             self.models.subscription().map(Message::Models),
+            self.updates.subscription().map(Message::Updates),
             window::close_events().map(Message::Closed),
             // Frames only while something is moving. A scroll that has arrived costs nothing, and
             // an idle window redraws not at all.
@@ -250,6 +254,7 @@ impl App {
                     decorations: false,
                     transparent: true,
                     level: window::Level::AlwaysOnTop,
+                    icon: crate::tray::window_icon(),
                     exit_on_close_request: false,
                     #[cfg(windows)]
                     platform_specific: window::settings::PlatformSpecific {
@@ -350,6 +355,10 @@ impl App {
                 return match action {
                     tray::Action::OpenSettings => self.show_main(Tab::Settings),
                     tray::Action::OpenDiagnostics => self.show_main(Tab::Diagnostics),
+                    tray::Action::OpenUpdates => {
+                        self.updates.update(panels::updates::Message::Check, false);
+                        self.show_main(Tab::Settings)
+                    }
                     tray::Action::Quit => Self::quit(),
                 };
             }
@@ -407,6 +416,21 @@ impl App {
                 }
             }
             Message::Diagnostics(m) => self.diagnostics.update(m),
+            Message::Updates(m) => {
+                if matches!(m, panels::updates::Message::Show) {
+                    return self.show_main(Tab::Settings);
+                }
+                let before = self.updates.available_version();
+                if self.updates.update(m, self.update_installation_allowed()) {
+                    Self::quit();
+                }
+                let after = self.updates.available_version();
+                if before != after
+                    && let Some(tray) = &self.tray
+                {
+                    tray.set_update_available(after.as_deref());
+                }
+            }
             Message::Settings(m) => {
                 if let panels::settings::Message::InstallDriver(id) = &m {
                     let id = *id;
@@ -488,13 +512,20 @@ impl App {
 
         let body: Element<'_, Message> = match self.tab {
             Tab::Dictate => self.dictate.view().map(Message::Dictate),
-            Tab::Settings => self.settings.view().map(Message::Settings),
+            Tab::Settings => column![
+                self.updates
+                    .view(self.update_installation_allowed())
+                    .map(Message::Updates),
+                self.settings.view().map(Message::Settings),
+            ]
+            .spacing(12)
+            .into(),
             Tab::Models => self.models.view().map(Message::Models),
             Tab::Benchmark => self.benchmark.view().map(Message::Benchmark),
             Tab::Diagnostics => self.diagnostics.view().map(Message::Diagnostics),
         };
 
-        column![
+        let mut content = column![
             container(tabs).padding(Padding {
                 top: 8.0,
                 right: 12.0,
@@ -505,11 +536,27 @@ impl App {
                 background: Some(theme::BORDER.into()),
                 ..Default::default()
             }),
-            container(self.scroll.view(body, Message::Wheel, Message::Scrolled))
-                .padding(16)
-                .height(Length::Fill),
-        ]
-        .into()
+        ];
+        if let Some(banner) = self.updates.banner() {
+            content = content.push(container(banner.map(Message::Updates)).padding(Padding::from([8, 16])));
+        }
+        content
+            .push(
+                container(self.scroll.view(body, Message::Wheel, Message::Scrolled))
+                    .padding(16)
+                    .height(Length::Fill),
+            )
+            .into()
+    }
+
+    fn update_installation_allowed(&self) -> bool {
+        matches!(
+            self.dictate.state(),
+            lw_app::RecordingState::Idle | lw_app::RecordingState::Done | lw_app::RecordingState::Error
+        ) && !self.benchmark.busy()
+            && !self.models.busy()
+            && !self.settings.busy()
+            && !self.settings.mic_test_on()
     }
 }
 

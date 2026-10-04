@@ -19,6 +19,7 @@ pub enum Action {
     OpenSettings,
     /// Show the window on the Diagnostics tab.
     OpenDiagnostics,
+    OpenUpdates,
     /// Leave.
     Quit,
 }
@@ -33,6 +34,7 @@ pub struct Tray {
     settings: tray_icon::menu::MenuId,
     diagnostics: tray_icon::menu::MenuId,
     quit: tray_icon::menu::MenuId,
+    updates: MenuItem,
 }
 
 impl Tray {
@@ -48,8 +50,10 @@ impl Tray {
         let settings = MenuItem::new("Settings", true, None);
         let diagnostics = MenuItem::new("Diagnostics", true, None);
         let quit = MenuItem::new("Quit", true, None);
+        let updates = MenuItem::new("Check for updates", true, None);
         let menu = Menu::new();
-        menu.append_items(&[&settings, &diagnostics, &quit]).ok()?;
+        menu.append_items(&[&settings, &diagnostics, &updates, &quit])
+            .ok()?;
 
         let icon = load_icon()?;
         let tray = TrayIconBuilder::new()
@@ -66,6 +70,7 @@ impl Tray {
             settings: settings.id().clone(),
             diagnostics: diagnostics.id().clone(),
             quit: quit.id().clone(),
+            updates,
         })
     }
 
@@ -80,11 +85,25 @@ impl Tray {
                 out.push(Action::OpenSettings);
             } else if event.id == self.diagnostics {
                 out.push(Action::OpenDiagnostics);
+            } else if event.id == *self.updates.id() {
+                out.push(Action::OpenUpdates);
             } else if event.id == self.quit {
                 out.push(Action::Quit);
             }
         }
         out
+    }
+
+    pub fn set_update_available(&self, version: Option<&str>) {
+        let (label, tooltip) = match version {
+            Some(version) => (
+                format!("Update available: {version}"),
+                format!("OwlWhisp - update {version} available"),
+            ),
+            None => ("Check for updates".into(), "OwlWhisp".into()),
+        };
+        self.updates.set_text(label);
+        let _ = self._icon.set_tooltip(Some(tooltip));
     }
 }
 

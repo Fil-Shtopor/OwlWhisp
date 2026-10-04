@@ -27,6 +27,7 @@ pub mod measurements;
 pub mod paths;
 pub mod provider_worker;
 pub mod runtime_install;
+pub mod updates;
 
 pub use catalog::{AcceleratorView, CatalogView, EntryView, RoleView, measured_languages, pick_for_role};
 pub use diagnostics::{AcceleratorStatus, Diagnostics};

@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path
 
 from package_checks import TARGETS, archive_name, binary_architecture, require
+from windows_resources import verify_branding
 
 
 def unpack(archive, directory):
@@ -63,6 +64,13 @@ def verify(archive, platform, target, version, commit, smoke, allow_no_sherpa=Fa
         if not allow_no_sherpa:
             require(info["sherpa"] == (platform != "linux-arm64"), "wrong portable engine feature set")
         require(binary_architecture(executable) == TARGETS[platform][2], "wrong application architecture")
+        if platform.startswith('win-'):
+            verify_branding(executable, Path('assets/icons/icon.ico'))
+            rtf = (resources / 'LICENSES.rtf').read_bytes()
+            require(rtf.startswith(b'{\\rtf1') and b'\\trowd' in rtf and b'\\u' in rtf, 'Installer licence is not a Unicode RTF document with tables')
+            installer = archive.with_name(f'OwlWhisp-{version}-{target}-setup.exe')
+            if installer.exists():
+                verify_branding(installer, Path('assets/icons/icon.ico'))
         if os.name != "nt":
             require(executable.stat().st_mode & 0o111, "archive lost executable permission")
         library = "onnxruntime.dll" if platform.startswith("win-") else "libonnxruntime.dylib" if platform.startswith("osx-") else "libonnxruntime.so"
