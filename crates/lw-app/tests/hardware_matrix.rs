@@ -471,15 +471,19 @@ fn settings_status_uses_hardware_provider_packages_and_model_together() {
             r.usable = true;
             let expected = if hardware
                 && accel.supported_on(m.platform())
-                && (!accel.needs_dedicated_artifact() || (accel == A::QnnNpu && caps.npu.present))
+                && (!accel.needs_dedicated_artifact() || accel == A::QnnNpu)
             {
-                Status::Available
+                if accel == A::QnnNpu && !r.npu_model_ready {
+                    (Status::NeedAdditionalAction, Some(Action::PrepareModel))
+                } else {
+                    (Status::Available, None)
+                }
             } else {
-                Status::Unavailable
+                (Status::Unavailable, None)
             };
             assert_eq!(
                 model_availability_on(m.platform(), accel, &r),
-                (expected, None),
+                expected,
                 "{} / {accel:?}: successful provider probe",
                 m.name
             );
@@ -548,14 +552,27 @@ fn unavailable_models_and_failed_checks_never_become_selectable_on_any_platform(
                     r.gpu_model_ready = false;
                     assert_eq!(
                         model_availability_on(platform, accel, &r),
-                        (Status::NeedAdditionalAction, Some(Action::DownloadGpuModel)),
+                        (Status::NeedAdditionalAction, Some(Action::PrepareModel)),
                         "{os}/{arch}/{accel:?}"
                     );
                     r.gpu_model_ready = true;
-                    r.gpu_check_failed = true;
+                    r.model_check_failed = true;
                     assert_eq!(
                         model_availability_on(platform, accel, &r),
-                        (Status::NeedAdditionalAction, Some(Action::DownloadGpuModel))
+                        (Status::NeedAdditionalAction, Some(Action::PrepareModel))
+                    );
+                }
+                if accel == A::QnnNpu {
+                    r.npu_model_ready = false;
+                    assert_eq!(
+                        model_availability_on(platform, accel, &r),
+                        (Status::NeedAdditionalAction, Some(Action::PrepareModel)),
+                    );
+                    r.npu_model_ready = true;
+                    r.model_check_failed = true;
+                    assert_eq!(
+                        model_availability_on(platform, accel, &r),
+                        (Status::NeedAdditionalAction, Some(Action::PrepareModel)),
                     );
                 }
             }

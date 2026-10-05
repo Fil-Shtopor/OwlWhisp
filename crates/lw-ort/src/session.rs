@@ -6,7 +6,7 @@ use ort::environment::Environment;
 use ort::ep::ArbitrarilyConfigurableExecutionProvider;
 use ort::memory::DeviceType;
 use ort::session::Session;
-use ort::session::builder::GraphOptimizationLevel;
+use ort::session::builder::{GraphOptimizationLevel, SessionBuilder};
 
 use lw_core::capabilities::Accelerator;
 
@@ -59,6 +59,12 @@ pub fn build_cpu_session(
     model_path: &Path,
     cfg: CpuSessionConfig,
 ) -> Result<Session, RuntimeError> {
+    cpu_session_builder(cfg)?
+        .commit_from_file(model_path)
+        .map_err(|e| RuntimeError::Other(format!("commit_from_file {}: {e}", model_path.display())))
+}
+
+fn cpu_session_builder(cfg: CpuSessionConfig) -> Result<SessionBuilder, RuntimeError> {
     let mut builder = Session::builder().map_err(|e| RuntimeError::Other(e.to_string()))?;
     // Pin explicitly to the CPU *device*. Appending the CPU EP alone is not enough: once a plugin
     // EP (QNN) is registered in the environment, ORT will still auto-apply it to a plain session
@@ -94,9 +100,63 @@ pub fn build_cpu_session(
             .with_intra_threads(cfg.intra_threads)
             .map_err(|e| RuntimeError::Other(e.to_string()))?;
     }
-    builder
-        .commit_from_file(model_path)
-        .map_err(|e| RuntimeError::Other(format!("commit_from_file {}: {e}", model_path.display())))
+    Ok(builder)
+}
+
+/// Fix symbolic input dimensions and fold shape calculations on CPU before NPU compilation.
+/// Large weights are serialized separately so models above protobuf's 2 GiB limit work.
+pub fn prepare_static_model(
+    _runtime: &OrtRuntime,
+    source: &Path,
+    destination: &Path,
+    dimensions: &[(&str, i64)],
+    threads: usize,
+) -> Result<(), RuntimeError> {
+    let data_name = format!(
+        "{}.data",
+        destination
+            .file_name()
+            .ok_or_else(|| RuntimeError::Other("missing graph filename".into()))?
+            .to_string_lossy()
+    );
+    let mut builder = cpu_session_builder(CpuSessionConfig {
+        intra_threads: threads,
+        optimize: false,
+    })?
+    .with_optimization_level(GraphOptimizationLevel::Level1)
+    .and_then(|b| b.with_optimized_model_path(destination))
+    .and_then(|b| {
+        b.with_config_entry(
+            "session.optimized_model_external_initializers_file_name",
+            data_name,
+        )
+    })
+    .and_then(|b| {
+        b.with_config_entry(
+            "session.optimized_model_external_initializers_min_size_in_bytes",
+            "1024",
+        )
+    })
+    .map_err(|e| RuntimeError::Other(e.to_string()))?;
+    for &(name, size) in dimensions {
+        builder = builder
+            .with_dimension_override(name, size)
+            .map_err(|e| RuntimeError::Other(e.to_string()))?;
+    }
+    let session = builder
+        .commit_from_file(source)
+        .map_err(|e| RuntimeError::Other(format!("prepare static graph: {e}")))?;
+    for input in session.inputs() {
+        if let ort::value::ValueType::Tensor { shape, .. } = input.dtype()
+            && shape.iter().any(|d| *d <= 0)
+        {
+            return Err(RuntimeError::Other(format!(
+                "{} still has dynamic input dimensions",
+                input.name()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Build a session pinned to `accel`'s devices, registering its plugin EP first.
@@ -384,6 +444,29 @@ fn tensorrt_cache_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires LW_RUNTIME_DIR; runs on each native release runner"]
+    fn static_model_preparation_fixes_dimensions_and_preserves_values() {
+        // ONNX Identity(signal -> result), float [batch, frames], IR 10 / opset 13.
+        let graph = hex::decode("080a3a770a1a0a067369676e616c1206726573756c7422084964656e74697479120f64796e616d69635f666978747572655a230a067369676e616c12190a17080112130a07120562617463680a0812066672616d657362230a06726573756c7412190a17080112130a07120562617463680a0812066672616d65734202100d").unwrap();
+        let runtime = OrtRuntime::auto().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("dynamic.onnx");
+        let fixed = dir.path().join("fixed.onnx");
+        std::fs::write(&source, graph).unwrap();
+        prepare_static_model(&runtime, &source, &fixed, &[("batch", 1), ("frames", 16)], 1).unwrap();
+        let mut session = build_cpu_session(&runtime, &fixed, CpuSessionConfig::default()).unwrap();
+        match session.inputs()[0].dtype() {
+            ort::value::ValueType::Tensor { shape, .. } => assert_eq!(shape.as_ref(), &[1, 16]),
+            other => panic!("unexpected input type: {other:?}"),
+        }
+        let signal: Vec<f32> = (0..16).map(|i| i as f32 * 0.25).collect();
+        let tensor = ort::value::Tensor::from_array(([1usize, 16], signal.clone())).unwrap();
+        let output = session.run(ort::inputs!["signal" => tensor]).unwrap();
+        let (_, actual) = output["result"].try_extract_tensor::<f32>().unwrap();
+        assert_eq!(actual, signal);
+    }
 
     #[test]
     fn config_default() {

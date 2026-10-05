@@ -12,7 +12,7 @@ on:
       tag:
         description: Release tag (must match the workspace version)
         type: string
-        default: v0.1.6
+        default: v0.1.7
 
 permissions:
   contents: read
@@ -146,6 +146,12 @@ jobs:
         with:
           path: runtime/osx-x64
           key: ${{ steps.ort-cache.outputs.cache-primary-key }}
+      - name: Test native static model preparation for NPU
+        shell: pwsh
+        run: |
+          $env:LW_RUNTIME_DIR = Join-Path $env:GITHUB_WORKSPACE 'runtime/${{ matrix.platform }}'
+          cargo test --locked -p lw-ort --target ${{ matrix.target }} static_model_preparation_fixes_dimensions_and_preserves_values -- --ignored
+          if ($LASTEXITCODE -ne 0) { throw 'Static NPU model preparation regression test failed' }
       - name: Test Windows runtime DLL search isolation
         if: runner.os == 'Windows'
         shell: pwsh
@@ -236,7 +242,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          body_path: docs/release-notes-v0.1.6.md
+          body_path: docs/release-notes-v0.1.7.md
           fail_on_unmatched_files: true
           files: release-assets/*
       - name: Verify all published assets download publicly

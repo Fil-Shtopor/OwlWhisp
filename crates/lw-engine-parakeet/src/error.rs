@@ -33,6 +33,12 @@ impl From<lw_ort::ort::Error> for Error {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e.to_string())
+    }
+}
+
 impl From<Error> for lw_core::Error {
     fn from(e: Error) -> Self {
         lw_core::Error::Engine(e.to_string())

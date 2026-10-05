@@ -233,16 +233,28 @@ impl ParakeetEngine {
     }
 
     fn try_build_npu_encoder(&self) -> Result<Box<dyn EncoderBackend>> {
+        if !self.runtime.has_qnn_npu() {
+            return Err(Error::Ort("no usable Qualcomm QNN NPU device".into()));
+        }
         // A static-shape encoder ONNX for the configured window, or a prebuilt EPContext wrapper.
         let t = self.config.npu_window_frames;
-        let path = self.model_file(&[
-            &format!("encoder-static-t{t}.onnx"),
-            "encoder-static.onnx",
-            "encoder-model.onnx",
-        ])?;
+        let path = crate::npu::prepare_model(
+            &self.runtime,
+            &self.config.model_dir,
+            &self.config.cache_dir,
+            t,
+            self.config.cpu_threads,
+        )?;
         let mut qnn = QnnSessionConfig::new(
             &self.config.cache_dir,
-            format!("parakeet-enc-t{t}-arch{}", self.config.htp_arch.unwrap_or(0)),
+            format!(
+                "parakeet-enc-t{t}-arch{}-{}",
+                self.config.htp_arch.unwrap_or(0),
+                path.parent()
+                    .and_then(|p| p.file_name())
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ),
         );
         qnn.htp_arch = self.config.htp_arch;
         qnn.soc_model = self.config.soc_model;

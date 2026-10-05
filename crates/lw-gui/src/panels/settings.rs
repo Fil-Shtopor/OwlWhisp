@@ -98,8 +98,8 @@ pub enum Message {
     CancelRuntimeInstall,
     InstallDriver(&'static str),
     DriverFinished(std::sync::Arc<Result<String, String>>),
-    InstallGpuEncoder(&'static str),
-    GpuInstallTick,
+    PrepareAcceleratorModel(&'static str),
+    ModelInstallTick,
     RefreshAccelerators,
     DeviceSelected(String),
     ModeSelected(HotkeyMode),
@@ -186,9 +186,9 @@ pub struct State {
     provider_info: Option<&'static str>,
     installing_driver: Option<&'static str>,
     driver_install_failed: std::collections::BTreeSet<&'static str>,
-    gpu_install: Option<lw_app::install::Handle>,
-    gpu_target: Option<&'static str>,
-    gpu_check_failed: Option<&'static str>,
+    model_install: Option<lw_app::install::Handle>,
+    model_target: Option<&'static str>,
+    model_check_failed: Option<&'static str>,
     notice: Option<String>,
     error: Option<String>,
 }
@@ -291,9 +291,9 @@ impl State {
             provider_info: None,
             installing_driver: None,
             driver_install_failed: Default::default(),
-            gpu_install: None,
-            gpu_target: None,
-            gpu_check_failed: None,
+            model_install: None,
+            model_target: None,
+            model_check_failed: None,
             notice: None,
             error: None,
         }
@@ -330,7 +330,7 @@ impl State {
 
     pub fn busy(&self) -> bool {
         self.runtime_install.is_some()
-            || self.gpu_install.is_some()
+            || self.model_install.is_some()
             || self.installing_driver.is_some()
             || self.capturing
     }
@@ -409,9 +409,9 @@ impl State {
                 iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::RuntimeInstallTick),
             );
         }
-        if self.gpu_install.is_some() {
+        if self.model_install.is_some() {
             subscriptions.push(
-                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::GpuInstallTick),
+                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::ModelInstallTick),
             );
         }
         if self.capturing {
@@ -506,7 +506,7 @@ impl State {
                                     .into(),
                             );
                             if let Some(id) = target {
-                                wrote |= self.update(Message::InstallGpuEncoder(id));
+                                wrote |= self.update(Message::PrepareAcceleratorModel(id));
                             }
                         }
                         Err(error) => self.error = Some(error),
@@ -514,51 +514,55 @@ impl State {
                 }
             }
             Message::InstallDriver(id) => self.installing_driver = Some(id),
-            Message::InstallGpuEncoder(id) => {
-                if self.gpu_install.is_none()
-                    && lw_core::capabilities::Accelerator::from_id(id)
-                        .is_some_and(|a| a.kind() == lw_core::capabilities::AcceleratorKind::Gpu)
+            Message::PrepareAcceleratorModel(id) => {
+                if self.model_install.is_none()
+                    && lw_core::capabilities::Accelerator::from_id(id).is_some_and(|a| {
+                        a.kind() == lw_core::capabilities::AcceleratorKind::Gpu
+                            || a == lw_core::capabilities::Accelerator::QnnNpu
+                    })
                 {
-                    self.gpu_target = Some(id);
-                    self.gpu_check_failed = None;
-                    self.gpu_install = Some(lw_app::install::start_gpu_encoder(
+                    self.model_target = Some(id);
+                    self.model_check_failed = None;
+                    self.model_install = Some(lw_app::install::start_accelerator_encoder(
                         &lw_app::paths::settings_path(),
-                        lw_core::capabilities::Accelerator::from_id(id).expect("known GPU provider"),
+                        lw_core::capabilities::Accelerator::from_id(id).expect("known accelerator"),
                     ));
                 }
             }
-            Message::GpuInstallTick => {
-                if let Some(outcome) = self.gpu_install.as_ref().and_then(|h| h.poll()) {
-                    self.gpu_install = None;
-                    let target = self.gpu_target.take();
+            Message::ModelInstallTick => {
+                if let Some(outcome) = self.model_install.as_ref().and_then(|h| h.poll()) {
+                    self.model_install = None;
+                    let target = self.model_target.take();
                     match outcome {
                         lw_app::install::Progress::Done { .. } => {
-                            self.gpu_check_failed = None;
+                            self.model_check_failed = None;
                             if let Some(accel) = target.and_then(lw_core::capabilities::Accelerator::from_id)
                             {
                                 self.settings.backend = BackendPreference::for_accelerator(accel);
                                 match self.settings.save(&lw_app::paths::settings_path()) {
                                     Ok(()) => {
                                         self.saved = self.settings.clone();
-                                        self.notice =
-                                            Some(format!("GPU model installed; {} selected.", accel.label()));
+                                        self.notice = Some(format!(
+                                            "Accelerator model checked; {} selected.",
+                                            accel.label()
+                                        ));
                                         self.error = None;
                                         wrote = true;
                                     }
                                     Err(e) => {
                                         self.error = Some(format!(
-                                            "GPU model installed, but accelerator selection was not saved: {e}"
+                                            "Model checked, but accelerator selection was not saved: {e}"
                                         ))
                                     }
                                 }
                             }
                         }
                         lw_app::install::Progress::Failed { message } => {
-                            self.gpu_check_failed = target;
+                            self.model_check_failed = target;
                             self.error = Some(message);
                         }
                         lw_app::install::Progress::Cancelled => {
-                            self.notice = Some("GPU model download stopped; click again to resume.".into())
+                            self.notice = Some("Model download stopped; click again to resume.".into())
                         }
                         _ => {}
                     }
@@ -1034,9 +1038,7 @@ impl State {
         let model_ready = self.selected_model_ready;
         let gpu_model_ready = model_dir.join("encoder-model.onnx").exists()
             && model_dir.join("encoder-model.onnx.data").exists();
-        let npu_model_ready = model_dir.join("encoder-static-t2000.onnx").is_file()
-            || model_dir.join("encoder-static.onnx").is_file()
-            || model_dir.join("encoder-model.onnx").is_file();
+        let npu_model_ready = lw_app::accelerators::npu_model_ready(&model_dir);
         let can_activate = |a: A| {
             model_availability(
                 a,
@@ -1061,8 +1063,8 @@ impl State {
                         .copied()
                         .unwrap_or(false),
                     usable: self.usable.get(a.id()).copied().unwrap_or(false),
-                    gpu_check_failed: self.gpu_check_failed == Some(a.id())
-                        || self.gpu_target == Some(a.id()),
+                    model_check_failed: self.model_check_failed == Some(a.id())
+                        || self.model_target == Some(a.id()),
                     driver_install_failed: self.driver_install_failed.contains(a.id()),
                 },
             )
@@ -1182,8 +1184,8 @@ impl State {
                         Some(lw_app::runtime_install::SetupAction::InstallDriver)
                     ),
                     usable,
-                    gpu_check_failed: self.gpu_check_failed == Some(accel.id())
-                        || self.gpu_target == Some(accel.id()),
+                    model_check_failed: self.model_check_failed == Some(accel.id())
+                        || self.model_target == Some(accel.id()),
                     driver_install_failed: self.driver_install_failed.contains(accel.id()),
                 },
             );
@@ -1194,12 +1196,18 @@ impl State {
                     widgets::badge(availability.label(), theme::ESTIMATE)
                 }
             };
-            let action: Element<'_, Message> = if needed_action == Some(AcceleratorAction::DownloadGpuModel) {
-                let label = if let Some(handle) = &self.gpu_install {
-                    if self.gpu_target == Some(accel.id()) {
+            let action: Element<'_, Message> = if needed_action == Some(AcceleratorAction::PrepareModel) {
+                let npu = accel == A::QnnNpu;
+                let label = if let Some(handle) = &self.model_install {
+                    if self.model_target == Some(accel.id()) {
                         let state = handle.state();
                         if state.finishing {
-                            "Checking GPU...".to_string()
+                            if npu {
+                                "Preparing / checking NPU..."
+                            } else {
+                                "Checking GPU..."
+                            }
+                            .to_string()
                         } else {
                             match state.fraction() {
                                 Some(fraction) => format!("Downloading {:.0}%", fraction * 100.0),
@@ -1210,7 +1218,13 @@ impl State {
                         "Download in progress".to_string()
                     }
                 } else {
-                    if gpu_model_ready {
+                    if npu {
+                        if npu_model_ready {
+                            "Retry NPU check"
+                        } else {
+                            "Prepare NPU model"
+                        }
+                    } else if gpu_model_ready {
                         "Retry GPU check"
                     } else {
                         "Download GPU model"
@@ -1221,9 +1235,9 @@ impl State {
                     .padding(Padding::from([5, 10]))
                     .style(theme::action(false))
                     .on_press_maybe(
-                        self.gpu_install
+                        self.model_install
                             .is_none()
-                            .then_some(Message::InstallGpuEncoder(accel.id())),
+                            .then_some(Message::PrepareAcceleratorModel(accel.id())),
                     )
                     .into()
             } else if needed_action == Some(AcceleratorAction::DownloadRuntime) {
@@ -1247,7 +1261,7 @@ impl State {
                     .style(theme::action(false))
                     .on_press_maybe(
                         (self.runtime_install.is_none()
-                            && self.gpu_install.is_none()
+                            && self.model_install.is_none()
                             && self.installing_driver.is_none())
                         .then_some(Message::InstallRuntime(accel.id())),
                     );
@@ -1289,12 +1303,12 @@ impl State {
                     "Install model first"
                 } else if !parakeet && accel != A::Cpu {
                     "CPU-only model"
-                } else if self.gpu_check_failed == Some(accel.id()) {
-                    "GPU check failed"
+                } else if self.model_check_failed == Some(accel.id()) {
+                    "Model check failed"
                 } else if self.driver_install_failed.contains(accel.id()) {
                     "Driver did not enable it"
                 } else if accel == A::QnnNpu && !npu_model_ready {
-                    "NPU model unavailable"
+                    "Prepare NPU model first"
                 } else if accel.kind() == AcceleratorKind::Npu && accel != A::QnnNpu {
                     "No model artifact"
                 } else if !provider_present {
@@ -1333,6 +1347,9 @@ impl State {
                 );
             }
             if self.provider_info == Some(accel.id()) {
+                if accel == A::QnnNpu {
+                    body = body.push(widgets::prose("Diagnostics checks the NPU hardware and QNN provider. For this model also checks the encoder files. Prepare NPU model downloads the full-precision encoder (about 2.5 GB), fixes its shapes and checks it on your NPU. First preparation can take several minutes and uses additional disk space for the graph and device cache."));
+                }
                 body = body.push(widgets::prose(format!(
                     "{}: {}",
                     b.label,
@@ -1365,9 +1382,9 @@ impl State {
             widgets::prose(
                 "Available requires a working provider, compatible hardware, and model files. \
                  Need additional action always has a download or driver-install button. \
-                 Missing providers belong to the app build, not the graphics driver; Info gives the probe details. GPU acceleration \
+                 Missing providers belong to the app build, not the graphics driver; Info gives the probe details. GPU/NPU acceleration \
                  currently runs the Parakeet TDT 0.6B v3 model; other models use the CPU-only \
-                 sherpa engine. The optional GPU encoder downloads about 2.5 GB and checks \
+                 sherpa engine. The optional full-precision encoder downloads about 2.5 GB and checks \
                  the selected accelerator with a real model run before saving it.",
             )
         });

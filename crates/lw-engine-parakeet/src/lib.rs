@@ -14,6 +14,7 @@ pub mod engine;
 mod error;
 pub mod mel;
 pub mod merge;
+pub mod npu;
 pub mod tdt;
 pub mod vocab;
 

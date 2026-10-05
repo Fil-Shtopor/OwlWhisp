@@ -16,6 +16,49 @@ use lw_core::engine::{EngineInitContext, SpeechEngine};
 use lw_engine_parakeet::{BackendKind, ParakeetConfig, ParakeetEngine};
 use lw_ort::OrtRuntime;
 
+#[test]
+#[ignore = "requires LW_MODEL_DIR + LW_RUNTIME_DIR and the FP32 encoder"]
+fn prepared_npu_graph_matches_dynamic_encoder_on_cpu() {
+    use lw_core::capabilities::Accelerator;
+    use lw_engine_parakeet::encoder::{CpuEncoder, EncoderBackend, StaticWindowEncoder};
+    let runtime = OrtRuntime::init(std::path::Path::new(&std::env::var("LW_RUNTIME_DIR").unwrap())).unwrap();
+    let model = PathBuf::from(std::env::var("LW_MODEL_DIR").unwrap());
+    let cache = tempfile::tempdir().unwrap();
+    let frames = 200;
+    let prepared = lw_engine_parakeet::npu::prepare_model(&runtime, &model, cache.path(), frames, 2).unwrap();
+    let modified = std::fs::metadata(&prepared).unwrap().modified().unwrap();
+    assert_eq!(
+        lw_engine_parakeet::npu::prepare_model(&runtime, &model, cache.path(), frames, 2).unwrap(),
+        prepared
+    );
+    assert_eq!(
+        std::fs::metadata(&prepared).unwrap().modified().unwrap(),
+        modified,
+        "second use must reuse the graph"
+    );
+    let mut dynamic = CpuEncoder::load(&runtime, &model.join("encoder-model.onnx"), 2).unwrap();
+    let mut fixed =
+        StaticWindowEncoder::on_accelerator(&runtime, Accelerator::Cpu, &prepared, frames, 2, "CPU check")
+            .unwrap();
+    let features: Vec<_> = (0..128 * frames).map(|i| ((i as f32) * 0.01).sin()).collect();
+    let (expected, expected_frames) = dynamic.run(&features, frames).unwrap();
+    let (actual, actual_frames) = fixed.run(&features, frames).unwrap();
+    assert_eq!(actual_frames, expected_frames);
+    assert_eq!(actual.len(), expected.len());
+    let dot: f64 = actual
+        .iter()
+        .zip(&expected)
+        .map(|(a, b)| *a as f64 * *b as f64)
+        .sum();
+    let norm = |v: &[f32]| v.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+    let cosine = dot / (norm(&actual) * norm(&expected));
+    eprintln!("Prepared static encoder cosine similarity: {cosine}");
+    assert!(
+        cosine > 0.99999,
+        "static preparation changed the encoder: {cosine}"
+    );
+}
+
 fn wer(reference: &str, hypothesis: &str) -> f32 {
     let norm = |s: &str| -> Vec<String> {
         s.to_lowercase()

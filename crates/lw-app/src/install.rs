@@ -43,6 +43,8 @@ pub enum Progress {
     },
     /// A file's hash matched the manifest.
     Verified { path: String },
+    /// Downloads are complete; the requested accelerator's model is being prepared and checked.
+    Preparing,
     /// Everything downloaded, verified and promoted out of staging.
     Done { dir: String },
     /// The user asked it to stop. Partial files stay in staging and the next attempt resumes.
@@ -114,6 +116,7 @@ impl Handle {
         while let Ok(ev) = self.events.try_recv() {
             if let Ok(mut s) = self.state.lock() {
                 match &ev {
+                    Progress::Preparing => s.finishing = true,
                     Progress::FileStarted { path, total } => {
                         s.file = path.clone();
                         s.received = 0;
@@ -159,8 +162,8 @@ pub fn start(settings_path: &Path, id: &str) -> Handle {
     start_with_target(settings_path, id, None, None)
 }
 
-/// Download the optional full-precision Parakeet encoder for this machine's GPU.
-pub fn start_gpu_encoder(settings_path: &Path, accel: lw_core::capabilities::Accelerator) -> Handle {
+/// Download the full-precision Parakeet encoder, then verify the requested GPU or NPU.
+pub fn start_accelerator_encoder(settings_path: &Path, accel: lw_core::capabilities::Accelerator) -> Handle {
     start_with_target(
         settings_path,
         "parakeet-tdt-0.6b-v3",
@@ -201,7 +204,8 @@ fn start_with_target(
             let result = runtime.block_on(install_inner(&id_owned, &root, addon, cancel_thread, &tx_thread));
             let result = result.and_then(|dir| {
                 if let Some(accel) = verify_backend {
-                    crate::bench::run_benchmark_job(
+                    let _ = tx_thread.send(Progress::Preparing);
+                    let report = crate::bench::run_benchmark_job(
                         &settings_path,
                         Some(id_owned.clone()),
                         Some(lw_core::engine::BackendPreference::for_accelerator(accel)),
@@ -209,10 +213,17 @@ fn start_with_target(
                     )
                     .map_err(|e| {
                         format!(
-                            "GPU files installed but {} could not run the model: {e}",
+                            "Encoder files installed but {} could not run the model: {e}",
                             accel.label()
                         )
                     })?;
+                    if report.accelerator.as_deref() != Some(accel.id()) {
+                        return Err(format!(
+                            "Model check requested {} but ran {}",
+                            accel.label(),
+                            report.backend
+                        ));
+                    }
                 }
                 Ok(dir)
             });

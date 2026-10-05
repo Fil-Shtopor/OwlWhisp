@@ -194,6 +194,14 @@ because they routinely disagree:
 Only the last one means acceleration. A vendor driver can be installed and still enumerate
 nothing. From a terminal the same table is `lw diagnose`.
 
+Starting with **0.1.7**, a usable Qualcomm NPU with a CPU-only Parakeet installation shows
+**Need additional action** in Settings. Click **Prepare NPU model** to download the verified
+FP32 encoder and weights (about 2.5 GB), prepare a static graph and test it on the NPU. The
+requested accelerator is selected only after that test succeeds. First preparation can take
+several minutes and needs additional disk space; subsequent runs reuse the graph and device
+context cache. Python is not required. Diagnostics checks the device/provider independently,
+so a usable NPU there can still need model preparation in Settings.
+
 **What is actually running** is read back from the engine rather than from what was requested, so
 a run that asked for the NPU and fell back to the CPU reports the CPU — visible in Diagnostics and
 in the benchmark report, whose notes also say *why* it fell back.
