@@ -58,6 +58,48 @@ impl IdleUnload {
     }
 }
 
+/// A cold engine initializes alongside microphone capture, then moves to the dictation worker.
+/// Dropping the receiver invalidates an obsolete load; its eventual engine is dropped as well.
+enum EngineState<T> {
+    Loading(Receiver<Result<T, String>>),
+    Ready(Result<T, String>),
+}
+
+impl<T: Send + 'static> EngineState<T> {
+    fn preload(slot: &mut Option<Self>, initialize: impl FnOnce() -> Result<T, String> + Send + 'static) {
+        if matches!(slot, Some(Self::Loading(_) | Self::Ready(Ok(_)))) {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        *slot = Some(
+            match std::thread::Builder::new()
+                .name("lw-model-load".into())
+                .spawn(move || {
+                    let _ = tx.send(initialize());
+                }) {
+                Ok(_) => Self::Loading(rx),
+                Err(error) => Self::Ready(Err(format!("could not start model loading: {error}"))),
+            },
+        );
+    }
+
+    fn completed(result: Result<Result<T, String>, crossbeam_channel::RecvError>) -> Self {
+        Self::Ready(result.unwrap_or_else(|_| Err("model loading stopped before returning a result".into())))
+    }
+
+    /// Stop waits only for the remaining part of the load begun during recording.
+    fn finish(slot: &mut Option<Self>) {
+        if let Some(Self::Loading(rx)) = slot {
+            *slot = Some(Self::completed(rx.recv()));
+        }
+    }
+}
+
+fn preload_engine(settings_path: &std::path::Path, loaded: &mut Option<EngineState<Loaded>>) {
+    let settings_path = settings_path.to_path_buf();
+    EngineState::preload(loaded, move || load_engine(&settings_path));
+}
+
 /// Where the recording state machine is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -321,8 +363,8 @@ fn worker_loop(
         state,
         settings_path: settings_path.clone(),
     };
-    // Lazy-load the engine on first use so startup is not blocked by a 650 MB model.
-    let mut loaded: Option<Result<Loaded, String>> = None;
+    // Load only on dictation activation, alongside recording; startup stays lightweight.
+    let mut loaded: Option<EngineState<Loaded>> = None;
     let mut idle_unload = IdleUnload::default();
     let mut idle_timeout_secs = Settings::load(&settings_path)
         .unwrap_or_default()
@@ -338,16 +380,25 @@ fn worker_loop(
             tracing::info!(idle_timeout_secs, "dictation model released after idle timeout");
             let _ = ctx.events.send(Event::Backend(Box::default()));
         }
-        let cmd = match idle_unload.remaining(Instant::now()) {
-            Some(timeout) => match rx.recv_timeout(timeout) {
-                Ok(cmd) => cmd,
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-            },
-            None => match rx.recv() {
+        let completion = match &loaded {
+            Some(EngineState::Loading(rx)) => rx.clone(),
+            _ => crossbeam_channel::never(),
+        };
+        let expiry = idle_unload
+            .remaining(Instant::now())
+            .map(crossbeam_channel::after)
+            .unwrap_or_else(crossbeam_channel::never);
+        let cmd = crossbeam_channel::select! {
+            recv(rx) -> cmd => match cmd {
                 Ok(cmd) => cmd,
                 Err(_) => break,
             },
+            recv(completion) -> result => {
+                loaded = Some(EngineState::completed(result));
+                let _ = self_tx.send(Command::Describe);
+                continue;
+            },
+            recv(expiry) -> _ => continue,
         };
         match cmd {
             Command::Shutdown => break,
@@ -358,12 +409,15 @@ fn worker_loop(
                     .unwrap_or_default()
                     .model_idle_timeout_secs;
                 let _ = ctx.events.send(Event::Backend(Box::default()));
+                if capture.is_some() {
+                    preload_engine(&settings_path, &mut loaded);
+                }
             }
             Command::Describe => {
                 // Deliberately does not load the engine: the honest answer before the first
                 // dictation is "nothing is running yet", not a guess dressed up as a fact.
                 let desc = match &loaded {
-                    Some(Ok(l)) => ActiveBackend {
+                    Some(EngineState::Ready(Ok(l))) => ActiveBackend {
                         loaded: true,
                         provider: Some(l.engine.provider().to_string()),
                         acceleration: Some(l.engine.acceleration().to_string()),
@@ -383,11 +437,11 @@ fn worker_loop(
                         model_id: l.settings.model_id.clone(),
                         error: None,
                     },
-                    Some(Err(e)) => ActiveBackend {
+                    Some(EngineState::Ready(Err(e))) => ActiveBackend {
                         error: Some(e.clone()),
                         ..ActiveBackend::default()
                     },
-                    None => ActiveBackend::default(),
+                    None | Some(EngineState::Loading(_)) => ActiveBackend::default(),
                 };
                 let _ = ctx.events.send(Event::Backend(Box::new(desc)));
             }
@@ -399,6 +453,7 @@ fn worker_loop(
                     Ok(()) => {
                         idle_unload.cancel();
                         ctx.set(RecordingState::Listening);
+                        preload_engine(&settings_path, &mut loaded);
                         if hands_free {
                             spawn_silence_watcher(
                                 &cap,
@@ -480,15 +535,19 @@ fn worker_loop(
     }
 }
 
-fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<Result<Loaded, String>>, audio: &AudioBuffer) {
-    // An installation can be repaired while the app is open. Do not cache a failed load forever.
-    if loaded.as_ref().is_none_or(Result::is_err) {
-        *loaded = Some(load_engine(&ctx.settings_path));
+fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<EngineState<Loaded>>, audio: &AudioBuffer) {
+    // Normally Start has already begun loading. Keep Stop robust if the slot was invalidated.
+    if loaded.is_none() {
+        preload_engine(&ctx.settings_path, loaded);
     }
-    let Some(Ok(engine_state)) = loaded.as_mut() else {
+    EngineState::finish(loaded);
+    let Some(EngineState::Ready(Ok(engine_state))) = loaded.as_mut() else {
         let msg = loaded
             .as_ref()
-            .and_then(|r| r.as_ref().err())
+            .and_then(|state| match state {
+                EngineState::Ready(Err(error)) => Some(error),
+                _ => None,
+            })
             .cloned()
             .unwrap_or_else(|| "engine unavailable".into());
         ctx.fail(&msg);
@@ -677,6 +736,71 @@ fn spawn_silence_watcher(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cold_load_starts_during_recording_and_is_not_duplicated() {
+        let (started_tx, started_rx) = crossbeam_channel::bounded(1);
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        let mut loaded = None;
+        EngineState::preload(&mut loaded, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(42)
+        });
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(loaded, Some(EngineState::Loading(_))));
+        // Start returns while initialization is blocked, so recording/Stop can proceed.
+        EngineState::preload(&mut loaded, || panic!("a second initialization must not start"));
+        release_tx.send(()).unwrap();
+        EngineState::finish(&mut loaded);
+        assert!(matches!(loaded, Some(EngineState::Ready(Ok(42)))));
+        EngineState::preload(&mut loaded, || panic!("a ready engine must be reused"));
+    }
+
+    #[test]
+    fn failed_preload_is_reported_for_this_utterance_and_retried_on_next_start() {
+        let mut loaded = None::<EngineState<()>>;
+        EngineState::preload(&mut loaded, || Err("missing model".into()));
+        EngineState::finish(&mut loaded);
+        assert!(matches!(&loaded, Some(EngineState::Ready(Err(error))) if error == "missing model"));
+        EngineState::finish(&mut loaded);
+        assert!(matches!(loaded, Some(EngineState::Ready(Err(_)))));
+        EngineState::preload(&mut loaded, || Ok(()));
+        EngineState::finish(&mut loaded);
+        assert!(matches!(loaded, Some(EngineState::Ready(Ok(())))));
+    }
+
+    #[test]
+    fn invalidated_background_load_drops_its_engine_and_cannot_replace_the_new_one() {
+        struct Allocation(Sender<()>);
+        impl Drop for Allocation {
+            fn drop(&mut self) {
+                let _ = self.0.send(());
+            }
+        }
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        let (dropped_tx, dropped_rx) = crossbeam_channel::bounded(1);
+        let mut loaded = None;
+        EngineState::preload(&mut loaded, move || {
+            release_rx.recv().unwrap();
+            Ok(Allocation(dropped_tx))
+        });
+        loaded = None; // Settings reload discards the old receiver.
+        let (new_dropped_tx, _) = crossbeam_channel::bounded(1);
+        EngineState::preload(&mut loaded, move || Ok(Allocation(new_dropped_tx)));
+        EngineState::finish(&mut loaded);
+        release_tx.send(()).unwrap();
+        dropped_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(loaded, Some(EngineState::Ready(Ok(_)))));
+    }
+
+    #[test]
+    fn a_loader_panic_becomes_an_error_instead_of_hanging_stop() {
+        let mut loaded = None::<EngineState<()>>;
+        EngineState::preload(&mut loaded, || panic!("failed initialization"));
+        EngineState::finish(&mut loaded);
+        assert!(matches!(&loaded, Some(EngineState::Ready(Err(error))) if error.contains("stopped")));
+    }
 
     #[test]
     fn idle_expiry_drops_the_engine_without_another_command() {

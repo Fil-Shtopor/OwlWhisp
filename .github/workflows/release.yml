@@ -12,7 +12,7 @@ on:
       tag:
         description: Release tag (must match the workspace version)
         type: string
-        default: v0.1.7
+        default: v0.1.8
 
 permissions:
   contents: read
@@ -166,8 +166,8 @@ jobs:
           $dir = pwsh -File scripts/build/fetch-sherpa.ps1 -Platform ${{ matrix.platform }} -Quiet
           if ($LASTEXITCODE -ne 0 -or -not $dir -or -not (Test-Path $dir)) { throw "fetch-sherpa.ps1 produced no library directory" }
           "SHERPA_ONNX_LIB_DIR=$dir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Test simulated hardware configurations
-        run: cargo test --locked -p lw-app --test hardware_matrix --target ${{ matrix.target }}
+      - name: Test dictation lifecycle and simulated hardware configurations
+        run: cargo test --locked -p lw-app --target ${{ matrix.target }}
       - name: Test package verification and installer licence rendering
         run: python -m unittest discover -s tests -p "test_*.py"
       - name: Build OwlWhisp
@@ -242,7 +242,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          body_path: docs/release-notes-v0.1.7.md
+          body_path: docs/release-notes-v0.1.8.md
           fail_on_unmatched_files: true
           files: release-assets/*
       - name: Verify all published assets download publicly

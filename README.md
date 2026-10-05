@@ -160,16 +160,16 @@ Intel/AMD NPU models and Apple CoreML/ANE are not included in the standard packa
 ## Downloads
 
 Download from [GitHub Releases](https://github.com/Fil-Shtopor/OwlWhisp/releases).
-The current **0.1.7** release is a prerelease; Windows installers and macOS bundles are unsigned.
+The current **0.1.8** release is a prerelease; Windows installers and macOS bundles are unsigned.
 
 | Platform | Portable archive | Installer |
 |---|---|---|
-| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-x86_64-pc-windows-msvc-setup.exe) |
-| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-aarch64-pc-windows-msvc-setup.exe) |
-| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-osx-arm64-macos.zip) | — |
-| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-osx-x64-macos.zip) | — |
-| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-linux-x64.tar.gz) | — |
-| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.7/OwlWhisp-0.1.7-linux-arm64.tar.gz) | — |
+| Windows x64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-x86_64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-x86_64-pc-windows-msvc-setup.exe) |
+| Windows ARM64 | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-aarch64-pc-windows-msvc.zip) | [Setup](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-aarch64-pc-windows-msvc-setup.exe) |
+| macOS Apple Silicon | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-osx-arm64-macos.zip) | — |
+| macOS Intel | [ZIP](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-osx-x64-macos.zip) | — |
+| Linux x64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-linux-x64.tar.gz) | — |
+| Linux ARM64 | [tar.gz](https://github.com/Fil-Shtopor/OwlWhisp/releases/download/v0.1.8/OwlWhisp-0.1.8-linux-arm64.tar.gz) | — |
 
 Starting with 0.1.2, **Settings > Application updates** checks GitHub at startup and once a day,
 with controls for automatic checks and preview releases. Windows x64/ARM64 packages can download

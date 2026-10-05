@@ -15,7 +15,10 @@ Existing settings documents receive the default without losing their saved model
 The timer starts after transcription finishes, including an unsuccessful attempt. Starting a new
 recording cancels it; the model stays loaded throughout recording and transcription. Microphone
 tests and backend-status requests do not reset the timer. Expiry releases the model and updates
-the displayed backend to unloaded. The next transcription loads the model again.
+the displayed backend to unloaded. The next dictation activation starts
+loading the model in a background thread after the microphone starts recording. Recording and
+initialization overlap; Stop waits only for the unfinished part of initialization before
+transcribing. This applies both to first use and to reloading after idle expiry.
 
 Exact GPU selections and the bundled GPU path use an isolated inference worker. Releasing it
 ends that process, freeing its model, driver heaps and provider DLLs. GPU capability checks also
