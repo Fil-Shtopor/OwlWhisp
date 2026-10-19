@@ -25,6 +25,31 @@ mod widgets;
 fn main() -> iced::Result {
     if std::env::args_os()
         .nth(1)
+        .is_some_and(|arg| arg == "--validate-custom-model")
+    {
+        let result = std::env::args_os()
+            .nth(2)
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| "missing model directory".to_string())
+            .and_then(|directory| {
+                let kind = std::env::args()
+                    .nth(3)
+                    .ok_or_else(|| "missing model family".to_string())?
+                    .parse::<lw_app::custom_models::LocalModelKind>()
+                    .map_err(|e| e.to_string())?;
+                lw_app::custom_models::run_validation_worker(&directory, kind)
+            });
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stdout(),
+            "{}",
+            serde_json::to_string(&result).unwrap_or_default()
+        );
+        let _ = std::io::stdout().flush();
+        lw_ort::exit_without_teardown(i32::from(result.is_err()));
+    }
+    if std::env::args_os()
+        .nth(1)
         .is_some_and(|arg| arg == "--benchmark-fixtures")
     {
         let (clips, source) = lw_core::bench::quick_clips(None, 15).expect("benchmark audio must load");

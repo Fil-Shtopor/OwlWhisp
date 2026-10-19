@@ -34,8 +34,9 @@ Three things on this screen answer the questions people actually ask first.
 
 **Try dictating here** is a scratchpad. Click it, press the hotkey and speak: the text arrives by
 the same focus path it would use in any other application, so it tests the real mechanism rather
-than a preview of it. Nothing typed or dictated there is saved, logged or sent anywhere, and it is
-gone when the window closes.
+than a preview of it. The scratchpad contents are not saved or logged and are gone when the window
+closes. Speech recognition follows the selected model: an explicitly selected online connection
+sends recorded speech to that API; local models process it on the device.
 
 **Last transcript** says what happened to the text — typed into the focused window, or written to
 the clipboard because typing was refused. Those are different outcomes with different next steps,
@@ -59,6 +60,42 @@ and transcribes nothing, but it does set the app's real state, which is why the 
 cues follow it.
 
 ---
+
+## Custom models and online connections
+
+In **Models → My models → Add local model**, choose the folder containing a compatible
+sherpa-onnx export, enter a name and click **Check and add**. OwlWhisp detects the model family;
+if a bare `model.onnx` is ambiguous, select its family explicitly. Supported families are Whisper,
+Moonshine, NeMo transducer, SenseVoice, Paraformer, Qwen3-ASR and Omnilingual. A single arbitrary
+ONNX file, whisper.cpp GGML file or Hugging Face checkpoint is not sufficient.
+
+The check loads the model and runs a short inference in a separate process. Only a successful
+check adds it to the list. Click **Use on CPU** to select it; custom ONNX models currently run on
+CPU. Files stay in the selected folder. **Choose folder** repairs a moved model while preserving
+its ID. **Remove from list** unregisters it without deleting its files. Choose another model before
+removing the active one. Local custom models are also available in **Benchmark**.
+
+For optional online recognition, choose **Connect online model**, enter a connection name, API
+base URL (for example `https://api.openai.com/v1`), transcription model ID (for example `whisper-1`)
+and API key. The service must implement the OpenAI-compatible `POST /audio/transcriptions`
+multipart API and return JSON with a `text` field. HTTPS is required except for HTTP loopback
+servers. The base URL should normally end in `/v1`, without `/audio/transcriptions`.
+
+**Save connection** stores the registration without contacting the service. API keys go into the
+operating system credential store, never the settings file or model registry. **Edit connection**
+lets you replace a key; leaving the field blank keeps the saved key. A new connection with a blank
+key sends no authentication header, which supports local servers. **Test connection** explicitly
+uploads one second of generated silence and may consume the provider's API quota.
+Changing the API address or model ID creates a separate connection and does not reuse the original
+connection's key. Remove the old connection from the list if it is no longer needed.
+
+Click **Use online** to send subsequent dictation recordings to that API. The Dictate tab shows the
+destination. Availability and charges depend on the provider's API account; a chat subscription
+does not necessarily include API access. Returning to a local model returns recognition to the
+device. Online connections are excluded from local benchmarks and are never selected automatically
+as a fallback. API failures appear as dictation errors. Requests time out after 120 seconds; the
+client limits uploads to 24 MiB. It does not upload benchmark fixtures, follow redirects or log
+audio, transcripts, API keys or response bodies.
 
 ## 2. Hotkey and modes
 

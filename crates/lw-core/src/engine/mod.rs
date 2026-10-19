@@ -35,6 +35,8 @@ pub enum Provider {
     VitisAi,
     /// A non-ORT engine (e.g. sherpa-onnx) on CPU.
     NativeCpu,
+    /// Speech recognition performed by a user-selected remote API.
+    Remote,
 }
 
 impl fmt::Display for Provider {
@@ -50,6 +52,7 @@ impl fmt::Display for Provider {
             Provider::OpenVino => "OpenVINO",
             Provider::VitisAi => "Vitis AI",
             Provider::NativeCpu => "Native CPU",
+            Provider::Remote => "Online API",
         };
         f.write_str(s)
     }
@@ -67,6 +70,8 @@ pub enum Acceleration {
     Gpu,
     /// Runs on Apple Neural Engine.
     Ane,
+    /// Runs on a remote service; no local accelerator is claimed.
+    Remote,
 }
 
 impl fmt::Display for Acceleration {
@@ -76,6 +81,7 @@ impl fmt::Display for Acceleration {
             Acceleration::Npu => "NPU",
             Acceleration::Gpu => "GPU",
             Acceleration::Ane => "ANE",
+            Acceleration::Remote => "Remote",
         };
         f.write_str(s)
     }

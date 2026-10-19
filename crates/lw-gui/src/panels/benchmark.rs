@@ -139,6 +139,45 @@ impl State {
     }
 
     /// Seconds since the run in flight began, for the button to count.
+    pub fn refresh_models(&mut self) {
+        let mut models = vec![ModelChoice {
+            value: None,
+            label: "From Settings".into(),
+        }];
+        if let Ok(view) = lw_app::catalog::build(&lw_app::paths::models_root()) {
+            models.extend(
+                view.entries
+                    .into_iter()
+                    .filter(|e| e.runnable && e.install_state == lw_core::model::InstallState::Installed)
+                    .map(|e| ModelChoice {
+                        value: Some(e.id),
+                        label: e.name,
+                    }),
+            );
+        }
+        if lw_app::catalog::engine_features().contains(&"sherpa")
+            && let Ok(custom) = lw_app::custom_models::list(&lw_app::paths::settings_path())
+        {
+            models.extend(
+                custom
+                    .into_iter()
+                    .filter(|m| {
+                        matches!(m.source, lw_app::custom_models::ModelSource::Local { .. })
+                            && lw_app::custom_models::local_files(m).is_ok()
+                    })
+                    .map(|m| ModelChoice {
+                        value: Some(m.id),
+                        label: m.name,
+                    }),
+            );
+        }
+        if !models.iter().any(|m| m.value == self.model_choice) {
+            self.model_choice = None;
+        }
+        self.models = models;
+    }
+
+    /// Seconds since the run in flight began, for the button to count.
     fn elapsed(&self) -> u64 {
         self.started.map(|t| t.elapsed().as_secs()).unwrap_or(0)
     }
@@ -219,10 +258,11 @@ impl State {
                 // `spawn_blocking`, not an ordinary future: this loads an ONNX Runtime session per
                 // accelerator and transcribes fifteen clips through each. On the executor thread
                 // it would stop the window redrawing for the whole sweep.
+                let model = self.model_choice.clone();
                 return Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            lw_app::bench::run_benchmark_suite(&settings_path, None, |value| {
+                            lw_app::bench::run_benchmark_suite(&settings_path, model, |value| {
                                 if let Ok(mut p) = progress.lock() {
                                     p.lines.push(describe_progress(&value));
                                 }

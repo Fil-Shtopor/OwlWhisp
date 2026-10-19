@@ -350,6 +350,28 @@ impl State {
     }
 
     fn backend_line(&self) -> Element<'_, Message> {
+        let online = lw_core::settings::Settings::load(&lw_app::paths::settings_path())
+            .ok()
+            .and_then(|settings| {
+                lw_app::custom_models::find(&lw_app::paths::settings_path(), &settings.model_id)
+                    .ok()
+                    .flatten()
+            });
+        if let Some(model) = online
+            && let lw_app::custom_models::ModelSource::Online {
+                base_url,
+                model: model_id,
+            } = model.source
+        {
+            return widgets::card(column![
+                widgets::badge("Online recognition", theme::ESTIMATE),
+                widgets::body(format!("{} · {model_id}", model.name)),
+                widgets::prose(format!("Recorded speech is sent to {base_url}. Select a local model in Models for on-device recognition.")),
+                if let Some(error) = self.backend.as_ref().and_then(|b| b.error.as_ref()) {
+                    widgets::body(error).color(theme::BAD).into()
+                } else { Element::from(Space::new()) },
+            ].spacing(8)).into();
+        }
         let (badge, text) = match self.backend.as_deref() {
             Some(b) if b.loaded => (
                 widgets::badge_yes("running on"),
@@ -402,8 +424,8 @@ impl State {
                     )
                     .on_action(Message::Scratchpad),
                 widgets::sub(
-                    "A scratchpad. Nothing typed or dictated here is saved, logged or sent \
-                     anywhere - it is gone when this window closes.",
+                    "A scratchpad. Its contents are not saved or logged and disappear when the window closes. \
+                     Speech recognition uses the model selected in Models, including its online API if selected.",
                 ),
             ]
             .spacing(8),

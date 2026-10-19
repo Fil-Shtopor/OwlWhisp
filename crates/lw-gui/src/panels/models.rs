@@ -31,6 +31,7 @@ impl fmt::Display for Lang {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Sources(super::model_sources::Message),
     Refresh,
     Resized(f32),
     ToggleRow(String),
@@ -53,6 +54,7 @@ pub enum Message {
 }
 
 pub struct State {
+    sources: super::model_sources::State,
     /// The window's width, kept up to date by the application from resize events. Used for the
     /// column breakpoints; `responsive` cannot supply it inside a scrollable.
     width: f32,
@@ -76,6 +78,7 @@ pub struct State {
 impl State {
     pub fn new() -> Self {
         let mut s = Self {
+            sources: super::model_sources::State::new(),
             width: 1000.0,
             catalog: Err("not loaded".into()),
             mine: Default::default(),
@@ -137,6 +140,7 @@ impl State {
     }
 
     fn load(&mut self) {
+        self.sources.refresh();
         // The app's own directory, not `default_models_root`: that is where the Tauri build
         // installed everything, and looking anywhere else reports an empty catalog.
         self.catalog = lw_app::catalog::build(&lw_app::paths::models_root());
@@ -150,15 +154,20 @@ impl State {
 
     /// Redraw while a download is running, so the bar moves.
     pub fn busy(&self) -> bool {
-        self.install.is_some()
+        self.install.is_some() || self.sources.busy()
+    }
+
+    pub fn can_browse(&self) -> bool {
+        !self.sources.busy()
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        if self.install.is_some() {
+        let install = if self.install.is_some() {
             iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::InstallTick)
         } else {
             iced::Subscription::none()
-        }
+        };
+        iced::Subscription::batch([install, self.sources.subscription().map(Message::Sources)])
     }
 
     /// Sorted by name, not by code: the list is read alphabetically by a human looking for theirs,
@@ -198,6 +207,7 @@ impl State {
     /// dictation uses is in it and the worker is holding a copy.
     pub fn update(&mut self, message: Message) -> bool {
         match message {
+            Message::Sources(message) => return self.sources.update(message),
             Message::Refresh => self.load(),
             Message::Resized(w) => self.width = w,
             Message::ToggleRow(id) => {
@@ -266,6 +276,7 @@ impl State {
                     Ok(()) => {
                         self.selected = id;
                         self.notice = Some("Dictation will use this model.".into());
+                        self.sources.refresh();
                         return true;
                     }
                     Err(e) => self.error = Some(e),
@@ -313,6 +324,7 @@ impl State {
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
+            self.sources.view(&self.selected),
             disclaimer(view.estimate_disclaimer),
             self.role_picks(view),
             self.glossary_block(view),

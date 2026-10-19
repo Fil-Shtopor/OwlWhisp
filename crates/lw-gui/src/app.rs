@@ -387,6 +387,8 @@ impl App {
                         self.settings.refresh_model_readiness();
                     } else if tab == Tab::Models {
                         self.models.update(panels::models::Message::Refresh);
+                    } else if tab == Tab::Benchmark {
+                        self.benchmark.refresh_models();
                     }
                     // The content underneath has been replaced, so the old position means nothing.
                     // Jump rather than slide: sliding through a page nobody has seen is motion
@@ -406,6 +408,29 @@ impl App {
             }
             Message::Resized(_, _) => {}
             Message::Models(m) => {
+                if matches!(
+                    m,
+                    panels::models::Message::Sources(panels::model_sources::Message::BrowseFolder)
+                ) {
+                    if !self.models.can_browse() {
+                        return Task::none();
+                    }
+                    self.models.update(m);
+                    return Task::perform(
+                        async {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Choose a compatible ONNX model folder")
+                                .pick_folder()
+                                .await
+                                .map(|folder| folder.path().to_path_buf())
+                        },
+                        |path| {
+                            Message::Models(panels::models::Message::Sources(
+                                panels::model_sources::Message::FolderPicked(path),
+                            ))
+                        },
+                    );
+                }
                 // Choosing a model writes settings.json, and the worker is holding a copy of it.
                 if self.models.update(m) {
                     self.dictate.settings_saved();

@@ -986,6 +986,7 @@ fn hardware_of(engine: &dyn SpeechEngine) -> Option<HardwareTarget> {
     use lw_core::engine::Acceleration;
     match engine.acceleration() {
         Acceleration::Cpu => Some(HardwareTarget::Cpu),
+        Acceleration::Remote => None,
         Acceleration::Npu => Some(HardwareTarget::QnnNpu),
         Acceleration::Ane => Some(HardwareTarget::CoreMl),
         // A GPU run has no catalog equivalent yet; say so rather than filing it under CPU.

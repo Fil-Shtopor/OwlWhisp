@@ -323,19 +323,26 @@ async fn install_inner(
 /// reload. Refuses a model that is not installed, because the failure would otherwise surface at
 /// the next hotkey press rather than at the click that caused it.
 pub fn select(settings_path: &Path, id: &str) -> Result<(), String> {
-    let root = models_root(settings_path);
-    let dir = root.join(id);
-    if !dir.exists() {
-        return Err(format!(
-            "'{id}' is not installed ({}). Download it first.",
-            dir.display()
-        ));
+    crate::custom_models::resolve_directory(settings_path, id)?;
+    let custom = crate::custom_models::find(settings_path, id)?;
+    if custom
+        .as_ref()
+        .is_some_and(|m| matches!(m.source, crate::custom_models::ModelSource::Local { .. }))
+        && !lw_engine_sherpa::is_available()
+    {
+        return Err("this build does not include the sherpa ONNX engine".into());
     }
     let mut settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
     if settings.model_id == id {
         return Ok(());
     }
     settings.model_id = id.to_string();
+    if custom
+        .as_ref()
+        .is_some_and(|m| matches!(m.source, crate::custom_models::ModelSource::Local { .. }))
+    {
+        settings.backend = lw_core::engine::BackendPreference::ForceCpu;
+    }
     settings.save(settings_path).map_err(|e| e.to_string())?;
     tracing::info!("model selected: {id}");
     Ok(())
@@ -343,6 +350,9 @@ pub fn select(settings_path: &Path, id: &str) -> Result<(), String> {
 
 /// Remove a model's downloaded files. Returns the bytes freed.
 pub fn delete(settings_path: &Path, id: &str) -> Result<u64, String> {
+    if crate::custom_models::is_custom(id) {
+        return Err("custom models can only be removed from the list; their files are user-owned".into());
+    }
     let settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
     if settings.model_id == id {
         return Err(format!(
@@ -487,7 +497,7 @@ mod tests {
         Settings::default().save(&settings_path).unwrap();
 
         let err = select(&settings_path, "not-installed-anywhere").expect_err("should refuse");
-        assert!(err.contains("not installed"), "{err}");
+        assert!(err.contains("unknown model"), "{err}");
 
         std::fs::remove_dir_all(&base).ok();
     }

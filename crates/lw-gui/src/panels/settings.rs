@@ -20,6 +20,17 @@ use lw_core::sound::{Cue, SoundTheme};
 use crate::{theme, widgets};
 
 fn selected_model_ready(id: &str) -> bool {
+    if lw_app::custom_models::is_custom(id) {
+        return lw_app::custom_models::find(&lw_app::paths::settings_path(), id).is_ok_and(|m| {
+            m.is_some_and(|m| match m.source {
+                lw_app::custom_models::ModelSource::Local { .. } => {
+                    lw_app::catalog::engine_features().contains(&"sherpa")
+                        && lw_app::custom_models::local_files(&m).is_ok()
+                }
+                lw_app::custom_models::ModelSource::Online { .. } => true,
+            })
+        });
+    }
     use lw_core::model::{Catalog, InstallState, entry_paths, manifests_dir};
 
     let Ok(catalog) = Catalog::builtin() else {
@@ -1031,6 +1042,40 @@ impl State {
     }
 
     fn accelerator_card(&self) -> Element<'_, Message> {
+        if let Ok(Some(model)) =
+            lw_app::custom_models::find(&lw_app::paths::settings_path(), &self.settings.model_id)
+        {
+            let (heading, detail) = match model.source {
+                lw_app::custom_models::ModelSource::Online {
+                    base_url,
+                    model: model_id,
+                } => (
+                    "Online speech recognition",
+                    format!(
+                        "{} ({model_id}) sends recorded speech to {base_url}. Local accelerator settings do not apply to this connection.",
+                        model.name
+                    ),
+                ),
+                lw_app::custom_models::ModelSource::Local { directory, kind } => (
+                    "Custom model — CPU",
+                    format!(
+                        "{} ({kind}) uses the sherpa CPU engine. Files: {}. GPU and NPU acceleration are currently available for the built-in Parakeet model.",
+                        model.name,
+                        directory.display()
+                    ),
+                ),
+            };
+            let mut content = column![widgets::heading(heading), widgets::prose(detail)].spacing(8);
+            if !self.selected_model_ready {
+                content = content.push(
+                    widgets::body(
+                        "This model is unavailable. Open Models to check the folder and engine support.",
+                    )
+                    .color(theme::BAD),
+                );
+            }
+            return widgets::card(content).into();
+        }
         use lw_core::capabilities::{ALL_ACCELERATORS, Accelerator as A, AcceleratorKind};
 
         let model_dir = lw_app::paths::models_root().join(&self.settings.model_id);

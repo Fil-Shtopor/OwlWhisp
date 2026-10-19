@@ -17,6 +17,7 @@
 pub mod accelerators;
 pub mod bench;
 pub mod catalog;
+pub mod custom_models;
 pub mod diagnostics;
 pub mod dictation;
 pub mod hotkey;
@@ -24,6 +25,7 @@ pub mod install;
 pub mod logging;
 pub mod machine;
 pub mod measurements;
+pub mod online;
 pub mod paths;
 pub mod provider_worker;
 pub mod runtime_install;

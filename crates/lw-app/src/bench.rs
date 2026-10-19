@@ -35,15 +35,8 @@ pub struct Loaded {
 pub fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
     let settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
     let data = app_data_dir(settings_path);
-    let model_dir = data.join("models").join(&settings.model_id);
+    let model_dir = crate::custom_models::resolve_directory(settings_path, &settings.model_id)?;
     let cache_dir = data.join("cache");
-    if !model_dir.exists() {
-        return Err(format!(
-            "model '{}' is not installed ({})",
-            settings.model_id,
-            model_dir.display()
-        ));
-    }
     let ctx = EngineInitContext {
         model_dir: model_dir.clone(),
         cache_dir: cache_dir.clone(),
@@ -53,7 +46,7 @@ pub fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
     // Pick the engine from what is actually in the model directory, so switching models in
     // Settings is enough to switch engines — no per-model wiring in the UI.
     let (engine, recovery_notes) = initialize_dictation(&settings, |choice| {
-        let mut engine = build_engine_for(&model_dir, choice, &ctx)?;
+        let mut engine = build_registered_engine(settings_path, &model_dir, choice, &ctx)?;
         engine.initialize(&ctx).map_err(|e| e.to_string())?;
         Ok(engine)
     })?;
@@ -62,6 +55,19 @@ pub fn load_engine(settings_path: &std::path::Path) -> Result<Loaded, String> {
         settings,
         recovery_notes,
     })
+}
+
+fn build_registered_engine(
+    settings_path: &std::path::Path,
+    model_dir: &std::path::Path,
+    settings: &Settings,
+    ctx: &EngineInitContext,
+) -> Result<Box<dyn SpeechEngine>, String> {
+    if let Some(model) = crate::custom_models::find(settings_path, &settings.model_id)? {
+        crate::custom_models::build_engine(&model, settings)
+    } else {
+        build_engine_for(model_dir, settings, ctx)
+    }
 }
 
 /// Keep an utterance usable when an update or driver change leaves a saved GPU choice unavailable.
@@ -348,6 +354,13 @@ pub fn run_benchmark_suite(
 ) -> Result<BenchSuite, String> {
     let settings = Settings::load(settings_path).map_err(|e| e.to_string())?;
     let model = model_id.unwrap_or(settings.model_id);
+    let custom = crate::custom_models::find(settings_path, &model)?;
+    if custom
+        .as_ref()
+        .is_some_and(|m| matches!(m.source, crate::custom_models::ModelSource::Online { .. }))
+    {
+        return Err("online models are excluded from local benchmarks; use Test connection in Models".into());
+    }
     let caps = crate::machine::probe_capabilities();
 
     // Use the same isolated probes as Settings/Diagnostics, including per-user runtime add-ons.
@@ -401,7 +414,12 @@ pub fn run_benchmark_suite(
         })
         .collect();
     for (i, accel) in usable.iter().enumerate() {
-        if let Some(reason) = entry.as_ref().and_then(|e| e.unsupported_on(*accel)) {
+        let unsupported = if custom.is_some() && *accel != lw_core::capabilities::Accelerator::Cpu {
+            Some("custom ONNX models use the CPU engine".to_string())
+        } else {
+            entry.as_ref().and_then(|e| e.unsupported_on(*accel))
+        };
+        if let Some(reason) = unsupported {
             on_progress(serde_json::json!({
                 "index": i, "total": total,
                 "accelerator": accel.id(), "label": accel.label(),
@@ -496,14 +514,12 @@ pub fn run_benchmark_job(
     }
 
     let data = app_data_dir(settings_path);
-    let model_dir = data.join("models").join(&settings.model_id);
-    if !model_dir.exists() {
-        return Err(format!(
-            "model '{}' is not installed ({})",
-            settings.model_id,
-            model_dir.display()
-        ));
+    if crate::custom_models::find(settings_path, &settings.model_id)?
+        .is_some_and(|m| matches!(m.source, crate::custom_models::ModelSource::Online { .. }))
+    {
+        return Err("online models are excluded from local benchmarks; use Test connection in Models".into());
     }
+    let model_dir = crate::custom_models::resolve_directory(settings_path, &settings.model_id)?;
     let ctx = EngineInitContext {
         model_dir: model_dir.clone(),
         cache_dir: data.join("cache"),
@@ -511,7 +527,7 @@ pub fn run_benchmark_job(
     };
 
     let t0 = std::time::Instant::now();
-    let mut engine = build_engine_for(&model_dir, &settings, &ctx)?;
+    let mut engine = build_registered_engine(settings_path, &model_dir, &settings, &ctx)?;
     engine.initialize(&ctx).map_err(|e| e.to_string())?;
     let engine_load_ms = t0.elapsed().as_secs_f32() * 1000.0;
 

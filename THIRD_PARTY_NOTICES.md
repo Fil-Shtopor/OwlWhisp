@@ -44,9 +44,10 @@ also carries `LICENSES.md`. See `docs/licenses.md` for the complete matrix and o
 
 ## Frameworks & libraries (all MIT and/or Apache-2.0 unless noted)
 iced and its stack (MIT), winit (Apache-2.0), tiny-skia (BSD-3-Clause), tray-icon and muda
-(MIT/Apache-2.0); the `ort`/`ort-sys` crates; cpal, rubato, hound,
+(MIT/Apache-2.0); rfd (MIT); the `ort`/`ort-sys` crates; cpal, rubato, hound,
 realfft, rustfft, ndarray, half; enigo, arboard, global-hotkey, handy-keys; keyring (+ `clipboard-win`
-under BSL-1.0 on Windows, via arboard); reqwest (native-TLS / `schannel` MIT), tokio, futures, serde,
+under BSL-1.0 on Windows, via arboard); reqwest (native-TLS / `schannel` MIT), mime_guess (MIT),
+unicase (MIT/Apache-2.0), tokio, futures, serde,
 serde_json, thiserror, anyhow, tracing, sha2, hex, directories, sysinfo, regex, unicode-normalization,
 zip, tar, bzip2, flate2, clap, indicatif, uuid, chrono, parking_lot, crossbeam-channel, tokio-util;
 None. The user interface is Rust; there is no JavaScript in a shipped build.

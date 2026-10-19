@@ -153,13 +153,14 @@ impl EngineRegistry {
             Acceleration::Ane => 1,
             Acceleration::Gpu => 2,
             Acceleration::Cpu => 3,
+            Acceleration::Remote => 4,
         };
         candidates.sort_by_key(|c| rank(c.acceleration));
 
         // A preference that pins an exact provider still only constrains the *class* here: this
         // registry sees accelerations, not providers. The engine enforces the exact provider.
         let acceptable = |a: Acceleration| match pref {
-            BackendPreference::Automatic => true,
+            BackendPreference::Automatic => a != Acceleration::Remote,
             BackendPreference::ForceNpu => a == Acceleration::Npu,
             BackendPreference::ForceGpu => matches!(a, Acceleration::Gpu | Acceleration::Ane),
             BackendPreference::ForceCpu => a == Acceleration::Cpu,
@@ -219,6 +220,20 @@ mod tests {
         for p in BackendPreference::all() {
             assert_eq!(p.is_strict(), p != BackendPreference::Automatic, "{p:?}");
         }
+    }
+
+    #[test]
+    fn automatic_selection_never_falls_back_to_a_remote_service() {
+        let outcome = EngineRegistry::select(
+            BackendPreference::Automatic,
+            vec![BackendCandidate {
+                id: "online",
+                acceleration: Acceleration::Remote,
+                provider: Provider::Remote,
+                probe: Box::new(|| panic!("a remote service must not be probed automatically")),
+            }],
+        );
+        assert!(outcome.chosen.is_none());
     }
 
     #[test]
