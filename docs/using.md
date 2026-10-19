@@ -63,9 +63,10 @@ cues follow it.
 
 ## Custom models and online connections
 
-In **Models → My models → Add local model**, choose the folder containing a compatible
-sherpa-onnx export, enter a name and click **Check and add**. OwlWhisp detects the model family;
-if a bare `model.onnx` is ambiguous, select its family explicitly. Supported families are Whisper,
+At the end of the model list, expand **Models → Custom Models → Add local model** and choose
+the folder containing a compatible sherpa-onnx export, enter a name and click **Check and add**.
+OwlWhisp detects the model family; if a bare `model.onnx` is ambiguous, select its family explicitly.
+Supported families are Whisper,
 Moonshine, NeMo transducer, SenseVoice, Paraformer, Qwen3-ASR and Omnilingual. A single arbitrary
 ONNX file, whisper.cpp GGML file or Hugging Face checkpoint is not sufficient.
 
@@ -75,9 +76,9 @@ CPU. Files stay in the selected folder. **Choose folder** repairs a moved model 
 its ID. **Remove from list** unregisters it without deleting its files. Choose another model before
 removing the active one. Local custom models are also available in **Benchmark**.
 
-For optional online recognition, choose **Connect online model**, enter a connection name, API
-base URL (for example `https://api.openai.com/v1`), transcription model ID (for example `whisper-1`)
-and API key. The service must implement the OpenAI-compatible `POST /audio/transcriptions`
+For optional online recognition, expand **Custom Models → Connect online model**, enter a connection
+name, API base URL (for example `https://api.openai.com/v1`), transcription model ID (for example
+`whisper-1`) and API key. The service must implement the OpenAI-compatible `POST /audio/transcriptions`
 multipart API and return JSON with a `text` field. HTTPS is required except for HTTP loopback
 servers. The base URL should normally end in `/v1`, without `/audio/transcriptions`.
 

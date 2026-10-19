@@ -219,8 +219,12 @@ impl State {
                 if let Ok(v) = &self.catalog {
                     self.open = v.entries.iter().map(|e| e.id.clone()).collect();
                 }
+                self.sources.set_expanded(true);
             }
-            Message::CollapseAll => self.open.clear(),
+            Message::CollapseAll => {
+                self.open.clear();
+                self.sources.set_expanded(false);
+            }
             Message::LanguageSelected(code) => self.language = code,
             Message::GlossaryToggled => self.glossary = !self.glossary,
             Message::AskDelete(id) => self.confirm_delete = Some(id),
@@ -324,7 +328,6 @@ impl State {
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
-            self.sources.view(&self.selected),
             disclaimer(view.estimate_disclaimer),
             self.role_picks(view),
             self.glossary_block(view),
@@ -468,7 +471,7 @@ impl State {
     }
 
     fn table<'a>(&'a self, view: &'a CatalogView) -> Element<'a, Message> {
-        let all_open = view.entries.iter().all(|e| self.open.contains(&e.id));
+        let all_open = view.entries.iter().all(|e| self.open.contains(&e.id)) && self.sources.all_expanded();
         let toolbar = row![
             button(widgets::button_label(if all_open {
                 "Collapse all"
@@ -483,7 +486,7 @@ impl State {
             })
             .style(theme::action(false)),
             Space::new().width(Length::Fill),
-            widgets::sub(format!("{} models", view.entries.len())),
+            widgets::sub(format!("{} models", view.entries.len() + self.sources.len())),
         ]
         .width(Length::Fill)
         .align_y(iced::Alignment::Center);
@@ -521,6 +524,8 @@ impl State {
             }
         }
 
+        body = body.push(Space::new().height(8));
+        body = body.push(self.sources.view(&self.selected));
         body = body.push(Space::new().height(8));
         body = body.push(widgets::prose(
             "Models keep a fixed catalog order, grouped by who made them: NVIDIA first, then \
@@ -603,18 +608,7 @@ impl State {
             .padding(Padding::from([8, 4]))
             .width(Length::Fill)
             .on_press(Message::ToggleRow(entry.id.clone()))
-            .style(|_t, status| button::Style {
-                background: match status {
-                    button::Status::Hovered => Some(theme::faded(theme::BG_INSET, 0.6).into()),
-                    _ => None,
-                },
-                text_color: theme::TEXT,
-                border: iced::Border {
-                    radius: 6.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+            .style(theme::disclosure);
 
         if !open {
             return head.into();

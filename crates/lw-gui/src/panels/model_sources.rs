@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use iced::widget::{button, column, pick_list, row, text_input};
-use iced::{Element, Length};
+use iced::widget::{button, column, pick_list, row, text, text_input};
+use iced::{Element, Length, Padding};
 use lw_app::custom_models::{self, CustomModel, LocalModelKind, ModelSource};
 
 use crate::{theme, widgets};
@@ -12,8 +12,10 @@ use crate::{theme, widgets};
 pub enum Message {
     ShowLocal,
     ShowOnline,
-    Cancel,
-    NameChanged(String),
+    CancelLocal,
+    CancelOnline,
+    LocalNameChanged(String),
+    OnlineNameChanged(String),
     DirectoryChanged(String),
     KindSelected(KindChoice),
     BrowseFolder,
@@ -64,7 +66,8 @@ pub struct State {
     registry_error: Option<String>,
     local_open: bool,
     online_open: bool,
-    name: String,
+    local_name: String,
+    online_name: String,
     directory: String,
     kind: KindChoice,
     kinds: Vec<KindChoice>,
@@ -86,7 +89,8 @@ impl State {
             registry_error: None,
             local_open: false,
             online_open: false,
-            name: String::new(),
+            local_name: String::new(),
+            online_name: String::new(),
             directory: String::new(),
             kind: KindChoice(None),
             kinds: std::iter::once(KindChoice(None))
@@ -145,12 +149,38 @@ impl State {
         }
     }
 
-    fn clear_form(&mut self) {
-        self.name.clear();
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn all_expanded(&self) -> bool {
+        self.local_open && self.online_open
+    }
+
+    pub fn set_expanded(&mut self, expanded: bool) {
+        if self.busy() {
+            return;
+        }
+        if !expanded {
+            self.clear_local_form();
+            self.clear_online_form();
+        }
+        self.local_open = expanded;
+        self.online_open = expanded;
+    }
+
+    fn clear_local_form(&mut self) {
+        self.local_name.clear();
         self.directory.clear();
         self.kind = KindChoice(None);
-        self.key.clear();
         self.replacing = None;
+        self.notice = None;
+        self.error = None;
+    }
+
+    fn clear_online_form(&mut self) {
+        self.online_name.clear();
+        self.key.clear();
         self.notice = None;
         self.error = None;
     }
@@ -163,29 +193,35 @@ impl State {
         }
         match message {
             Message::ShowLocal => {
-                self.clear_form();
-                self.local_open = true;
-                self.online_open = false;
+                if self.local_open {
+                    self.clear_local_form();
+                }
+                self.local_open = !self.local_open;
             }
             Message::ShowOnline => {
-                self.clear_form();
-                self.local_open = false;
-                self.online_open = true;
+                if self.online_open {
+                    self.clear_online_form();
+                }
+                self.online_open = !self.online_open;
             }
-            Message::Cancel => {
-                self.clear_form();
+            Message::CancelLocal => {
+                self.clear_local_form();
                 self.local_open = false;
+            }
+            Message::CancelOnline => {
+                self.clear_online_form();
                 self.online_open = false;
             }
-            Message::NameChanged(value) => self.name = value,
+            Message::LocalNameChanged(value) => self.local_name = value,
+            Message::OnlineNameChanged(value) => self.online_name = value,
             Message::DirectoryChanged(value) => self.directory = value,
             Message::KindSelected(value) => self.kind = value,
             Message::BrowseFolder => self.picking = true,
             Message::FolderPicked(path) => {
                 self.picking = false;
                 if let Some(path) = path {
-                    if self.name.trim().is_empty() {
-                        self.name = path
+                    if self.local_name.trim().is_empty() {
+                        self.local_name = path
                             .file_name()
                             .unwrap_or_default()
                             .to_string_lossy()
@@ -208,12 +244,13 @@ impl State {
                     match result.and_then(|validated| {
                         custom_models::register_local(
                             &settings_path,
-                            &self.name,
+                            &self.local_name,
                             validated,
                             self.replacing.as_deref(),
                         )
                     }) {
                         Ok(id) => {
+                            self.clear_local_form();
                             self.local_open = false;
                             self.notice = Some(
                                 "Model checked and added. Its files stay in the selected folder.".into(),
@@ -234,7 +271,7 @@ impl State {
                     self.online_job = None;
                     match result {
                         Ok(JobResult::Saved(id)) => {
-                            self.key.clear();
+                            self.clear_online_form();
                             self.online_open = false;
                             self.notice = Some("Online connection saved. Choose Use online to send dictation to this service.".into());
                             self.refresh();
@@ -258,13 +295,12 @@ impl State {
                     ..
                 }) = model
                 {
-                    self.clear_form();
-                    self.name = name;
+                    self.clear_local_form();
+                    self.local_name = name;
                     self.directory = directory.display().to_string();
                     self.kind = KindChoice(Some(kind));
                     self.replacing = Some(id);
                     self.local_open = true;
-                    self.online_open = false;
                 }
             }
             Message::Remove(id) => match custom_models::remove(&settings_path, &id) {
@@ -280,7 +316,7 @@ impl State {
             Message::KeyChanged(value) => self.key = value,
             Message::SaveOnline | Message::TestOnline => {
                 let testing = matches!(message, Message::TestOnline);
-                let name = self.name.clone();
+                let name = self.online_name.clone();
                 let base_url = self.base_url.clone();
                 let model = self.model.clone();
                 let mut key = self.key.clone();
@@ -334,11 +370,10 @@ impl State {
                     ..
                 }) = model
                 {
-                    self.clear_form();
-                    self.name = name;
+                    self.clear_online_form();
+                    self.online_name = name;
                     self.base_url = base_url;
                     self.model = model;
-                    self.local_open = false;
                     self.online_open = true;
                 }
             }
@@ -349,26 +384,30 @@ impl State {
     pub fn view<'a>(&'a self, selected: &'a str) -> Element<'a, super::models::Message> {
         let enabled = !self.busy() && self.registry_error.is_none();
         let mut content = column![
-            widgets::heading("My models"),
             row![
-                button("Add local model")
-                    .on_press_maybe(enabled.then_some(Message::ShowLocal))
-                    .style(theme::action(false)),
-                button("Connect online model")
-                    .on_press_maybe(enabled.then_some(Message::ShowOnline))
-                    .style(theme::action(false)),
+                text("CUSTOM MODELS").size(11).color(theme::TEXT),
+                widgets::sub(format!(
+                    "{} model{}",
+                    self.entries.len(),
+                    if self.entries.len() == 1 { "" } else { "s" }
+                )),
             ]
             .spacing(8),
         ]
-        .spacing(10);
+        .spacing(0);
         if let Some(error) = &self.registry_error {
             content = content.push(widgets::body(error).color(theme::BAD));
         }
+        content = content.push(disclosure(
+            "Add local model",
+            self.local_open,
+            enabled.then_some(Message::ShowLocal),
+        ));
         if self.local_open {
             let editing = !self.busy();
-            content = content.push(column![
+            content = content.push(widgets::inset(column![
                 widgets::body(if self.replacing.is_some() { "Locate local model" } else { "Add a compatible ONNX model folder" }),
-                text_input("Model name", &self.name).on_input_maybe(editing.then_some(Message::NameChanged)),
+                text_input("Model name", &self.local_name).on_input_maybe(editing.then_some(Message::LocalNameChanged)),
                 row![
                     text_input("Folder containing the model files", &self.directory).on_input_maybe(editing.then_some(Message::DirectoryChanged)).width(Length::Fill),
                     button("Choose folder").on_press_maybe(editing.then_some(Message::BrowseFolder)).style(theme::action(false)),
@@ -377,17 +416,23 @@ impl State {
                 widgets::prose("Whisper, Moonshine, NeMo transducer, SenseVoice, Paraformer, Qwen3-ASR and Omnilingual sherpa-onnx exports. If detection is ambiguous, select the family. Custom ONNX models run on CPU."),
                 row![
                     button(if self.validation.is_some() { "Checking model…" } else { "Check and add" })
-                        .on_press_maybe((editing && !self.name.trim().is_empty() && !self.directory.trim().is_empty()).then_some(Message::CheckLocal)).style(theme::action(false)),
-                    button("Cancel").on_press_maybe(editing.then_some(Message::Cancel)).style(theme::action(false)),
+                        .on_press_maybe((editing && !self.local_name.trim().is_empty() && !self.directory.trim().is_empty()).then_some(Message::CheckLocal)).style(theme::action(false)),
+                    button("Cancel").on_press_maybe(editing.then_some(Message::CancelLocal)).style(theme::action(false)),
                 ].spacing(8),
                 widgets::sub("Checks loading and a short inference. Files stay in your folder; the active model changes only when you choose Use."),
-            ].spacing(8));
+            ].spacing(8)));
         }
+        content = content.push(iced::widget::rule::horizontal(1).style(theme::rule));
+        content = content.push(disclosure(
+            "Connect online model",
+            self.online_open,
+            enabled.then_some(Message::ShowOnline),
+        ));
         if self.online_open {
             let editing = !self.busy();
-            content = content.push(column![
+            content = content.push(widgets::inset(column![
                 widgets::body("Online speech recognition (compatible transcription API)"),
-                text_input("Connection name", &self.name).on_input_maybe(editing.then_some(Message::NameChanged)),
+                text_input("Connection name", &self.online_name).on_input_maybe(editing.then_some(Message::OnlineNameChanged)),
                 text_input("API base URL, for example https://api.openai.com/v1", &self.base_url).on_input_maybe(editing.then_some(Message::BaseUrlChanged)),
                 text_input("Transcription model ID, for example whisper-1", &self.model).on_input_maybe(editing.then_some(Message::ModelChanged)),
                 text_input("API key — blank keeps a saved key, or uses no authentication", &self.key).secure(true).on_input_maybe(editing.then_some(Message::KeyChanged)),
@@ -395,11 +440,12 @@ impl State {
                 widgets::sub("Test connection uploads one second of generated silence and may use API quota. Saving does not contact the provider. Changing the address or model creates a separate connection; saved keys stay with their original endpoint."),
                 row![
                     button("Test connection").on_press_maybe(editing.then_some(Message::TestOnline)).style(theme::action(false)),
-                    button(if self.online_job.is_some() { "Working…" } else { "Save connection" }).on_press_maybe((editing && !self.name.trim().is_empty()).then_some(Message::SaveOnline)).style(theme::action(false)),
-                    button("Cancel").on_press_maybe(editing.then_some(Message::Cancel)).style(theme::action(false)),
+                    button(if self.online_job.is_some() { "Working…" } else { "Save connection" }).on_press_maybe((editing && !self.online_name.trim().is_empty()).then_some(Message::SaveOnline)).style(theme::action(false)),
+                    button("Cancel").on_press_maybe(editing.then_some(Message::CancelOnline)).style(theme::action(false)),
                 ].spacing(8),
-            ].spacing(8));
+            ].spacing(8)));
         }
+        content = content.push(iced::widget::rule::horizontal(1).style(theme::rule));
         if let Some(note) = &self.notice {
             content = content.push(widgets::body(note).color(theme::GOOD));
         }
@@ -464,8 +510,26 @@ impl State {
                 );
         }
         let form: Element<'_, Message> = content.into();
-        widgets::card(column![form.map(super::models::Message::Sources), rows].spacing(14)).into()
+        column![form.map(super::models::Message::Sources), rows]
+            .spacing(12)
+            .into()
     }
+}
+
+fn disclosure(label: &str, open: bool, message: Option<Message>) -> Element<'_, Message> {
+    button(
+        row![
+            text(if open { "v" } else { ">" }).size(11).color(theme::TEXT_DIM),
+            text(label).size(14).color(theme::TEXT),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center),
+    )
+    .padding(Padding::from([8, 4]))
+    .width(Length::Fill)
+    .on_press_maybe(message)
+    .style(theme::disclosure)
+    .into()
 }
 
 #[cfg(test)]

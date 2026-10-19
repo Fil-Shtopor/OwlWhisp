@@ -133,6 +133,26 @@ pub fn action(danger: bool) -> impl Fn(&Theme, iced::widget::button::Status) -> 
     }
 }
 
+/// A full-width disclosure row in the model list.
+pub fn disclosure(_t: &Theme, status: iced::widget::button::Status) -> iced::widget::button::Style {
+    iced::widget::button::Style {
+        background: match status {
+            iced::widget::button::Status::Hovered => Some(faded(BG_INSET, 0.6).into()),
+            _ => None,
+        },
+        text_color: if matches!(status, iced::widget::button::Status::Disabled) {
+            TEXT_DIM
+        } else {
+            TEXT
+        },
+        border: Border {
+            radius: 6.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 /// A raised surface with a border, matching `.card` and the model table's container.
 pub fn card(_t: &Theme) -> iced::widget::container::Style {
     iced::widget::container::Style {
