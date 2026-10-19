@@ -10,9 +10,7 @@ alongside the existing groups of model makers.
   state. Opening or cancelling one form does not overwrite the other form's inputs.
 - **Expand or collapse the complete list:** **Expand all / Collapse all** includes both custom
   model forms. The model count includes saved custom models and online connections.
-- **Follow the updated documentation:** the user guide points to the new location. An Android
-  and iOS architecture assessment records a proposed shared SDK and native app boundaries;
-  mobile applications and mobile inference are not implemented by this release.
+- **Follow the updated documentation:** the user guide points to the new location.
 
 Custom local ONNX imports and opt-in compatible transcription APIs retain the capabilities
 introduced in 0.1.9. Local model files stay in their selected folders. API keys use the operating
