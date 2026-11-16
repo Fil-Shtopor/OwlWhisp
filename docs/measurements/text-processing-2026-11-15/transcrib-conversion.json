@@ -1,0 +1,17 @@
+{
+  "source_repo": "NicolaiMTLassen/transcrib-cleanup-0.6b",
+  "source_revision": "881a17920f1a97e3adc155978188ad80c97bb0fb",
+  "source_files": {
+    "README.md": "2d9c01093653659ad6b9edb01182869884d79c2910fe6043232a21ec4020e7c9",
+    "config.json": "85bf6ff699835fcf28d5f04f823180c3132e105bdb9ebed9346d5f7355f9b525",
+    "tokenizer.json": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+    "tokenizer_config.json": "d93ac1a2c7adb9ad022f354d822f1f0f57e32e62ef2989e902782d6ab896acfe",
+    "model.safetensors": "d8952fddab90b94ed6468537e7d5f6a9ce95caa4f9cbed4fdc2caaa31a7bc0c3"
+  },
+  "converter_tag": "b12420",
+  "converter_archive_sha256": "e5c4668b4b6d3fa5adbf0e24b3ab119bd71a034e4b8541cc5c2a4014ed13e8df",
+  "conversion": "MLX affine INT4 group64 -> BF16 -> GGUF Q8_0; experimental, no Apple MLX parity test",
+  "output_file": "Transcrib-Cleanup-0.6B-Q8_0.gguf",
+  "output_bytes": 639442560,
+  "output_sha256": "589824e692101b7e9f13195cb365c5ebdcedbc5fa17e3350b3d3d48686f8f06f"
+}

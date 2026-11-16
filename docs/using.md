@@ -98,6 +98,52 @@ as a fallback. API failures appear as dictation errors. Requests time out after 
 client limits uploads to 24 MiB. It does not upload benchmark fixtures, follow redirects or log
 audio, transcripts, API keys or response bodies.
 
+## Text processing and local translation
+
+In **Settings → Text processing**, enable any of the three independent options, then click
+**Save**. Existing settings migrate with all three off. **How these options work** expands the
+language coverage, memory costs and limitations in the app.
+
+- **Remove filler sounds** removes clear hesitations using language-specific rules, with no
+  additional model. It supports English, Russian, Ukrainian, Spanish, Italian, French, German,
+  Portuguese, Dutch, Polish, Czech, Turkish, Chinese, Japanese, Korean, Arabic and Hindi.
+  Select **Language for cleanup** manually for short or mixed-language dictation. Auto uses the
+  speech engine's language hint where available, otherwise conservative script and word clues.
+  Meaningful or ambiguous expressions such as `like`, `well`, `ну`, `типа`, `那个` and `嗯` remain.
+  Quotes, code, paths, links, identifiers and numeric forms are protected from these cleanup rules.
+- **Punctuation and capitalization** fixes spacing before existing punctuation and capitalizes
+  sentence starts. It uses no additional model and cannot reconstruct missing commas or grammar.
+  Turning it off leaves the recognizer's and translator's own punctuation and case in place.
+- **Translate dictation** translates the cleaned transcript into the selected target language
+  using local **Hy-MT2-1.8B Q4_K_M**, through a pinned llama.cpp runtime. Click **Download local
+  translator** once. Downloads are resumable and SHA-256 verified; dictation never downloads a
+  model automatically. Translation itself uses authenticated loopback HTTP with system proxies
+  disabled; it sends no text to an external translation service. Your selected recognition model
+  still determines whether the audio recognition step is local or online.
+
+The translation model is 1.13 GB on disk, plus runtime and retained installation archives.
+The displayed download total includes the runtime: about 1.16 GB for Windows x64 CPU or 1.76 GB
+for CUDA. Extracted libraries need additional disk space. CUDA uses approximately 1.5 GB of VRAM
+and some host RAM; CPU needs roughly 1.5–2 GB of RAM, in addition to speech recognition. These are
+hardware-dependent estimates, not an allocation guarantee. Cleanup has no extra model memory.
+
+**Automatic** translation selects CUDA on Windows x64 with NVIDIA hardware and CPU elsewhere.
+CUDA needs a compatible NVIDIA driver. It does not silently use CPU if the CUDA runtime cannot
+start: choose **CPU** explicitly in that case. Other platforms currently have CPU packages only.
+CPU translation can take several seconds on longer text. The **Maximum extra wait** setting
+defaults to 5 seconds and includes remaining model loading after recognition. Loading starts
+alongside recording; a cold first dictation can still exceed the budget. On timeout or failure,
+the cleaned source is delivered and the Dictate tab explains why. Inputs over 3,000 characters
+also keep their source. Translation does not run on an empty cleaned transcript.
+
+The speech and translation models share **Background memory**'s idle-unload policy. Disabling
+translation and saving also unloads the worker. **Copy original transcript** in Dictate recovers
+the recognizer's original text whenever processing changed it, including filler-only dictation.
+Only the most recent original is held in memory; it is not saved to a history file.
+
+Implementation checks and measured timings are recorded in
+[the text-processing research report](text-processing-research-2026-11-15.md).
+
 ## 2. Hotkey and modes
 
 Settings → **Hotkey**. Pick modifiers (Ctrl / Alt / Shift / Win) and a trigger key, or use the

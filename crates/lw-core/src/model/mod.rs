@@ -6,8 +6,9 @@
 //! tiers, which hardware they can use) and is scrupulous about separating **estimates** from
 //! **measurements** — see the module docs there.
 //!
-//! No downloaded file is ever executed; only data files (ONNX, vocab, context binaries) are
-//! fetched, and each is verified against a pinned SHA-256 before use.
+//! Speech catalog downloads are data (ONNX, vocab, context binaries), never executables.
+//! Each file is verified against a pinned SHA-256 before use. The optional translator's
+//! separately verified executable runtime is managed by `lw_app::translation`.
 
 pub mod archive;
 pub mod catalog;

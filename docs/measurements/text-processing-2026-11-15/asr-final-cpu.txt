@@ -1,0 +1,11 @@
+﻿languages: restricted to ru by --languages
+engine load (sessions): 2496 ms
+backend: ONNX Runtime CPU on CPU
+untimed warm-up: 3 clips, 6924 ms
+file                    dur(s) time(ms)     RTF  err
+fleurs_ru_1.wav           5.64     2865   0.508  WER 0.00 [ru]
+fleurs_ru_2.wav           6.96     3007   0.432  WER 0.00 [ru]
+fleurs_ru_3.wav           7.50     3061   0.408  WER 0.00 [ru]
+---
+mean RTF: 0.4494   token-weighted WER: 0.000   over 3 clip(s) in ru
+warm RTF: 0.4201   cold RTF: 0.5080   (2 warm run(s))

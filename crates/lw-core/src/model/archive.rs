@@ -22,7 +22,7 @@
 //!    the disk.
 //!
 //! Nothing unpacked is ever executed — these are ONNX graphs and vocabularies, loaded by the
-//! engine, and the app has no path that runs a downloaded binary.
+//! engine. The optional translator has a separate runtime installer in `lw_app::translation`.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};

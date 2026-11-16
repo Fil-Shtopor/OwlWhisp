@@ -194,6 +194,66 @@ pub struct LlmConfig {
     pub key_in_keychain: bool,
 }
 
+/// Local, deterministic processing of text returned by the speech model.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct TextProcessingConfig {
+    /// Remove narrow, language-specific hesitation sounds.
+    pub remove_fillers: bool,
+    /// Format punctuation spacing and sentence starts; ASR punctuation remains when off.
+    pub format_punctuation: bool,
+    /// Manual source language or conservative automatic detection.
+    pub language: crate::text::TextLanguage,
+}
+
+/// Where the optional local translator runs.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslationBackend {
+    /// Use installed NVIDIA CUDA on supported Windows x64 hardware, otherwise CPU.
+    #[default]
+    Auto,
+    /// Use CPU only.
+    Cpu,
+    /// Require NVIDIA CUDA, without silently changing to CPU.
+    Cuda,
+}
+
+impl std::fmt::Display for TranslationBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "Automatic",
+            Self::Cpu => "CPU",
+            Self::Cuda => "NVIDIA GPU (CUDA)",
+        })
+    }
+}
+
+/// Optional on-device translation after deterministic text cleanup.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct TranslationConfig {
+    /// Translate completed dictation only when explicitly enabled.
+    pub enabled: bool,
+    /// Language to insert, independently of the source/cleanup language.
+    pub target: crate::text::TextLanguage,
+    /// CPU or supported NVIDIA GPU.
+    pub backend: TranslationBackend,
+    /// Maximum extra wait for a translation request, including any unfinished preload.
+    pub timeout_secs: u32,
+}
+
+impl Default for TranslationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            target: crate::text::TextLanguage::English,
+            backend: TranslationBackend::Auto,
+            timeout_secs: 5,
+        }
+    }
+}
+
 /// Audio input settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AudioConfig {
@@ -259,6 +319,12 @@ pub struct Settings {
     pub start_minimized: bool,
     /// LLM cleanup config.
     pub llm: LlmConfig,
+    /// Optional local text cleanup; missing fields preserve older behavior.
+    #[serde(default)]
+    pub text_processing: TextProcessingConfig,
+    /// Optional local translator, off by default.
+    #[serde(default)]
+    pub translation: TranslationConfig,
     /// Replacement dictionary.
     pub dictionary: Dictionary,
     /// Per-application profiles.
@@ -301,6 +367,8 @@ impl Default for Settings {
             autostart: false,
             start_minimized: false,
             llm: LlmConfig::default(),
+            text_processing: TextProcessingConfig::default(),
+            translation: TranslationConfig::default(),
             dictionary: Dictionary::new(),
             profiles: ProfileSet::default(),
             log_level: default_log_level(),
@@ -312,6 +380,16 @@ impl Default for Settings {
 impl Settings {
     /// Validate ranges, returning a descriptive error if something is out of bounds.
     pub fn validate(&self) -> Result<()> {
+        if self.translation.target == crate::text::TextLanguage::Auto {
+            return Err(Error::Config(
+                "translation target must be a specific language".into(),
+            ));
+        }
+        if !(1..=30).contains(&self.translation.timeout_secs) {
+            return Err(Error::Config(
+                "translation timeout must be between 1 and 30 seconds".into(),
+            ));
+        }
         if self.model_idle_timeout_secs > 24 * 60 * 60 {
             return Err(Error::Config(
                 "model_idle_timeout_secs must be in [0, 86400]".into(),
@@ -552,6 +630,48 @@ mod tests {
     #[test]
     fn default_is_valid() {
         Settings::default().validate().unwrap();
+    }
+
+    #[test]
+    fn text_options_migrate_and_roundtrip_independently() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("text_processing");
+        old.as_object_mut().unwrap().remove("translation");
+        let migrated: Settings = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(migrated.text_processing, TextProcessingConfig::default());
+        assert_eq!(migrated.translation, TranslationConfig::default());
+        old["text_processing"] = serde_json::json!({"remove_fillers":true});
+        old["translation"] = serde_json::json!({"enabled":true});
+        let partial: Settings = serde_json::from_value(old).unwrap();
+        assert!(partial.text_processing.remove_fillers);
+        assert!(!partial.text_processing.format_punctuation);
+        assert_eq!(partial.translation.target, crate::text::TextLanguage::English);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        for mask in 0..8 {
+            let mut s = migrated.clone();
+            s.text_processing.remove_fillers = mask & 1 != 0;
+            s.text_processing.format_punctuation = mask & 2 != 0;
+            s.text_processing.language = crate::text::TextLanguage::French;
+            s.translation.enabled = mask & 4 != 0;
+            s.translation.target = crate::text::TextLanguage::Chinese;
+            s.translation.backend = TranslationBackend::Cpu;
+            s.translation.timeout_secs = 3;
+            s.save(&path).unwrap();
+            assert_eq!(Settings::load(&path).unwrap(), s);
+        }
+    }
+
+    #[test]
+    fn translation_rejects_missing_target_and_unbounded_wait() {
+        let mut s = Settings::default();
+        s.translation.target = crate::text::TextLanguage::Auto;
+        assert!(s.validate().is_err());
+        s.translation.target = crate::text::TextLanguage::English;
+        for seconds in [0, 31, u32::MAX] {
+            s.translation.timeout_secs = seconds;
+            assert!(s.validate().is_err());
+        }
     }
 
     #[test]

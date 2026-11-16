@@ -1,0 +1,19 @@
+{
+  "command": [
+    "target/release/lw.exe",
+    "transcribe",
+    "tests/fixtures/audio/fleurs_ru_1.wav",
+    "--model-dir",
+    ".owlwhisp-test/models/parakeet-tdt-0.6b-v3",
+    "--backend",
+    "cpu",
+    "--threads",
+    "8",
+    "--runtime-dir",
+    "runtime/win-x64"
+  ],
+  "exit_code": 0,
+  "stdout": "backend : ONNX Runtime CPU on CPU\naudio   : 5.64s   time: 441ms   RTF: 0.078\ntext    : Основной религией в Молдавии является православное христианство.\n",
+  "stderr": "",
+  "scope": "Existing OwlWhisp CLI; one bundled Russian audio fixture; checking native punctuation and capitalization, not a quality benchmark."
+}

@@ -14,8 +14,9 @@ use iced::widget::{Space, button, checkbox, column, container, pick_list, radio,
 use iced::{Element, Length, Padding};
 use lw_app::accelerators::{AcceleratorAction, AcceleratorReadiness, ModelAvailability, model_availability};
 use lw_core::engine::BackendPreference;
-use lw_core::settings::{HotkeyMode, Settings};
+use lw_core::settings::{HotkeyMode, Settings, TranslationBackend};
 use lw_core::sound::{Cue, SoundTheme};
+use lw_core::text::TextLanguage;
 
 use crate::{theme, widgets};
 
@@ -102,6 +103,17 @@ impl std::fmt::Display for DeviceChoice {
 pub enum Message {
     BackendSelected(BackendPreference),
     IdleTimeoutSelected(u32),
+    RemoveFillers(bool),
+    FormatPunctuation(bool),
+    CleanupLanguage(TextLanguage),
+    Translate(bool),
+    TranslationTarget(TextLanguage),
+    TranslationBackend(TranslationBackend),
+    TranslationTimeout(u32),
+    TextHelp,
+    PrepareTranslator,
+    TranslatorTick,
+    CancelTranslator,
     OpenProviderSetup(&'static str),
     ShowProviderInfo(&'static str),
     InstallRuntime(&'static str),
@@ -202,6 +214,9 @@ pub struct State {
     model_check_failed: Option<&'static str>,
     notice: Option<String>,
     error: Option<String>,
+    text_help: bool,
+    translator_setup: Option<lw_app::translation::Setup>,
+    translator_ready: bool,
 }
 
 impl State {
@@ -209,6 +224,7 @@ impl State {
         let path = lw_app::paths::settings_path();
         let settings = Settings::load(&path).unwrap_or_default();
         let selected_model_ready = selected_model_ready(&settings.model_id);
+        let translator_ready = lw_app::translation::is_ready(&path, settings.translation.backend);
         let diag = lw_app::diagnostics::collect(env!("CARGO_PKG_VERSION"));
         let runtime_actions = diag
             .accelerators
@@ -307,6 +323,9 @@ impl State {
             model_check_failed: None,
             notice: None,
             error: None,
+            text_help: false,
+            translator_setup: None,
+            translator_ready,
         }
     }
 
@@ -341,6 +360,7 @@ impl State {
 
     pub fn busy(&self) -> bool {
         self.runtime_install.is_some()
+            || self.translator_setup.is_some()
             || self.model_install.is_some()
             || self.installing_driver.is_some()
             || self.capturing
@@ -415,6 +435,11 @@ impl State {
     /// unbindable. Whichever answers first wins, and neither can leave the editor deaf.
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let mut subscriptions = Vec::new();
+        if self.translator_setup.is_some() {
+            subscriptions.push(
+                iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::TranslatorTick),
+            );
+        }
         if self.runtime_install.is_some() {
             subscriptions.push(
                 iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::RuntimeInstallTick),
@@ -487,6 +512,50 @@ impl State {
         match message {
             Message::BackendSelected(b) => self.settings.backend = b,
             Message::IdleTimeoutSelected(v) => self.settings.model_idle_timeout_secs = v,
+            Message::RemoveFillers(v) => self.settings.text_processing.remove_fillers = v,
+            Message::FormatPunctuation(v) => self.settings.text_processing.format_punctuation = v,
+            Message::CleanupLanguage(v) => self.settings.text_processing.language = v,
+            Message::Translate(v) => self.settings.translation.enabled = v,
+            Message::TranslationTarget(v) => self.settings.translation.target = v,
+            Message::TranslationBackend(v) => {
+                if self.translator_setup.is_none() {
+                    self.settings.translation.backend = v;
+                    self.translator_ready = lw_app::translation::is_ready(&lw_app::paths::settings_path(), v);
+                }
+            }
+            Message::TranslationTimeout(v) => self.settings.translation.timeout_secs = v,
+            Message::TextHelp => self.text_help = !self.text_help,
+            Message::PrepareTranslator => {
+                if self.translator_setup.is_none() {
+                    self.error = None;
+                    self.translator_setup = Some(lw_app::translation::start_setup(
+                        &lw_app::paths::settings_path(),
+                        self.settings.translation.backend,
+                    ));
+                }
+            }
+            Message::CancelTranslator => {
+                if let Some(setup) = &self.translator_setup {
+                    setup.cancel();
+                }
+            }
+            Message::TranslatorTick => {
+                if let Some(result) = self.translator_setup.as_ref().and_then(|s| s.poll()) {
+                    self.translator_setup = None;
+                    self.translator_ready = lw_app::translation::is_ready(
+                        &lw_app::paths::settings_path(),
+                        self.settings.translation.backend,
+                    );
+                    match result {
+                        Ok(()) => {
+                            self.notice =
+                                Some("Local translator is ready. Save to apply your choices.".into());
+                            self.error = None;
+                        }
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+            }
             Message::OpenProviderSetup(_) => {}
             Message::ShowProviderInfo(id) => {
                 self.provider_info = (self.provider_info != Some(id)).then_some(id);
@@ -763,6 +832,7 @@ impl State {
         // the accelerator card happens to be on this machine. What you adjust on the left, what
         // describes the hardware on the right.
         let adjust: Vec<Element<'_, Message>> = vec![
+            self.text_processing_card(),
             self.hotkey_card(),
             self.sound_card(),
             self.overlay_card(),
@@ -801,6 +871,127 @@ impl State {
         body
     }
 
+    /// Shared with the isolated settings preview used for visual and persistence checks.
+    pub fn text_processing_card(&self) -> Element<'_, Message> {
+        let config = &self.settings.text_processing;
+        let translation = &self.settings.translation;
+        let mut content = column![
+            widgets::heading("Text processing"),
+            checkbox(config.remove_fillers).label("Remove filler sounds").on_toggle(Message::RemoveFillers),
+            widgets::prose("Removes clear hesitations such as um, uh and Russian э-э. Keeps ambiguous words such as like and типа."),
+            checkbox(config.format_punctuation).label("Punctuation and capitalization").on_toggle(Message::FormatPunctuation),
+            widgets::prose("Tidies spacing and sentence starts using punctuation already supplied by speech recognition."),
+        ].spacing(10);
+        if config.remove_fillers || config.format_punctuation {
+            content = content.push(widgets::body("Language for cleanup")).push(
+                pick_list(
+                    TextLanguage::ALL.to_vec(),
+                    Some(config.language),
+                    Message::CleanupLanguage,
+                )
+                .text_size(14)
+                .width(Length::Fill),
+            );
+        }
+        content = content
+            .push(
+                checkbox(translation.enabled)
+                    .label("Translate dictation")
+                    .on_toggle(Message::Translate),
+            )
+            .push(widgets::prose(
+                "Translates recognized text locally with Hy-MT2. Requires a separate model download.",
+            ));
+        if translation.enabled {
+            content = content
+                .push(widgets::body("Translate to"))
+                .push(
+                    pick_list(
+                        TextLanguage::ALL
+                            .into_iter()
+                            .filter(|l| *l != TextLanguage::Auto)
+                            .collect::<Vec<_>>(),
+                        Some(translation.target),
+                        Message::TranslationTarget,
+                    )
+                    .text_size(14)
+                    .width(Length::Fill),
+                )
+                .push(widgets::body("Translation processor"))
+                .push(
+                    pick_list(
+                        vec![
+                            TranslationBackend::Auto,
+                            TranslationBackend::Cpu,
+                            TranslationBackend::Cuda,
+                        ],
+                        Some(translation.backend),
+                        Message::TranslationBackend,
+                    )
+                    .text_size(14)
+                    .width(Length::Fill),
+                )
+                .push(widgets::body("Maximum extra wait (seconds)"))
+                .push(
+                    pick_list(
+                        vec![1, 2, 3, 5, 10, 15, 30],
+                        Some(translation.timeout_secs),
+                        Message::TranslationTimeout,
+                    )
+                    .text_size(14)
+                    .width(Length::Fill),
+                );
+            if let Some(setup) = &self.translator_setup {
+                let progress = setup.progress();
+                content = content.push(widgets::prose(progress.message));
+                if let Some(f) = progress.fraction {
+                    content = content.push(iced::widget::progress_bar(0.0..=1.0, f));
+                }
+                content = content.push(
+                    button(widgets::button_label("Cancel download"))
+                        .on_press(Message::CancelTranslator)
+                        .style(theme::action(false)),
+                );
+            } else if self.translator_ready {
+                content = content.push(widgets::prose(
+                    "Local translator is installed. Save to apply these settings.",
+                ));
+            } else {
+                match lw_app::translation::download_size(translation.backend) {
+                    Ok(bytes) => {
+                        content = content.push(widgets::prose(format!("Download: {:.2} GB, including the runtime. Files are verified before installation.", bytes as f64 / 1_000_000_000.0)))
+                            .push(button(widgets::button_label("Download local translator")).on_press(Message::PrepareTranslator).style(theme::action(false)));
+                    }
+                    Err(e) => content = content.push(widgets::prose(e)),
+                }
+                content = content.push(widgets::prose(
+                    "Until setup completes, dictation keeps its original language and shows a notice.",
+                ));
+            }
+        }
+        content = content.push(
+            button(widgets::button_label(if self.text_help {
+                "v  How these options work"
+            } else {
+                ">  How these options work"
+            }))
+            .on_press(Message::TextHelp)
+            .style(theme::disclosure),
+        );
+        if self.text_help {
+            for explanation in [
+                "Filler removal uses language-specific rules, without another neural model. Supported: English, Russian, Ukrainian, Spanish, Italian, French, German, Portuguese, Dutch, Polish, Czech, Turkish, Chinese, Japanese, Korean, Arabic and Hindi. Automatic language detection can miss short or mixed phrases; choose the language manually for predictable results.",
+                "Only explicit hesitation sounds are removed. Words with useful meanings, including well, like, ну, типа, 那个 and 嗯, remain. Quoted text, code, links, paths and numbers are protected. Check the original in Dictate when wording matters.",
+                "Punctuation and capitalization use lightweight rules. They fix spaces before punctuation and capitalize sentence starts; they do not infer missing commas or rewrite grammar. Turning this off keeps punctuation and case already produced by speech recognition or translation. The two cleanup options need no model download and add no model RAM.",
+                "Translation runs offline after recognition and cleanup. Hy-MT2-1.8B Q4 needs a 1.13 GB model plus its runtime. Expect about 1.5 GB of VRAM with NVIDIA CUDA, or roughly 1.5–2 GB of RAM on CPU, in addition to speech recognition. CUDA also uses host RAM; exact usage varies. Automatic uses NVIDIA CUDA on Windows x64 when NVIDIA hardware is detected, otherwise CPU. CUDA requires a compatible NVIDIA driver; choose CPU if it cannot start.",
+                "Translation adds processing time. The configured wait includes any remaining model loading; on timeout or error the cleaned source text is inserted and a notice explains why. A cold model may need a second attempt. Inputs over 3,000 characters keep their source text. Models unload according to Background memory. All three options are off by default and apply after Save.",
+            ] {
+                content = content.push(widgets::prose(explanation));
+            }
+        }
+        widgets::card(content).into()
+    }
+
     fn memory_card(&self) -> Element<'_, Message> {
         let mut choices: Vec<_> = [
             (0, "Keep model loaded"),
@@ -837,7 +1028,7 @@ impl State {
                 .text_size(14)
                 .width(Length::Fill),
                 widgets::prose(
-                    "Frees the speech model while you are not dictating. The next transcription \
+                    "Frees the speech and translation models while you are not dictating. The next transcription \
                      reloads it and takes longer. Keep it loaded for faster \
                      responses; RAM usage then stays higher between dictations.",
                 ),

@@ -18,6 +18,11 @@ also carries `LICENSES.md`. See `docs/licenses.md` for the complete matrix and o
   are in `fixtures.json`. Audio is converted to mono 16 kHz and excerpted for benchmarking.
 
 ## Inference runtime
+- **Optional local translation:** [Hy-MT2-1.8B-GGUF](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)
+  by Tencent, **Apache-2.0**; model and tokenizer are downloaded only on request.
+  [llama.cpp b12420](https://github.com/ggml-org/llama.cpp/tree/b12420), copyright the ggml
+  authors, **MIT**; pinned runtime archives retain upstream licence files. The optional Windows
+  CUDA runtime archive also includes NVIDIA libraries under their upstream CUDA licences.
 - **ONNX Runtime** — © Microsoft. Licence: **MIT**.
 - **ONNX Runtime CUDA execution provider** (Windows x64 `.dll` and Linux ARM64 `.so`)
   - Copyright Microsoft. Licence: **MIT**. The matching GPU core ships with it. Linux ARM64 uses

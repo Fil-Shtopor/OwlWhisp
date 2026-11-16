@@ -1,0 +1,19 @@
+{
+  "before_imports": {
+    "working_set_mib": 17.6796875,
+    "private_commit_mib": 9.5859375
+  },
+  "after_imports": {
+    "working_set_mib": 48.59375,
+    "private_commit_mib": 770.625
+  },
+  "loaded": {
+    "working_set_mib": 399.50390625,
+    "private_commit_mib": 1122.46875
+  },
+  "after_inference": {
+    "working_set_mib": 405.95703125,
+    "private_commit_mib": 1130.99609375
+  },
+  "scope": "Isolated ORT + native tokenizers Python wrapper, no transformers/PyTorch; one short and one long fixture. Not integrated into OwlWhisp."
+}

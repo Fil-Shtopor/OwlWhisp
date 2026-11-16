@@ -35,6 +35,12 @@ sha2.workspace = true
 hex.workspace = true
 zip.workspace = true
 semver.workspace = true
+uuid.workspace = true
+tar.workspace = true
+flate2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
 tempfile.workspace = true

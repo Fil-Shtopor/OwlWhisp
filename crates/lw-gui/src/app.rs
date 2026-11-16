@@ -135,6 +135,7 @@ impl App {
     /// runs no destructors -- hence the explicit flush.
     fn quit() -> ! {
         tracing::info!("quitting");
+        lw_app::translation::stop_all();
         lw_app::logging::flush();
         std::thread::sleep(std::time::Duration::from_millis(80));
         lw_ort::exit_without_teardown(0)

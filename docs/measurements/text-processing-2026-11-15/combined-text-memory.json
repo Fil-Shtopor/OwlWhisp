@@ -1,0 +1,51 @@
+{
+  "scope": "Two isolated research workers loaded together, above existing desktop/ASR usage. Working sets may include shared pages; private commit is not physical RAM. GPU delta is system-wide, not process-attributed.",
+  "punct_wrapper": "ONNX Runtime + native tokenizers; no Transformers/PyTorch",
+  "timestamp_utc": "2026-11-15T19:47:26Z",
+  "gpu_before_mib": 0,
+  "parent_before_models": {
+    "working_set_mib": 55.2265625,
+    "private_commit_mib": 775.77734375
+  },
+  "translator_command": [
+    "C:\\GIT_personal\\OwlWhisp\\.owlwhisp-test\\text-processing\\cuda\\llama-server.exe",
+    "-m",
+    "C:\\GIT_personal\\OwlWhisp\\.owlwhisp-test\\text-processing\\models\\Hy-MT2-1.8B-Q4_K_M.gguf",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "18765",
+    "-c",
+    "4096",
+    "-np",
+    "1",
+    "-t",
+    "8",
+    "-tb",
+    "8",
+    "-ngl",
+    "999",
+    "--reasoning",
+    "off",
+    "--jinja",
+    "--cache-ram",
+    "0",
+    "--no-ui",
+    "-lv",
+    "4"
+  ],
+  "translator": {
+    "working_set_mib": 1541.2109375,
+    "private_commit_mib": 2325.00390625
+  },
+  "punctuation_worker": {
+    "working_set_mib": 413.02734375,
+    "private_commit_mib": 1135.16015625
+  },
+  "gpu_loaded_mib": 1590,
+  "sum_working_sets_mib": 1954.23828125,
+  "gpu_delta_mib": 1590,
+  "gpu_after_worker_exit_mib": 0,
+  "measurement_script": "scripts/benchmarks/text_processing_memory.py",
+  "measurement_script_sha256": "06cf518a073f2b51c3fe8549029c80bdcba2dd34758a9043eb3638d677add516"
+}

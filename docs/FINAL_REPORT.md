@@ -302,7 +302,8 @@ MIT; all Rust/JS deps permissive. No GPL/AGPL code is linked.
 
 ## 15. Security considerations
 
-HTTPS-only, SHA-256-pinned model downloads with atomic promotion; no downloaded binary is executed;
+HTTPS-only, SHA-256-pinned model downloads with atomic promotion; speech-catalog files are data only.
+Optional local translation installs and executes a separately verified llama.cpp runtime on request;
 no telemetry; no network unless model download or the optional LLM endpoint is enabled; API keys via
 the OS keychain (`keyring`); logs never contain audio/transcripts/clipboard/keys. The QNN runtime is
 bundled in the installer (not fetched standalone), per its licence, and excluded from non-Snapdragon

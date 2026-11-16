@@ -1,0 +1,59 @@
+{
+  "backend": "cpu",
+  "cleanup_mean_ms": 0.0034479,
+  "deadline_error": "Translation exceeded the maximum extra wait.",
+  "deadline_shutdown_ms": 1.0985,
+  "http_timeout_error": "Translation exceeded the maximum extra wait.",
+  "http_timeout_ms": 2.2919,
+  "load_ms": 929.3457000000001,
+  "results": [
+    {
+      "input": "Отправь, пожалуйста, отчёт до пятницы. Спасибо!",
+      "ms": 457.6891,
+      "output": "Please send the report by Friday. Thank you!",
+      "target": "english"
+    },
+    {
+      "input": "Please send the report by Friday. Thank you!",
+      "ms": 791.5513,
+      "output": "Пожалуйста, отправьте отчет до пятницы. Спасибо!",
+      "target": "russian"
+    },
+    {
+      "input": "Please send the report by Friday. Thank you!",
+      "ms": 516.5357,
+      "output": "Veuillez envoyer le rapport avant vendredi. Merci !",
+      "target": "french"
+    },
+    {
+      "input": "Please send the report by Friday. Thank you!",
+      "ms": 561.622,
+      "output": "Per favore invia il rapporto entro venerdì. Grazie!",
+      "target": "italian"
+    },
+    {
+      "input": "Please send the report by Friday. Thank you!",
+      "ms": 537.7393999999999,
+      "output": "Por favor, envíe el informe antes del viernes. Gracias.",
+      "target": "spanish"
+    },
+    {
+      "input": "Please send the report by Friday. Thank you!",
+      "ms": 348.2833,
+      "output": "请在周五前提交报告。谢谢！",
+      "target": "chinese"
+    },
+    {
+      "input": "Установи debug_mode=true в settings.toml и открой /api/v2/users.",
+      "ms": 590.5418999999999,
+      "output": "Set debug_mode=true in settings.toml and open /api/v2/users.",
+      "target": "english"
+    },
+    {
+      "input": "Скажи «привет» и вернись завтра.",
+      "ms": 385.3125,
+      "output": "Say “hello” and come back tomorrow.",
+      "target": "english"
+    }
+  ]
+}

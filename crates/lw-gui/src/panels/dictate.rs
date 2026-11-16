@@ -26,6 +26,7 @@ pub enum Message {
     Poll,
     Scratchpad(text_editor::Action),
     CopyLast,
+    CopyOriginal,
 }
 
 pub struct State {
@@ -35,6 +36,8 @@ pub struct State {
     target_level: f32,
     backend: Option<Box<lw_app::bench::ActiveBackend>>,
     last: Option<(String, Delivery, String)>,
+    original: Option<String>,
+    processing_note: Option<String>,
     error: Option<String>,
     scratchpad: text_editor::Content,
     /// The binding as configured, which is what the hint is written from.
@@ -73,6 +76,8 @@ impl State {
             target_level: 0.0,
             backend: None,
             last: None,
+            original: None,
+            processing_note: None,
             error: None,
             scratchpad: text_editor::Content::new(),
             hotkey: settings.hotkey,
@@ -206,6 +211,8 @@ impl State {
                             text,
                             delivery,
                             provider,
+                            original,
+                            processing_note,
                         } => {
                             self.error = None;
                             // Our own window had focus, so the text comes here rather than through
@@ -217,6 +224,8 @@ impl State {
                                     )));
                             }
                             self.last = Some((text, delivery, provider));
+                            self.original = original;
+                            self.processing_note = processing_note;
                             // Ask again: the first utterance is what loads the engine, so this is
                             // the moment the backend line stops being "nothing loaded yet".
                             self.worker.send(Command::Describe);
@@ -237,6 +246,11 @@ impl State {
             Message::CopyLast => {
                 if let (Some((text, _, _)), Ok(mut clip)) = (&self.last, lw_platform::platform().clipboard())
                 {
+                    let _ = clip.set_text(text);
+                }
+            }
+            Message::CopyOriginal => {
+                if let (Some(text), Ok(mut clip)) = (&self.original, lw_platform::platform().clipboard()) {
                     let _ = clip.set_text(text);
                 }
             }
@@ -438,11 +452,13 @@ impl State {
             None => widgets::sub("Nothing has been dictated yet in this session.").into(),
             // An empty result is a real outcome and deserves a sentence, not an empty card with a
             // badge claiming the nothing was put somewhere.
-            Some((_, Delivery::Nothing, _)) => widgets::prose(
+            Some((_, Delivery::Nothing, _)) => widgets::prose(if self.original.is_some() {
+                "No text to insert after processing. You can copy the original transcript below."
+            } else {
                 "That recording produced no words. The microphone was open and the model ran, so \
                  either nothing was said or nothing reached it - the level meter in Settings says \
-                 which.",
-            ),
+                 which."
+            }),
             Some((text, delivery, provider)) => column![
                 row![
                     match delivery {
@@ -469,6 +485,20 @@ impl State {
                     .size(11)
                     .color(theme::TEXT_DIM),
                 body,
+                self.processing_note
+                    .as_ref()
+                    .map(widgets::prose)
+                    .unwrap_or_else(|| Space::new().into()),
+                if self.original.is_some() {
+                    Element::from(
+                        button(widgets::button_label("Copy original transcript"))
+                            .padding(Padding::from([6, 14]))
+                            .on_press(Message::CopyOriginal)
+                            .style(theme::action(false)),
+                    )
+                } else {
+                    Space::new().into()
+                },
             ]
             .spacing(6),
         )

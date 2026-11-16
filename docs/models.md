@@ -325,8 +325,9 @@ The install resolves the entry's manifest under `models/manifests/`, picks the b
 for the detected hardware (`--target` overrides), and downloads through
 `lw_core::model::ModelDownloader`: HTTPS only, resumable via HTTP `Range`, every file size- and
 SHA-256-checked against the committed manifest, staged in a temporary directory and promoted with
-an atomic rename so an interrupted install never leaves a half-populated model directory. No
-downloaded file is ever executed.
+an atomic rename so an interrupted install never leaves a half-populated model directory. Speech
+catalog downloads are data only. The optional local translator has a separate, explicitly requested
+and SHA-256-verified executable runtime; see [using.md](using.md#text-processing-and-local-translation).
 
 If an entry has **no pinned manifest**, install refuses:
 

@@ -1,0 +1,78 @@
+{
+  "marian": {
+    "repo": "Helsinki-NLP/opus-mt-ru-en",
+    "revision": "fbd6dc73284f95536648512cc21d57f19191961a",
+    "files": {
+      "README.md": {
+        "sha256": "58decd5dfb14dfd59bd63a80286869798f94b7d432d249dd289de467ba9a1417",
+        "bytes": 3159
+      },
+      "config.json": {
+        "sha256": "5ea76c78596bce8fe005ef89e00de0924bf83e5f532ce08784ff1fcefb699f5f",
+        "bytes": 1381
+      },
+      "generation_config.json": {
+        "sha256": "31cff5e74efc263ff53efac09e3e350cd462d5c8198b1136b455d63a02d8cad5",
+        "bytes": 293
+      },
+      "tokenizer_config.json": {
+        "sha256": "8d826099b8c67179c83ab4ff94aff7ca7bf24ca14319cb0287b9a0b4c40b2a96",
+        "bytes": 42
+      },
+      "source.spm": {
+        "sha256": "745998e51ba5b058e38b7ac7765c25c43ed5c1c39cc92b27163b9b2e323c9d7c",
+        "bytes": 1080169
+      },
+      "target.spm": {
+        "sha256": "16bebef1389a0b8ab452772c4e35b9e605e5713f8ac7baa71ca701394eaa086d",
+        "bytes": 802781
+      },
+      "vocab.json": {
+        "sha256": "33e95da3be3fa3b50169c4c46693ba2f29fbf4cb29d99044bd07d72d181fa1e9",
+        "bytes": 2601758
+      },
+      "pytorch_model.bin": {
+        "sha256": "535450eb5613f3cc912f9ca3e54cfef6c14d201b319c24a88faf776a65538b5d",
+        "bytes": 306991893
+      }
+    }
+  },
+  "punct": {
+    "repo": "Horizon-Labs/multilingual-punctuation-truecase-small",
+    "revision": "a527b62e5a3e16de7e316f03234c99422b1c8814",
+    "files": {
+      "README.md": {
+        "sha256": "58bed024e91752e383eb7d4090d57f45479b5805983c83ce3a5ced5c6930bf91",
+        "bytes": 18768
+      },
+      "LICENSE": {
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "bytes": 11358
+      },
+      "NOTICE": {
+        "sha256": "d3a1a3e7aaac4402bd8f57952326aa8c7b62fdc9724ec83f604cc70afa8e02d7",
+        "bytes": 1577
+      },
+      "config.json": {
+        "sha256": "968fa6c797aa9048264d6be3765d462efa27639df5d6a580aef3e8bb187d60dc",
+        "bytes": 2630
+      },
+      "tokenizer.json": {
+        "sha256": "f34b44a6dc8a0eef651bfa10e8325057530152606a69d9c3b6ae02efb1558f0a",
+        "bytes": 34363286
+      },
+      "tokenizer_config.json": {
+        "sha256": "ea349495764b24570b4560fe2e4a557e5c0a47e6bce782c2409b1d6445cf8633",
+        "bytes": 46440
+      },
+      "special_tokens_map.json": {
+        "sha256": "baec30ea10906f16adb8c18af7a34023002c1746542612b8b41c9f09e1351351",
+        "bytes": 636
+      },
+      "onnx/model_quantized.onnx": {
+        "sha256": "a732af171c17413f709d2a37550353cb92d0f07412fc5b7ed0cf7e34efa1ec57",
+        "bytes": 268432863
+      }
+    }
+  }
+}

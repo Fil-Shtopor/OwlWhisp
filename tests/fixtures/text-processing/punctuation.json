@@ -1,0 +1,9 @@
+[
+  {"language":"english","input":"hello , world . how are you ?","expected":"Hello, world. How are you?"},
+  {"language":"russian","input":"привет , мир . как дела ?","expected":"Привет, мир. Как дела?"},
+  {"language":"french","input":"bonjour ! comment ça va ?","expected":"Bonjour ! Comment ça va ?"},
+  {"language":"chinese","input":"你好 ，世界 。","expected":"你好，世界。"},
+  {"language":"turkish","input":"istanbul güzel . iyi günler !","expected":"İstanbul güzel. İyi günler!"},
+  {"language":"english","input":"where is the report","expected":"Where is the report"},
+  {"language":"english","input":"iPhone works. eBay too.","expected":"iPhone works. eBay too."}
+]

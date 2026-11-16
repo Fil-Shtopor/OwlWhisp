@@ -1,0 +1,99 @@
+{
+  "runtime_version": "b12420",
+  "model": {
+    "path": "Hy-MT2-1.8B-Q4_K_M.gguf",
+    "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q4_K_M.gguf",
+    "bytes": 1133080448,
+    "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+  },
+  "packages": [
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-win-cpu-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-win-cpu-x64.zip",
+        "bytes": 25143187,
+        "sha256": "e8ece49057f20a7a884527caaae82c69ecf09656b6f2dd706d376f74572dfe4c"
+      }
+    },
+    {
+      "os": "windows",
+      "arch": "aarch64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-win-cpu-arm64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-win-cpu-arm64.zip",
+        "bytes": 13488204,
+        "sha256": "a0cb9fd3176e4b94f2c333dd425025d040fac788cec4e7c7fac0672f2452962c"
+      }
+    },
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "backend": "cuda",
+      "file": {
+        "path": "llama-b12420-bin-win-cuda-13.5-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-win-cuda-13.5-x64.zip",
+        "bytes": 203454279,
+        "sha256": "4428b284b2e5161ad20dbdac0e7fe3144600e4c2e3a22e6caef570f4c0b78704"
+      }
+    },
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "backend": "cuda",
+      "file": {
+        "path": "cudart-llama-bin-win-cuda-13.5-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/cudart-llama-bin-win-cuda-13.5-x64.zip",
+        "bytes": 426314199,
+        "sha256": "c2bf4cc202bfbaaa7a0b75f5082457c3811326947bb216059b72839d844e9cba"
+      }
+    },
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-ubuntu-x64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-ubuntu-x64.tar.gz",
+        "bytes": 23373277,
+        "sha256": "68499631ccab30d2b8fc1ada8903e80e340be7516480d7ceb6f1571ef7412217"
+      }
+    },
+    {
+      "os": "linux",
+      "arch": "aarch64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-ubuntu-arm64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-ubuntu-arm64.tar.gz",
+        "bytes": 19008570,
+        "sha256": "0811385717107f90deeca50e9671a3c82c9dff4514a9a605bb9841f913bfcb6f"
+      }
+    },
+    {
+      "os": "macos",
+      "arch": "x86_64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-macos-x64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-macos-x64.tar.gz",
+        "bytes": 12689604,
+        "sha256": "8bfd2a32644feae37a7b03daae5bf253b6bde626823b1fbc6e575e7889a6b3ef"
+      }
+    },
+    {
+      "os": "macos",
+      "arch": "aarch64",
+      "backend": "cpu",
+      "file": {
+        "path": "llama-b12420-bin-macos-arm64.tar.gz",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12420/llama-b12420-bin-macos-arm64.tar.gz",
+        "bytes": 16940187,
+        "sha256": "1b9e418c21f9a32488de140d447bc4d791a09303b56c584102d9e855dbd85e4b"
+      }
+    }
+  ]
+}

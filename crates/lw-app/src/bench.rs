@@ -212,12 +212,30 @@ pub fn build_engine_for(
 }
 
 pub fn build_pipeline(settings: &Settings) -> TextPipeline {
+    build_pipeline_for_language(settings, None)
+}
+
+/// Build text stages using a source language reported by the speech engine when available.
+pub fn build_pipeline_for_language(settings: &Settings, language: Option<&str>) -> TextPipeline {
+    use lw_core::text::{FillerProcessor, PunctuationProcessor};
     let mut pipeline = TextPipeline::new();
     // Deterministic cleanup (whitespace + NFC always; casing/punctuation are conservative defaults).
     pipeline.push(Box::new(CleanupProcessor::new(NormalizeOptions::default())) as Box<dyn TextProcessor>);
+    if settings.text_processing.remove_fillers {
+        pipeline.push(Box::new(FillerProcessor::new(
+            settings.text_processing.language,
+            language,
+        )));
+    }
     if !settings.dictionary.rules.is_empty() {
         let dict: Dictionary = settings.dictionary.clone();
         pipeline.push(Box::new(DictionaryProcessor::new(dict)));
+    }
+    if settings.text_processing.format_punctuation {
+        pipeline.push(Box::new(PunctuationProcessor::new(
+            settings.text_processing.language,
+            language,
+        )));
     }
     pipeline
 }
@@ -613,6 +631,34 @@ pub fn meter_level(rms: f32) -> f32 {
 #[cfg(test)]
 mod dictation_recovery_tests {
     use super::*;
+
+    #[test]
+    fn cleanup_flags_apply_independently_and_use_engine_language() {
+        let mut s = Settings::default();
+        let input = "Um, hello , world.";
+        assert_eq!(build_pipeline(&s).run(input), input);
+        s.text_processing.remove_fillers = true;
+        assert_eq!(
+            build_pipeline_for_language(&s, Some("en")).run(input),
+            "hello , world."
+        );
+        s.text_processing.format_punctuation = true;
+        assert_eq!(
+            build_pipeline_for_language(&s, Some("en")).run(input),
+            "Hello, world."
+        );
+        s.text_processing.remove_fillers = false;
+        assert_eq!(
+            build_pipeline_for_language(&s, Some("en")).run(input),
+            "Um, hello, world."
+        );
+        s.text_processing.remove_fillers = true;
+        s.text_processing.format_punctuation = false;
+        assert_eq!(
+            build_pipeline_for_language(&s, Some("de")).run("Ich komme um acht."),
+            "Ich komme um acht."
+        );
+    }
 
     #[test]
     fn missing_saved_tensorrt_recovers_on_cpu_without_rewriting_preference() {

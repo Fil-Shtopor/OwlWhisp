@@ -222,7 +222,9 @@ an event is a channel.
 ## 9. Security & privacy (see [`licenses.md`](licenses.md), FINAL_REPORT §Security)
 
 - Model downloads are HTTPS-only, SHA-256-pinned against a committed manifest, size-checked,
-  resumable, atomically promoted. No downloaded binary is executed.
+  resumable, atomically promoted. Speech-catalog downloads are data only. Optional local
+  translation installs and executes a separately pinned, SHA-256-verified llama.cpp runtime
+  on explicit request; see [using.md](using.md#text-processing-and-local-translation).
 - No telemetry. No network at all unless the user enables model download or an optional LLM endpoint.
 - API keys stored via `keyring` (Windows Credential Manager / macOS Keychain / Secret Service).
 - Logs never contain audio, transcript text, clipboard contents, or keys unless a "secure debug"

@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-15",
+  "python_benchmark": "3.11.15",
+  "cpu": "13th Gen Intel Core i9-13900HX",
+  "physical_cores": 24,
+  "logical_processors": 32,
+  "ram_bytes": 68446707712,
+  "gpu": "NVIDIA GeForce RTX 4080 Laptop GPU",
+  "gpu_vram_mib": 12282,
+  "driver": "617.14",
+  "cpu_threads": 8,
+  "llama_tag": "b12420",
+  "gguf_quantization": "Q4_K_M (except experimental Transcrib Q8_0)",
+  "timing_scope": "text input -> complete output over loopback HTTP; not microphone-stop-to-paste; Python baselines include tokenization and decoding",
+  "prompt_cache": false,
+  "thinking": false,
+  "recorded_at_utc": "2026-11-15T18:20:22.008488+00:00"
+}

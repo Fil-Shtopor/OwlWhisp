@@ -1,0 +1,2602 @@
+{
+  "date": "2026-11-15",
+  "distinct_fixtures": 44,
+  "fixture_tasks": {
+    "cleanup": 20,
+    "translation": 18,
+    "combined": 6
+  },
+  "totals_for_eligible_runs": {
+    "warm_requests": 1217,
+    "first_requests": 31,
+    "errors": 0,
+    "cached_prompts": 0,
+    "empty_outputs": 0,
+    "output_limit_hits": 0
+  },
+  "runs": [
+    {
+      "file": "raw/hymt2-18b-cpu.jsonl",
+      "model": "hymt2-18b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1059.7228999831714,
+      "import_ms": null,
+      "first_request_ms": 938.5121000232175,
+      "warm_requests": 27,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 4619.44440001389,
+          "min_ms": 4599.704099993687,
+          "max_ms": 4764.739099948201
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1775.7692000013776,
+          "min_ms": 1744.8833999806084,
+          "max_ms": 1826.812599960249
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 912.8724000183865,
+          "min_ms": 889.4304999848828,
+          "max_ms": 914.0610999893397
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 4836.473100003786,
+          "min_ms": 4681.8129000021145,
+          "max_ms": 5164.261300000362
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1144.5110999629833,
+          "min_ms": 1132.070499996189,
+          "max_ms": 1149.9829000094905
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 633.0615000333637,
+          "min_ms": 578.2678999821655,
+          "max_ms": 651.0482999728993
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 4515.903100022115,
+          "min_ms": 4382.980900001712,
+          "max_ms": 4692.018399946392
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1065.884699986782,
+          "min_ms": 1036.4888000185601,
+          "max_ms": 1091.1471000290476
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 583.7930000270717,
+          "min_ms": 563.6534999939613,
+          "max_ms": 591.020199994091
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.299.719 I load_tensors: offloaded 0/33 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/hymt2-18b-cuda.jsonl",
+      "model": "hymt2-18b",
+      "backend": "cuda",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 911.903300031554,
+      "import_ms": null,
+      "first_request_ms": 164.51909998431802,
+      "warm_requests": 84,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 723.8216000259854,
+          "min_ms": 723.0202000355348,
+          "max_ms": 729.6683000167832
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 232.54220001399517,
+          "min_ms": 70.56319998810068,
+          "max_ms": 324.81010002084076
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 134.85954998759553,
+          "min_ms": 79.60599998477846,
+          "max_ms": 255.50159998238087
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 741.3105000159703,
+          "min_ms": 716.3146999664605,
+          "max_ms": 742.0344999991357
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 217.34960001776926,
+          "min_ms": 174.46249997010455,
+          "max_ms": 256.52700004866347
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 138.2222999818623,
+          "min_ms": 82.74800004437566,
+          "max_ms": 215.312099957373
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 777.5827000150457,
+          "min_ms": 759.3173999921419,
+          "max_ms": 781.1360000050627
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 212.42070000153035,
+          "min_ms": 171.36310000205413,
+          "max_ms": 256.2616000068374
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 15,
+          "median_ms": 148.0712000047788,
+          "min_ms": 106.32349998923019,
+          "max_ms": 230.23799998918548
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": []
+        }
+      ]
+    },
+    {
+      "file": "raw/hymt2-18b-final-cuda.jsonl",
+      "model": "hymt2-18b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1122.14110000059,
+      "import_ms": null,
+      "first_request_ms": 140.97209996543825,
+      "warm_requests": 50,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 5,
+          "median_ms": 781.9011000101455,
+          "min_ms": 713.0891000269912,
+          "max_ms": 799.3884999887086
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 20,
+          "median_ms": 207.34820002689958,
+          "min_ms": 170.34790001343936,
+          "max_ms": 263.24230001773685
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 25,
+          "median_ms": 150.02950001507998,
+          "min_ms": 100.50800000317395,
+          "max_ms": 247.01190000632778
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.559.457 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.559.461 I load_tensors:        CUDA0 model buffer size =  1075.74 MiB",
+            "0.01.004.721 I sched_reserve:      CUDA0 compute buffer size =    56.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/hymt2-18b-holdout-cuda.jsonl",
+      "model": "hymt2-18b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1037.836299976334,
+      "import_ms": null,
+      "first_request_ms": 166.84429999440908,
+      "warm_requests": 24,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 201.11170003656298,
+          "min_ms": 163.74139999970794,
+          "max_ms": 242.86769999889657
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 157.60979999322444,
+          "min_ms": 113.94949996611103,
+          "max_ms": 189.7645000135526
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.542.764 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.542.769 I load_tensors:        CUDA0 model buffer size =  1075.74 MiB",
+            "0.00.934.022 I sched_reserve:      CUDA0 compute buffer size =    56.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/marian-beam1-cpu.jsonl",
+      "model": "marian",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 16245.003600022756,
+      "import_ms": null,
+      "first_request_ms": 86.23960003023967,
+      "warm_requests": 39,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 515.6379000400193,
+          "min_ms": 505.89020003098994,
+          "max_ms": 522.988099954091
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 152.21795000252314,
+          "min_ms": 133.74999997904524,
+          "max_ms": 163.4415999869816
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 65.57839998276904,
+          "min_ms": 47.57340002106503,
+          "max_ms": 72.60190002853051
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 456.90280001144856,
+          "min_ms": 454.3438999680802,
+          "max_ms": 468.6162000289187
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 9,
+          "median_ms": 101.11610003514215,
+          "min_ms": 91.88970003742725,
+          "max_ms": 157.7376999775879
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 56.09389999881387,
+          "min_ms": 45.302300015464425,
+          "max_ms": 71.88129995483905
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/marian-beam4-cpu.jsonl",
+      "model": "marian",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 16509.441699949093,
+      "import_ms": null,
+      "first_request_ms": 115.60289998305961,
+      "warm_requests": 39,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1009.0862999786623,
+          "min_ms": 1001.5570999821648,
+          "max_ms": 1038.411499990616
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 259.54125000862405,
+          "min_ms": 234.43030001362786,
+          "max_ms": 274.71790002891794
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 101.69380001025274,
+          "min_ms": 79.98370000859722,
+          "max_ms": 114.3457000143826
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 936.4733999827877,
+          "min_ms": 910.4386999970302,
+          "max_ms": 938.6362000368536
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 9,
+          "median_ms": 170.74570001568645,
+          "min_ms": 159.28139997413382,
+          "max_ms": 259.36309999087825
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 94.92609999142587,
+          "min_ms": 81.95320004597306,
+          "max_ms": 132.59860000107437
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/marian-final-cpu.jsonl",
+      "model": "marian",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 3712.8412000020035,
+      "import_ms": 11873.581200023182,
+      "first_request_ms": 62.515400000847876,
+      "warm_requests": 39,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 517.3820999916643,
+          "min_ms": 510.24489995324984,
+          "max_ms": 517.7772000315599
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 148.31975000561215,
+          "min_ms": 138.8934000278823,
+          "max_ms": 162.872500019148
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 65.97070000134408,
+          "min_ms": 46.07149999355897,
+          "max_ms": 67.87689996417612
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 462.02450001146644,
+          "min_ms": 452.2964999778196,
+          "max_ms": 464.6530000027269
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 9,
+          "median_ms": 104.17919995961711,
+          "min_ms": 90.44410003116354,
+          "max_ms": 171.94810003275052
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 56.17939995136112,
+          "min_ms": 49.023900006432086,
+          "max_ms": 76.6058000153862
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/marian-init-cpu.jsonl",
+      "model": "marian",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": false,
+      "exclusion_reason": "Startup probe overlapped the first ASR CPU experiment; replaced by marian-final-cpu.",
+      "load_ready_ms": 5905.044300016016,
+      "import_ms": 27005.60490001226,
+      "first_request_ms": 452.6560000376776,
+      "warm_requests": 13,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1881.8452999694273,
+          "min_ms": 1881.8452999694273,
+          "max_ms": 1881.8452999694273
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 746.2315000011586,
+          "min_ms": 306.002700002864,
+          "max_ms": 1186.4602999994531
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 257.268599991221,
+          "min_ms": 125.59399998281151,
+          "max_ms": 551.7760000075214
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 6353.321700007655,
+          "min_ms": 6353.321700007655,
+          "max_ms": 6353.321700007655
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 668.943400029093,
+          "min_ms": 565.2735999901779,
+          "max_ms": 4092.690900026355
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 412.2411999851465,
+          "min_ms": 125.65689999610186,
+          "max_ms": 421.5703000081703
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/punct-cpu.jsonl",
+      "model": "punct",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 19513.380800024606,
+      "import_ms": null,
+      "first_request_ms": 43.3245999738574,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 129.1958999936469,
+          "min_ms": 128.45430005108938,
+          "max_ms": 132.25309998961166
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 34.793399972841144,
+          "min_ms": 32.67719998257235,
+          "max_ms": 45.61289999401197
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 23.430700006429106,
+          "min_ms": 21.591000026091933,
+          "max_ms": 43.02440001629293
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/punct-final-cpu.jsonl",
+      "model": "punct",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 4275.850600039121,
+      "import_ms": 12749.152100004721,
+      "first_request_ms": 33.57580001465976,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 126.20210001477972,
+          "min_ms": 124.24530001590028,
+          "max_ms": 127.63199995970353
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 34.538099949713796,
+          "min_ms": 31.766699976287782,
+          "max_ms": 45.096500020008534
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 22.316399990813807,
+          "min_ms": 19.269299984443933,
+          "max_ms": 41.35020001558587
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/punct-init-cpu.jsonl",
+      "model": "punct",
+      "backend": "cpu",
+      "prompt_style": "publisher baseline",
+      "eligible": false,
+      "exclusion_reason": "Part of the overlapping startup-probe batch; replaced by punct-final-cpu.",
+      "load_ready_ms": 4200.071400031447,
+      "import_ms": 29084.528900042642,
+      "first_request_ms": 28.8678000215441,
+      "warm_requests": 12,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 132.56150000961497,
+          "min_ms": 132.56150000961497,
+          "max_ms": 132.56150000961497
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 42.99589997390285,
+          "min_ms": 41.710599965881556,
+          "max_ms": 53.3659000066109
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 27.259750029770657,
+          "min_ms": 22.91910001076758,
+          "max_ms": 64.83580003259704
+        }
+      ],
+      "offload_evidence": []
+    },
+    {
+      "file": "raw/qwen3-06b-cpu.jsonl",
+      "model": "qwen3-06b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1726.1722999974154,
+      "import_ms": null,
+      "first_request_ms": 241.6590999928303,
+      "warm_requests": 27,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1919.844500022009,
+          "min_ms": 1918.4867000440136,
+          "max_ms": 1923.8960000220686
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 620.3387000132352,
+          "min_ms": 610.628499998711,
+          "max_ms": 661.5495000150986
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 281.4382999786176,
+          "min_ms": 245.32010004622862,
+          "max_ms": 286.9399000192061
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1748.0383000220172,
+          "min_ms": 1719.1578000201844,
+          "max_ms": 1804.3830000096932
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 439.1948999837041,
+          "min_ms": 433.1747000105679,
+          "max_ms": 450.1717999810353
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 278.36280001793057,
+          "min_ms": 269.7455000015907,
+          "max_ms": 300.5633999709971
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1601.5032999566756,
+          "min_ms": 1590.1537999743596,
+          "max_ms": 1620.3355999896303
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 435.0276000332087,
+          "min_ms": 418.5865999897942,
+          "max_ms": 441.87549996422604
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 286.6641000146046,
+          "min_ms": 263.00069998251274,
+          "max_ms": 314.3209000118077
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.901.881 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen3-06b-cuda.jsonl",
+      "model": "qwen3-06b",
+      "backend": "cuda",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 668.1812999886461,
+      "import_ms": null,
+      "first_request_ms": 87.88509998703375,
+      "warm_requests": 84,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 457.9997999826446,
+          "min_ms": 340.3792000026442,
+          "max_ms": 461.9119000271894
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 153.82190002128482,
+          "min_ms": 54.43449999438599,
+          "max_ms": 196.68079999973997
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 101.74004998407327,
+          "min_ms": 66.22340000467375,
+          "max_ms": 196.1242000106722
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 431.55119998846203,
+          "min_ms": 420.74289999436587,
+          "max_ms": 441.677900031209
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 142.98955001868308,
+          "min_ms": 102.94389998307452,
+          "max_ms": 177.85799998091534
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 93.02859997842461,
+          "min_ms": 75.88149997172877,
+          "max_ms": 165.52330000558868
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 442.83610000275075,
+          "min_ms": 309.60999999661,
+          "max_ms": 448.45249998616055
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 121.54994998127222,
+          "min_ms": 53.78539999946952,
+          "max_ms": 185.7270000036806
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 15,
+          "median_ms": 93.00809999695048,
+          "min_ms": 66.16059999214485,
+          "max_ms": 166.4518999750726
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": []
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen3-06b-runtime-check-cuda.jsonl",
+      "model": "qwen3-06b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": false,
+      "exclusion_reason": "Backend verification only; no warm timing repetitions.",
+      "load_ready_ms": 869.3341999896802,
+      "import_ms": null,
+      "first_request_ms": 96.3200000114739,
+      "warm_requests": 0,
+      "errors": 0,
+      "groups": [],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.595.985 I load_tensors: offloaded 29/29 layers to GPU",
+            "0.00.595.990 I load_tensors:        CUDA0 model buffer size =   372.65 MiB",
+            "0.00.734.947 I sched_reserve:      CUDA0 compute buffer size =    30.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen3-17b-cpu.jsonl",
+      "model": "qwen3-17b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1158.1475000130013,
+      "import_ms": null,
+      "first_request_ms": 950.3833999624476,
+      "warm_requests": 27,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 5820.765999960713,
+          "min_ms": 5462.215500010643,
+          "max_ms": 5829.554199997801
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1424.2889999877661,
+          "min_ms": 1375.3820999991149,
+          "max_ms": 1476.9751999992877
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 881.4072000095621,
+          "min_ms": 860.5920000118203,
+          "max_ms": 903.4542000154033
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 4176.492600003257,
+          "min_ms": 4116.8231999618,
+          "max_ms": 4429.9966000253335
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 958.2341999630444,
+          "min_ms": 952.3171999608167,
+          "max_ms": 1031.404199951794
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 659.1235999949276,
+          "min_ms": 623.85799997719,
+          "max_ms": 670.6497999839485
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 4319.63069998892,
+          "min_ms": 4100.196399958804,
+          "max_ms": 4457.8948999987915
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1039.4423000398092,
+          "min_ms": 1003.3344000112265,
+          "max_ms": 1129.7942000092007
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 680.2855000132695,
+          "min_ms": 671.1971000186168,
+          "max_ms": 692.4249000148848
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.320.763 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen3-17b-cuda.jsonl",
+      "model": "qwen3-17b",
+      "backend": "cuda",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1011.5614999667741,
+      "import_ms": null,
+      "first_request_ms": 145.35959996283054,
+      "warm_requests": 84,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 961.8639999534935,
+          "min_ms": 952.5548999663442,
+          "max_ms": 984.3884999863803
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 206.63999998942018,
+          "min_ms": 62.45239998679608,
+          "max_ms": 239.46109996177256
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 131.50584997492842,
+          "min_ms": 103.48770004929975,
+          "max_ms": 245.69750000955537
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 689.1260999836959,
+          "min_ms": 674.7212000191212,
+          "max_ms": 704.7950000269338
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 157.79170001042075,
+          "min_ms": 98.16729999147356,
+          "max_ms": 200.2397000323981
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 120.61749998247251,
+          "min_ms": 78.96429998800159,
+          "max_ms": 224.31520000100136
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 717.6499999477528,
+          "min_ms": 703.9887999999337,
+          "max_ms": 758.7080000084825
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 189.36700001358986,
+          "min_ms": 52.15600004885346,
+          "max_ms": 238.2950999890454
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 15,
+          "median_ms": 137.8813999472186,
+          "min_ms": 115.17230002209544,
+          "max_ms": 245.4930999665521
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": []
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen3-17b-delimited-cuda.jsonl",
+      "model": "qwen3-17b",
+      "backend": "cuda",
+      "prompt_style": "delimited",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 906.8906999891624,
+      "import_ms": null,
+      "first_request_ms": 149.3425999651663,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 967.6426000078209,
+          "min_ms": 967.6426000078209,
+          "max_ms": 967.6426000078209
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 191.7634999845177,
+          "min_ms": 103.63159998087212,
+          "max_ms": 200.46059996820986
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 124.92160001420416,
+          "min_ms": 79.20249999733642,
+          "max_ms": 220.18379997462034
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 666.4316999958828,
+          "min_ms": 666.4316999958828,
+          "max_ms": 666.4316999958828
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 729.847200011136,
+          "min_ms": 163.55910000856966,
+          "max_ms": 1296.1353000137024
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 91.70730004552752,
+          "min_ms": 80.69189998786896,
+          "max_ms": 212.1663000434637
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 693.0214999592863,
+          "min_ms": 693.0214999592863,
+          "max_ms": 693.0214999592863
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 174.5760000194423,
+          "min_ms": 156.74579999176785,
+          "max_ms": 230.2676000399515
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 140.0870000361465,
+          "min_ms": 72.85110000520945,
+          "max_ms": 193.53799999225885
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.434.823 I load_tensors: offloaded 29/29 layers to GPU",
+            "0.00.434.827 I load_tensors:        CUDA0 model buffer size =  1050.43 MiB",
+            "0.00.777.687 I sched_reserve:      CUDA0 compute buffer size =    56.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-08b-cpu.jsonl",
+      "model": "qwen35-08b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 768.708199961111,
+      "import_ms": null,
+      "first_request_ms": 457.88389997323975,
+      "warm_requests": 27,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 2227.0556000294164,
+          "min_ms": 2153.6072999588214,
+          "max_ms": 2247.5315000046976
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 652.1665999898687,
+          "min_ms": 649.4476000079885,
+          "max_ms": 659.4145999988541
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 491.7723999824375,
+          "min_ms": 471.81700001237914,
+          "max_ms": 493.3944999938831
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 2221.935699984897,
+          "min_ms": 2196.7295999638736,
+          "max_ms": 2222.300500026904
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 613.3572999970056,
+          "min_ms": 604.362600017339,
+          "max_ms": 668.7306999810971
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 366.20899999979883,
+          "min_ms": 344.067299971357,
+          "max_ms": 385.68690000101924
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 2216.7904999805614,
+          "min_ms": 2208.7742000003345,
+          "max_ms": 2229.312600044068
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 634.5173000008799,
+          "min_ms": 623.6186999594793,
+          "max_ms": 654.8822000040673
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 419.7614000295289,
+          "min_ms": 405.82360001280904,
+          "max_ms": 421.84079997241497
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.460.779 I load_tensors: offloaded 0/25 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-08b-cuda.jsonl",
+      "model": "qwen35-08b",
+      "backend": "cuda",
+      "prompt_style": "publisher baseline",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 902.6926000369713,
+      "import_ms": null,
+      "first_request_ms": 139.3287999671884,
+      "warm_requests": 84,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 622.3775999969803,
+          "min_ms": 599.5909000048414,
+          "max_ms": 624.7415999532677
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 198.5768000013195,
+          "min_ms": 110.17950001405552,
+          "max_ms": 234.97300001326948
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 142.33829997829162,
+          "min_ms": 82.09829998668283,
+          "max_ms": 238.41719998745248
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 567.5435999874026,
+          "min_ms": 558.1039999960922,
+          "max_ms": 602.2576999966986
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 220.07645000121556,
+          "min_ms": 133.31309997010976,
+          "max_ms": 253.43530002282932
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 156.83290001470596,
+          "min_ms": 87.91619999101385,
+          "max_ms": 256.6738000023179
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 588.1382999941707,
+          "min_ms": 504.71860001562163,
+          "max_ms": 621.4207999873906
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 216.7155500210356,
+          "min_ms": 105.52659997483715,
+          "max_ms": 235.0628999993205
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 15,
+          "median_ms": 175.9446000214666,
+          "min_ms": 107.48090001288801,
+          "max_ms": 300.85619998862967
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": []
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-08b-delimited-cuda.jsonl",
+      "model": "qwen35-08b",
+      "backend": "cuda",
+      "prompt_style": "delimited",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1006.1050000367686,
+      "import_ms": null,
+      "first_request_ms": 130.2175999735482,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 869.7486000019126,
+          "min_ms": 869.7486000019126,
+          "max_ms": 869.7486000019126
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 153.9284000173211,
+          "min_ms": 137.86780001828447,
+          "max_ms": 218.07780000381172
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 150.03955000429414,
+          "min_ms": 97.89740003179759,
+          "max_ms": 248.14199999673292
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 807.2628999943845,
+          "min_ms": 807.2628999943845,
+          "max_ms": 807.2628999943845
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 194.9045500077773,
+          "min_ms": 146.52040001237765,
+          "max_ms": 243.28870000317693
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 107.97919996548444,
+          "min_ms": 83.67840002756566,
+          "max_ms": 237.92919999687
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 516.6763999732211,
+          "min_ms": 516.6763999732211,
+          "max_ms": 516.6763999732211
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 187.95454999781214,
+          "min_ms": 119.90759999025613,
+          "max_ms": 238.67809999501333
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 165.71719996863976,
+          "min_ms": 105.48389999894425,
+          "max_ms": 203.77299998654053
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.628.695 I load_tensors: offloaded 25/25 layers to GPU",
+            "0.00.628.699 I load_tensors:        CUDA0 model buffer size =   497.40 MiB",
+            "0.00.799.637 I sched_reserve:      CUDA0 compute buffer size =    37.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-2b-conservative-cases-cuda.jsonl",
+      "model": "qwen35-2b",
+      "backend": "cuda",
+      "prompt_style": "conservative",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1786.8485000217333,
+      "import_ms": null,
+      "first_request_ms": 151.18230000371113,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 985.0463999900967,
+          "min_ms": 847.834900021553,
+          "max_ms": 991.8848000233993
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 251.16340001113713,
+          "min_ms": 112.54610004834831,
+          "max_ms": 279.19179998571053
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 175.62879997421987,
+          "min_ms": 134.14480001665652,
+          "max_ms": 309.90590003784746
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.01.221.307 I load_tensors: offloaded 25/25 layers to GPU",
+            "0.01.221.311 I load_tensors:        CUDA0 model buffer size =  1211.05 MiB",
+            "0.01.625.971 I sched_reserve:      CUDA0 compute buffer size =    56.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-2b-conservative-holdout-cuda.jsonl",
+      "model": "qwen35-2b",
+      "backend": "cuda",
+      "prompt_style": "conservative",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1279.1731000179425,
+      "import_ms": null,
+      "first_request_ms": 188.52670001797378,
+      "warm_requests": 24,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 196.84089999645948,
+          "min_ms": 61.35580001864582,
+          "max_ms": 276.90789999905974
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 12,
+          "median_ms": 159.58999999566004,
+          "min_ms": 128.19180003134534,
+          "max_ms": 195.96850004745647
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.725.608 I load_tensors: offloaded 25/25 layers to GPU",
+            "0.00.725.612 I load_tensors:        CUDA0 model buffer size =  1211.05 MiB",
+            "0.01.124.243 I sched_reserve:      CUDA0 compute buffer size =    56.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-2b-localized-cpu.jsonl",
+      "model": "qwen35-2b",
+      "backend": "cpu",
+      "prompt_style": "localized",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1490.310600027442,
+      "import_ms": null,
+      "first_request_ms": 1492.8631999646313,
+      "warm_requests": 21,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 5953.263900009915,
+          "min_ms": 5952.77640002314,
+          "max_ms": 6032.392600027379
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 1843.862900044769,
+          "min_ms": 1763.6039000353776,
+          "max_ms": 1877.6600999990478
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 1426.485900010448,
+          "min_ms": 1388.8018999714404,
+          "max_ms": 1457.1108000236563
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 5025.136800017208,
+          "min_ms": 4951.157599978615,
+          "max_ms": 5162.027299986221
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 1191.298000048846,
+          "min_ms": 1143.10749998549,
+          "max_ms": 1221.1668000090867
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 5130.402999988291,
+          "min_ms": 5112.932400021236,
+          "max_ms": 5346.1501999991015
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 910.1653000107035,
+          "min_ms": 894.2357000196353,
+          "max_ms": 911.5778000559658
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.698.566 I load_tensors: offloaded 0/25 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-2b-localized-cuda.jsonl",
+      "model": "qwen35-2b",
+      "backend": "cuda",
+      "prompt_style": "localized",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1113.7627999996766,
+      "import_ms": null,
+      "first_request_ms": 222.64370002085343,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1044.8409999953583,
+          "min_ms": 1044.8409999953583,
+          "max_ms": 1044.8409999953583
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 318.7208999879658,
+          "min_ms": 218.39970001019537,
+          "max_ms": 338.6445999494754
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 187.98009998863563,
+          "min_ms": 164.2001000000164,
+          "max_ms": 363.45910001546144
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 925.6180000375025,
+          "min_ms": 925.6180000375025,
+          "max_ms": 925.6180000375025
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 294.2670499905944,
+          "min_ms": 245.17449998529628,
+          "max_ms": 343.3595999958925
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 177.3869000026025,
+          "min_ms": 161.95629996946082,
+          "max_ms": 403.1659999745898
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 938.5680999839678,
+          "min_ms": 938.5680999839678,
+          "max_ms": 938.5680999839678
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 265.5690499814227,
+          "min_ms": 219.60509999189526,
+          "max_ms": 332.5501999934204
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 191.37430004775524,
+          "min_ms": 169.18080003233626,
+          "max_ms": 383.38280003517866
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.604.906 I load_tensors: offloaded 25/25 layers to GPU",
+            "0.00.604.910 I load_tensors:        CUDA0 model buffer size =  1211.05 MiB",
+            "0.00.994.222 I sched_reserve:      CUDA0 compute buffer size =    56.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-2b-system-cuda.jsonl",
+      "model": "qwen35-2b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1199.760099989362,
+      "import_ms": null,
+      "first_request_ms": 174.52829994726926,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 763.2288999739103,
+          "min_ms": 763.2288999739103,
+          "max_ms": 763.2288999739103
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 179.72590000135824,
+          "min_ms": 129.94839996099472,
+          "max_ms": 278.17120001418516
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 155.5106499872636,
+          "min_ms": 132.87400000263005,
+          "max_ms": 307.8525000018999
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 788.3923999615945,
+          "min_ms": 788.3923999615945,
+          "max_ms": 788.3923999615945
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 243.36834999849088,
+          "min_ms": 188.00199998077005,
+          "max_ms": 298.7347000162117
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 134.32960002683103,
+          "min_ms": 104.68210000544786,
+          "max_ms": 357.40129998885095
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 881.4269999857061,
+          "min_ms": 881.4269999857061,
+          "max_ms": 881.4269999857061
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 235.04174998379312,
+          "min_ms": 112.76049999287352,
+          "max_ms": 291.10520001268014
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 186.2364000407979,
+          "min_ms": 134.0267999912612,
+          "max_ms": 232.5323999975808
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.683.126 I load_tensors: offloaded 25/25 layers to GPU",
+            "0.00.683.130 I load_tensors:        CUDA0 model buffer size =  1211.05 MiB",
+            "0.01.088.871 I sched_reserve:      CUDA0 compute buffer size =    56.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-conservative-cases-cuda.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cuda",
+      "prompt_style": "conservative",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 2006.4259999780916,
+      "import_ms": null,
+      "first_request_ms": 297.65650001354516,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1840.3352000168525,
+          "min_ms": 1837.3690000153147,
+          "max_ms": 1863.79879998276
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 436.94980000145733,
+          "min_ms": 135.21129998844117,
+          "max_ms": 495.67999999271706
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 281.3464499777183,
+          "min_ms": 216.0561999771744,
+          "max_ms": 551.9469000282697
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.896.703 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.896.707 I load_tensors:        CUDA0 model buffer size =  2603.50 MiB",
+            "0.01.793.771 I sched_reserve:      CUDA0 compute buffer size =    78.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-conservative-holdout-cuda.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cuda",
+      "prompt_style": "conservative",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1947.6557999732904,
+      "import_ms": null,
+      "first_request_ms": 349.1521999821998,
+      "warm_requests": 24,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 367.6465500029735,
+          "min_ms": 305.8749999618158,
+          "max_ms": 461.97010000469163
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 12,
+          "median_ms": 287.7858999709133,
+          "min_ms": 249.4275000062771,
+          "max_ms": 335.74439998483285
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.896.182 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.896.189 I load_tensors:        CUDA0 model buffer size =  2603.50 MiB",
+            "0.01.787.382 I sched_reserve:      CUDA0 compute buffer size =    78.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-final-cuda.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cuda",
+      "prompt_style": "localized",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 2189.1712000360712,
+      "import_ms": null,
+      "first_request_ms": 262.0333000086248,
+      "warm_requests": 84,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1955.9355999808758,
+          "min_ms": 1945.1452000066638,
+          "max_ms": 1964.7105000331067
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 465.3808000148274,
+          "min_ms": 319.40639996901155,
+          "max_ms": 522.313000052236
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 274.03589998721145,
+          "min_ms": 237.99430002691224,
+          "max_ms": 544.2891999846324
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1556.680999987293,
+          "min_ms": 1533.1401000148617,
+          "max_ms": 1572.0944000058807
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 6,
+          "median_ms": 457.60485000209883,
+          "min_ms": 412.1158000198193,
+          "max_ms": 513.954299967736
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 9,
+          "median_ms": 288.6815000092611,
+          "min_ms": 222.0954999793321,
+          "max_ms": 575.7924999925308
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1562.90939997416,
+          "min_ms": 1560.578099975828,
+          "max_ms": 1573.9074999582954
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 423.84344997117296,
+          "min_ms": 373.6606999882497,
+          "max_ms": 485.9645999968052
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 15,
+          "median_ms": 324.4579999591224,
+          "min_ms": 219.7794000385329,
+          "max_ms": 519.8039000388235
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.983.551 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.983.556 I load_tensors:        CUDA0 model buffer size =  2603.50 MiB",
+            "0.02.070.396 I sched_reserve:      CUDA0 compute buffer size =    78.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-localized-cpu.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cpu",
+      "prompt_style": "localized",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 2080.67850000225,
+      "import_ms": null,
+      "first_request_ms": 3041.3263000082225,
+      "warm_requests": 21,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 13722.121900005732,
+          "min_ms": 13333.354800008237,
+          "max_ms": 14992.10169998696
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 3,
+          "median_ms": 3886.5359000046737,
+          "min_ms": 3784.7818000009283,
+          "max_ms": 4029.796799994074
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 3103.8329000002705,
+          "min_ms": 3024.7212999965996,
+          "max_ms": 3202.928000013344
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 11065.327299991623,
+          "min_ms": 10897.93459995417,
+          "max_ms": 12650.985200016294
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 2321.0783999529667,
+          "min_ms": 2219.287700019777,
+          "max_ms": 2559.1623000218533
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 10809.809999947902,
+          "min_ms": 10363.610100001097,
+          "max_ms": 12658.81219995208
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 2115.4168999637477,
+          "min_ms": 2022.6353000034578,
+          "max_ms": 2141.803100006655
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.655.525 I load_tensors: offloaded 0/33 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-localized-cuda.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cuda",
+      "prompt_style": "localized",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1824.7579999733716,
+      "import_ms": null,
+      "first_request_ms": 266.56809996347874,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1879.8549000057392,
+          "min_ms": 1879.8549000057392,
+          "max_ms": 1879.8549000057392
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 435.27389998780563,
+          "min_ms": 308.7326000095345,
+          "max_ms": 466.9788000173867
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 270.6693499931134,
+          "min_ms": 214.81309999944642,
+          "max_ms": 495.305799995549
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1479.1739999782294,
+          "min_ms": 1479.1739999782294,
+          "max_ms": 1479.1739999782294
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 415.65695000463165,
+          "min_ms": 363.48639999050647,
+          "max_ms": 467.82750001875684
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 224.3406999623403,
+          "min_ms": 218.79250003257766,
+          "max_ms": 518.294400011655
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1485.8954999945126,
+          "min_ms": 1485.8954999945126,
+          "max_ms": 1485.8954999945126
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 410.83240002626553,
+          "min_ms": 373.46090003848076,
+          "max_ms": 443.94670001929626
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 302.060000016354,
+          "min_ms": 226.57870000693947,
+          "max_ms": 501.60700001288205
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.744.215 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.744.219 I load_tensors:        CUDA0 model buffer size =  2603.50 MiB",
+            "0.01.596.846 I sched_reserve:      CUDA0 compute buffer size =    78.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/qwen35-4b-system-cuda.jsonl",
+      "model": "qwen35-4b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 1745.7533000269905,
+      "import_ms": null,
+      "first_request_ms": 281.5217999741435,
+      "warm_requests": 28,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1834.7835000022314,
+          "min_ms": 1834.7835000022314,
+          "max_ms": 1834.7835000022314
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 5,
+          "median_ms": 423.4215000178665,
+          "min_ms": 135.65100001869723,
+          "max_ms": 483.80549997091293
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 6,
+          "median_ms": 261.93704997422174,
+          "min_ms": 231.92030005156994,
+          "max_ms": 523.3232000027783
+        },
+        {
+          "task": "combined",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1541.6817999794148,
+          "min_ms": 1541.6817999794148,
+          "max_ms": 1541.6817999794148
+        },
+        {
+          "task": "combined",
+          "bucket": "medium",
+          "n": 2,
+          "median_ms": 399.3522000091616,
+          "min_ms": 349.99710001284257,
+          "max_ms": 448.70730000548065
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 3,
+          "median_ms": 223.95139996660873,
+          "min_ms": 209.4675000407733,
+          "max_ms": 496.6580999898724
+        },
+        {
+          "task": "translation",
+          "bucket": "long",
+          "n": 1,
+          "median_ms": 1387.6653999905102,
+          "min_ms": 1387.6653999905102,
+          "max_ms": 1387.6653999905102
+        },
+        {
+          "task": "translation",
+          "bucket": "medium",
+          "n": 4,
+          "median_ms": 409.8610999935772,
+          "min_ms": 155.122600030154,
+          "max_ms": 461.3921999698505
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 5,
+          "median_ms": 321.6235999716446,
+          "min_ms": 214.89229996223003,
+          "max_ms": 489.1873999731615
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.724.659 I load_tensors: offloaded 33/33 layers to GPU",
+            "0.00.724.663 I load_tensors:        CUDA0 model buffer size =  2603.50 MiB",
+            "0.01.552.792 I sched_reserve:      CUDA0 compute buffer size =    78.02 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/smoke-qwen35.jsonl",
+      "model": "qwen35-08b",
+      "backend": "cuda",
+      "prompt_style": "publisher baseline",
+      "eligible": false,
+      "exclusion_reason": "Initial smoke check; not a final timing run.",
+      "load_ready_ms": 3550.9358000126667,
+      "import_ms": null,
+      "first_request_ms": 274.3155999924056,
+      "warm_requests": 3,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 1,
+          "median_ms": 135.49760001478717,
+          "min_ms": 135.49760001478717,
+          "max_ms": 135.49760001478717
+        },
+        {
+          "task": "combined",
+          "bucket": "short",
+          "n": 1,
+          "median_ms": 115.50569999963045,
+          "min_ms": 115.50569999963045,
+          "max_ms": 115.50569999963045
+        },
+        {
+          "task": "translation",
+          "bucket": "short",
+          "n": 1,
+          "median_ms": 153.190600045491,
+          "min_ms": 153.190600045491,
+          "max_ms": 153.190600045491
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": []
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-cpu.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": false,
+      "exclusion_reason": "Missing original Qwen3 non-thinking template; replaced by template runs.",
+      "load_ready_ms": 1490.0666000321507,
+      "import_ms": null,
+      "first_request_ms": 606.5734000294469,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 1169.8396999854594,
+          "min_ms": 1094.6537999552675,
+          "max_ms": 1254.4535999768414
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 843.4263000381179,
+          "min_ms": 609.2060999944806,
+          "max_ms": 912.5006999820471
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 459.3896500300616,
+          "min_ms": 376.82850001147017,
+          "max_ms": 887.858200003393
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.934.078 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-cuda.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": false,
+      "exclusion_reason": "Published tokenizer omitted a template; fallback ChatML leaked empty thinking tags. Replaced by template runs.",
+      "load_ready_ms": 984.6728999982588,
+      "import_ms": null,
+      "first_request_ms": 162.47800004202873,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 171.96460004197434,
+          "min_ms": 148.33290001843125,
+          "max_ms": 188.03730001673102
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 196.8450000276789,
+          "min_ms": 128.42059996910393,
+          "max_ms": 258.7490999721922
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 106.9046999909915,
+          "min_ms": 58.00429999362677,
+          "max_ms": 279.53529998194426
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.529.733 I load_tensors: offloaded 29/29 layers to GPU",
+            "0.00.529.740 I load_tensors:        CUDA0 model buffer size =   604.15 MiB",
+            "0.00.775.689 I sched_reserve:      CUDA0 compute buffer size =    30.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-holdout-cpu.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": false,
+      "exclusion_reason": "Missing original Qwen3 non-thinking template; replaced by template runs.",
+      "load_ready_ms": 911.3777999882586,
+      "import_ms": null,
+      "first_request_ms": 757.490299991332,
+      "warm_requests": 24,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 725.9454000159167,
+          "min_ms": 617.7565999678336,
+          "max_ms": 857.9338999697939
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 12,
+          "median_ms": 565.1566000015009,
+          "min_ms": 510.8680999837816,
+          "max_ms": 648.2605000492185
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.367.596 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-template-cpu.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 732.8774000052363,
+      "import_ms": null,
+      "first_request_ms": 475.9065000107512,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 960.3839999763295,
+          "min_ms": 932.8956000390463,
+          "max_ms": 974.7854000306688
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 707.0178999565542,
+          "min_ms": 514.6217999863438,
+          "max_ms": 759.2205000109971
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 380.21684999694116,
+          "min_ms": 312.03249999089167,
+          "max_ms": 727.1220000111498
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.324.150 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-template-cuda.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cuda",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 894.3801000132225,
+      "import_ms": null,
+      "first_request_ms": 110.98180001135916,
+      "warm_requests": 36,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "long",
+          "n": 3,
+          "median_ms": 171.73350002849475,
+          "min_ms": 130.74489997234195,
+          "max_ms": 193.45149997388944
+        },
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 15,
+          "median_ms": 153.7619999726303,
+          "min_ms": 78.74860003357753,
+          "max_ms": 221.0474000312388
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 18,
+          "median_ms": 102.33789999620058,
+          "min_ms": 52.59429995203391,
+          "max_ms": 210.82679997198284
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.487.225 I load_tensors: offloaded 29/29 layers to GPU",
+            "0.00.487.229 I load_tensors:        CUDA0 model buffer size =   604.15 MiB",
+            "0.00.719.624 I sched_reserve:      CUDA0 compute buffer size =    30.01 MiB"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "raw/transcrib-06b-template-holdout-cpu.jsonl",
+      "model": "transcrib-06b",
+      "backend": "cpu",
+      "prompt_style": "system",
+      "eligible": true,
+      "exclusion_reason": null,
+      "load_ready_ms": 765.5136999674141,
+      "import_ms": null,
+      "first_request_ms": 633.5558000137098,
+      "warm_requests": 24,
+      "errors": 0,
+      "groups": [
+        {
+          "task": "cleanup",
+          "bucket": "medium",
+          "n": 12,
+          "median_ms": 591.8094000371639,
+          "min_ms": 549.2908000014722,
+          "max_ms": 646.699900040403
+        },
+        {
+          "task": "cleanup",
+          "bucket": "short",
+          "n": 12,
+          "median_ms": 439.06309999874793,
+          "min_ms": 428.7078999914229,
+          "max_ms": 530.8100000256673
+        }
+      ],
+      "offload_evidence": [
+        {
+          "type": "runtime_verification",
+          "offload_log": [
+            "0.00.361.207 I load_tensors: offloaded 0/29 layers to GPU"
+          ]
+        }
+      ]
+    }
+  ],
+  "source_sha256": {
+    "tests\\fixtures\\text-processing\\cases.json": "eab997ced9a1554611277a19ae5e60b3aacf0f142591832efd1cdf2fcb47f410",
+    "tests\\fixtures\\text-processing\\holdout.json": "0d884ddb07e960d7eb35d47819730aa91a7d226017c49fc114b22c18f3b28474",
+    "scripts\\benchmarks\\summarize_text_processing.py": "871367a3e56da47a2b74fe88fb808f110ab5ea88b4a33dafee5c2c844fa859b1",
+    "scripts\\benchmarks\\text_processing_research.py": "b833899c52c673801b550700c239c6602ab21e7a36c638c9805aa9030b0cff88",
+    "scripts\\benchmarks\\text_processing_baselines.py": "db5136a60d97a35f80f3d70f202601a074cc5cfb3ed81e14b2fa9c729b6bb48c",
+    "scripts\\benchmarks\\convert_transcrib_research.py": "f24100b42df04c70c7dc823650160a389f7b43575779703a0baed2a8e89b628a",
+    "scripts\\benchmarks\\text-processing-requirements.txt": "a2773d0cab560a289026259ffd613e5a06d61fbd79b2361aaabe59795a48a249"
+  }
+}

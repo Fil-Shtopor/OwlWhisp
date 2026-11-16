@@ -21,7 +21,7 @@ use lw_core::sound::Cue;
 use lw_platform::{AudioCapture, Capture};
 use serde::{Deserialize, Serialize};
 
-use crate::bench::{ActiveBackend, Loaded, build_pipeline, load_engine, meter_level};
+use crate::bench::{ActiveBackend, Loaded, build_pipeline_for_language, load_engine, meter_level};
 
 /// A bounded recording that stops before old speech can be overwritten.
 const MAX_DICTATION_SECONDS: u32 = 5 * 60;
@@ -100,6 +100,58 @@ fn preload_engine(settings_path: &std::path::Path, loaded: &mut Option<EngineSta
     EngineState::preload(loaded, move || load_engine(&settings_path));
 }
 
+fn preload_translation(
+    settings_path: &std::path::Path,
+    translator: &mut Option<EngineState<crate::translation::Translator>>,
+) {
+    let settings = Settings::load(settings_path).unwrap_or_default();
+    if !settings.translation.enabled {
+        *translator = None;
+        return;
+    }
+    if let Some(EngineState::Ready(Ok(worker))) = translator
+        && !worker.is_alive()
+    {
+        *translator = None;
+    }
+    let path = settings_path.to_owned();
+    EngineState::preload(translator, move || {
+        crate::translation::Translator::start(&path, settings.translation.backend)
+    });
+}
+
+fn translate_text(
+    translator: &mut Option<EngineState<crate::translation::Translator>>,
+    input: &str,
+    settings: &Settings,
+) -> Result<(String, String), String> {
+    let deadline = Instant::now() + Duration::from_secs(settings.translation.timeout_secs.into());
+    if let Some(EngineState::Loading(receiver)) = translator {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(result) => *translator = Some(EngineState::Ready(result)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                return Err("Local translator is still loading; try the next dictation.".into());
+            }
+            Err(_) => return Err("Local translator loading stopped.".into()),
+        }
+    }
+    match translator {
+        Some(EngineState::Ready(Ok(worker))) => {
+            let text = worker.translate(input, settings.translation.target, deadline)?;
+            Ok((
+                text,
+                format!(
+                    "Translated locally to {} ({})",
+                    settings.translation.target.label(),
+                    worker.backend()
+                ),
+            ))
+        }
+        Some(EngineState::Ready(Err(error))) => Err(error.clone()),
+        _ => Err("Local translator is unavailable.".into()),
+    }
+}
+
 /// Where the recording state machine is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -122,7 +174,7 @@ impl RecordingState {
         match self {
             RecordingState::Idle => "Idle",
             RecordingState::Listening => "Listening",
-            RecordingState::Processing => "Transcribing",
+            RecordingState::Processing => "Processing",
             RecordingState::Done => "Done",
             RecordingState::Error => "Error",
         }
@@ -168,6 +220,8 @@ pub enum Event {
         text: String,
         delivery: Delivery,
         provider: String,
+        original: Option<String>,
+        processing_note: Option<String>,
     },
     Error(String),
     Backend(Box<ActiveBackend>),
@@ -365,6 +419,7 @@ fn worker_loop(
     };
     // Load only on dictation activation, alongside recording; startup stays lightweight.
     let mut loaded: Option<EngineState<Loaded>> = None;
+    let mut translator: Option<EngineState<crate::translation::Translator>> = None;
     let mut idle_unload = IdleUnload::default();
     let mut idle_timeout_secs = Settings::load(&settings_path)
         .unwrap_or_default()
@@ -376,6 +431,10 @@ fn worker_loop(
 
     loop {
         // Check before receiving, too: Describe commands must not postpone expiry.
+        let translation_expired = idle_unload.remaining(Instant::now()).is_some_and(|d| d.is_zero());
+        if translation_expired {
+            translator = None;
+        }
         if idle_unload.release(&mut loaded, Instant::now()) {
             tracing::info!(idle_timeout_secs, "dictation model released after idle timeout");
             let _ = ctx.events.send(Event::Backend(Box::default()));
@@ -404,6 +463,7 @@ fn worker_loop(
             Command::Shutdown => break,
             Command::ReloadSettings => {
                 loaded = None;
+                translator = None;
                 idle_unload.cancel();
                 idle_timeout_secs = Settings::load(&settings_path)
                     .unwrap_or_default()
@@ -411,6 +471,7 @@ fn worker_loop(
                 let _ = ctx.events.send(Event::Backend(Box::default()));
                 if capture.is_some() {
                     preload_engine(&settings_path, &mut loaded);
+                    preload_translation(&settings_path, &mut translator);
                 }
             }
             Command::Describe => {
@@ -454,6 +515,7 @@ fn worker_loop(
                         idle_unload.cancel();
                         ctx.set(RecordingState::Listening);
                         preload_engine(&settings_path, &mut loaded);
+                        preload_translation(&settings_path, &mut translator);
                         if hands_free {
                             spawn_silence_watcher(
                                 &cap,
@@ -522,7 +584,7 @@ fn worker_loop(
                 };
                 ctx.set(RecordingState::Processing);
                 match cap.stop() {
-                    Ok(audio) => transcribe_audio(&ctx, &mut loaded, &audio),
+                    Ok(audio) => transcribe_audio(&ctx, &mut loaded, &mut translator, &audio),
                     Err(e) => ctx.fail(&format!("capture stop: {e}")),
                 }
                 // Includes failures: a failed transcription must not strand a loaded model.
@@ -535,7 +597,12 @@ fn worker_loop(
     }
 }
 
-fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<EngineState<Loaded>>, audio: &AudioBuffer) {
+fn transcribe_audio(
+    ctx: &Ctx,
+    loaded: &mut Option<EngineState<Loaded>>,
+    translator: &mut Option<EngineState<crate::translation::Translator>>,
+    audio: &AudioBuffer,
+) {
     // Normally Start has already begun loading. Keep Stop robust if the slot was invalidated.
     if loaded.is_none() {
         preload_engine(&ctx.settings_path, loaded);
@@ -561,13 +628,37 @@ fn transcribe_audio(ctx: &Ctx, loaded: &mut Option<EngineState<Loaded>>, audio: 
             return;
         }
     };
-    let pipeline = build_pipeline(&engine_state.settings);
-    let text = pipeline.run(&transcript.text);
+    let pipeline = build_pipeline_for_language(&engine_state.settings, transcript.language.as_deref());
+    let mut text = pipeline.run(&transcript.text);
+    let mut processing_note = None;
+    if engine_state.settings.translation.enabled && !text.trim().is_empty() {
+        if translator.is_none() {
+            preload_translation(&ctx.settings_path, translator);
+        }
+        match translate_text(translator, &text, &engine_state.settings) {
+            Ok((translated, note)) => {
+                text = translated;
+                processing_note = Some(note);
+            }
+            Err(error) => {
+                processing_note = Some(format!(
+                    "Translation unavailable; the source text was kept. {error}"
+                ));
+            }
+        }
+    }
+    if text.is_empty() && !transcript.text.trim().is_empty() {
+        processing_note =
+            Some("No text remains after hesitation removal. The original is available below.".into());
+    }
+    let original = (text != transcript.text).then_some(transcript.text);
     let delivery = deliver(&text);
     let _ = ctx.events.send(Event::Transcript {
         text,
         delivery,
         provider,
+        original,
+        processing_note,
     });
     ctx.set(RecordingState::Done);
     ctx.set(RecordingState::Idle);

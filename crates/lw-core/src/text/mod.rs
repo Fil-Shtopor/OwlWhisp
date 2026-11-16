@@ -5,11 +5,19 @@
 //! LLM stage, which is off by default and always falls back to its input on any failure — the app
 //! works fully offline with the LLM disabled.
 
+mod fillers;
+mod language;
 mod llm;
 mod normalize;
+mod protected;
+mod punctuation;
 
+pub use fillers::FillerProcessor;
+pub use language::{TextLanguage, cleanup_language};
 pub use llm::{DEFAULT_SYSTEM_PROMPT, LlmProcessor, LlmProcessorConfig};
 pub use normalize::{CleanupProcessor, IdentityProcessor, NormalizeOptions};
+pub use protected::{protected_spans, technical_spans};
+pub use punctuation::PunctuationProcessor;
 
 use crate::dictionary::Dictionary;
 
